@@ -1,0 +1,536 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>생약 검색</title>
+<style>
+  :root {
+    --main: #2f6f4f;
+    --main-dark: #234f38;
+    --bg: #f6f7f4;
+    --card: #ffffff;
+    --border: #dfe3dc;
+    --text: #2a2a2a;
+    --sub: #6b6b6b;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: "Malgun Gothic", "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+  }
+  header {
+    background: var(--main);
+    color: #fff;
+    padding: 22px 20px;
+    text-align: center;
+  }
+  header h1 { margin: 0 0 4px; font-size: 1.5rem; }
+  header p { margin: 0; font-size: 0.85rem; opacity: 0.9; }
+
+  .wrap {
+    margin: 0 auto;
+    padding: 24px 16px 60px;
+    display: flex;
+    align-items: flex-start;
+    gap: 20px;
+  }
+  .left-panel {
+    flex: 0 0 auto;
+    width: max-content;
+    min-width: 260px;
+    max-width: 45%;
+    position: sticky;
+    top: 24px;
+  }
+  .right-panel {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+  @media (max-width: 860px) {
+    .wrap { flex-direction: column; }
+    .left-panel { position: static; width: 100%; }
+    .right-panel { width: 100%; }
+  }
+
+  .search-box {
+    position: relative;
+    margin-bottom: 8px;
+  }
+  .search-box input {
+    width: 100%;
+    padding: 14px 16px;
+    font-size: 1.05rem;
+    border: 2px solid var(--border);
+    border-radius: 10px;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+  .search-box input:focus { border-color: var(--main); }
+
+  .meta {
+    font-size: 0.8rem;
+    color: var(--sub);
+    margin-bottom: 18px;
+  }
+
+  .results {
+    display: flex;
+    flex-direction: column;
+    gap: 48px;
+    margin-top: 48px;
+    overflow-y: auto;
+    overflow-x: auto;
+    margin-bottom: 24px;
+    max-height: calc(100vh - 228px);
+  }
+  .result-group {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+    flex: none;
+  }
+  .result-item {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 8px;
+    white-space: nowrap;
+  }
+  .result-item:last-child { border-bottom: none; }
+  .result-item:hover { background: #f0f5ef; }
+  .result-item .rname { font-weight: 600; }
+  .synonym { font-size: 90%; font-weight: 500; }
+  .result-item .rsub { font-size: 0.8rem; color: var(--sub); white-space: nowrap; }
+  .source-badge {
+    display: inline-block;
+    border: 1.5px solid var(--main-dark);
+    color: var(--main-dark);
+    font-size: 0.68rem;
+    font-weight: 700;
+    padding: 0 4px;
+    border-radius: 3px;
+    margin-left: 6px;
+    line-height: 1.5;
+    vertical-align: middle;
+  }
+  .empty-msg {
+    text-align: center;
+    color: var(--sub);
+    padding: 20px;
+    font-size: 0.9rem;
+  }
+  .group-label {
+    padding: 10px 16px;
+    font-size: 0.9rem;
+    font-weight: 700;
+    color: var(--main-dark);
+    background: var(--bg);
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+  }
+  .detail.sensory-mode {
+    padding: 0;
+    overflow: hidden;
+    position: relative;
+    height: calc(100vh - 48px);
+    max-width: none;
+    margin: 0;
+  }
+  .sensory-frame {
+    display: block;
+    width: 100%;
+    height: 100%;
+    border: none;
+  }
+  .sensory-close {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    border: none;
+    background: rgba(30, 30, 30, 0.65);
+    color: #fff;
+    font-size: 1.1rem;
+    line-height: 1;
+    cursor: pointer;
+    z-index: 5;
+  }
+  .sensory-close:hover {
+    background: rgba(30, 30, 30, 0.85);
+  }
+
+  .detail {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+    display: none;
+    max-width: 900px;
+    margin: 0 auto;
+  }
+  .detail.show { display: block; }
+  .detail-placeholder {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: calc(100vh - 180px);
+    min-height: 200px;
+    color: var(--sub);
+    font-size: 0.95rem;
+    background: var(--card);
+    border: 1px dashed var(--border);
+    border-radius: 12px;
+  }
+  .detail-placeholder.hide { display: none; }
+  .detail-header {
+    border-bottom: 2px solid var(--main);
+    padding-bottom: 14px;
+    margin-bottom: 16px;
+  }
+  .detail-header h2 {
+    margin: 0 0 4px;
+    color: var(--main-dark);
+    font-size: 1.4rem;
+  }
+  .detail-header .en {
+    color: var(--sub);
+    font-style: italic;
+    margin: 0 0 2px;
+  }
+  .detail-header .latin {
+    color: var(--sub);
+    font-style: italic;
+    font-size: 0.9rem;
+    margin: 0;
+  }
+  .definition {
+    background: #f0f5ef;
+    border-left: 4px solid var(--main);
+    padding: 12px 14px;
+    border-radius: 6px;
+    margin-bottom: 18px;
+    line-height: 1.6;
+  }
+  .definition p {
+    margin: 0 0 10px;
+    white-space: pre-line;
+  }
+  .definition p:last-child {
+    margin-bottom: 0;
+  }
+  .definition p.quantitative {
+    font-size: 90%;
+    color: var(--sub);
+  }
+  .definition p.quantitative sub {
+    font-size: 80%;
+  }
+  .section {
+    margin-bottom: 16px;
+  }
+  .section .label {
+    display: inline-block;
+    background: var(--main);
+    color: #fff;
+    font-size: 0.85rem;
+    font-weight: 600;
+    padding: 4px 10px;
+    border-radius: 6px;
+    margin-bottom: 6px;
+  }
+  .section .body {
+    white-space: pre-line;
+    line-height: 1.7;
+    padding-left: 2px;
+  }
+  .orig-table {
+    border-collapse: collapse;
+    margin: 8px 0;
+    font-size: 0.92rem;
+  }
+  .orig-table td {
+    border: 1px solid var(--border);
+    padding: 4px 10px;
+    text-align: center;
+  }
+  .orig-table tr:first-child td {
+    background: var(--bg);
+    font-weight: 600;
+  }
+  .formula-line {
+    text-align: center;
+    margin: 4px 0;
+  }
+  .item-list {
+    list-style: none;
+    margin: 0;
+    padding-left: 0;
+  }
+  .item-list .item-list {
+    margin-top: 4px;
+    padding-left: 22px;
+  }
+  .item-list > li {
+    margin-bottom: 8px;
+    line-height: 1.7;
+  }
+  .item-marker {
+    display: inline-block;
+    min-width: 1.6em;
+    font-weight: 600;
+    color: var(--main-dark);
+  }
+  .item-list .item-list .item-marker {
+    color: var(--sub);
+    font-weight: 500;
+  }
+  .ref-link {
+    color: var(--main-dark);
+    text-decoration: underline;
+    text-decoration-style: dotted;
+    cursor: pointer;
+  }
+  .ref-link:hover {
+    color: var(--main);
+  }
+  .close-btn {
+    float: right;
+    background: none;
+    border: none;
+    font-size: 1.2rem;
+    color: var(--sub);
+    cursor: pointer;
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>생약 검색</h1>
+  <p>공정서(대한약전, 생약규격집) {{ total_count }}품목, 관능검사해설서 {{ sensory_count }}품목</p>
+</header>
+
+<div class="wrap">
+  <div class="left-panel">
+    <div class="search-box">
+      <input type="text" id="searchInput" placeholder="생약명을 입력하세요" autocomplete="off">
+    </div>
+    <div class="results" id="results" style="display:none;"></div>
+  </div>
+  <div class="right-panel">
+    <div class="detail-placeholder" id="detailPlaceholder">왼쪽에서 생약을 검색하고 선택하세요.</div>
+    <div class="detail" id="detail"></div>
+  </div>
+</div>
+
+<script>
+const searchInput = document.getElementById('searchInput');
+const resultsBox = document.getElementById('results');
+const detailBox = document.getElementById('detail');
+const detailPlaceholder = document.getElementById('detailPlaceholder');
+
+let debounceTimer = null;
+
+detailBox.addEventListener('click', (ev) => {
+  const link = ev.target.closest('.ref-link');
+  if (!link) return;
+  ev.preventDefault();
+  showDetail(link.dataset.id);
+});
+
+searchInput.addEventListener('input', () => {
+  clearTimeout(debounceTimer);
+  const q = searchInput.value.trim();
+  if (!q) {
+    resultsBox.style.display = 'none';
+    resultsBox.innerHTML = '';
+    return;
+  }
+  debounceTimer = setTimeout(() => doSearch(q), 200);
+});
+
+searchInput.addEventListener('keydown', async (ev) => {
+  if (ev.key !== 'Enter') return;
+  ev.preventDefault();
+  clearTimeout(debounceTimer);
+  const q = searchInput.value.trim();
+  if (!q) return;
+  const data = await doSearch(q);
+  const first = data.official[0] || data.sensory[0];
+  if (first) {
+    showDetail(first.id);
+  }
+});
+
+async function doSearch(q) {
+  const res = await fetch('/api/search?q=' + encodeURIComponent(q));
+  const data = await res.json();
+  renderResults(data, q);
+  return data;
+}
+
+function resultRowHtml(it) {
+  return `
+    <div class="result-item" data-id="${it.id}">
+      <span class="rname">${renderName(it)}${sourceBadge(it.source_tag)}</span>
+      <span class="rsub">${escapeHtml(it.english_name || '')}</span>
+    </div>
+  `;
+}
+
+function renderResults(data, q) {
+  resultsBox.style.display = 'flex';
+  const official = data.official || [];
+  const sensory = data.sensory || [];
+  if (official.length === 0 && sensory.length === 0) {
+    resultsBox.innerHTML = `<div class="empty-msg">"${escapeHtml(q)}"에 대한 검색 결과가 없습니다.</div>`;
+    return;
+  }
+  const officialRows = official.length
+    ? official.map(resultRowHtml).join('')
+    : `<div class="empty-msg">검색 결과가 없습니다.</div>`;
+  const sensoryRows = sensory.length
+    ? sensory.map(resultRowHtml).join('')
+    : `<div class="empty-msg">검색 결과가 없습니다.</div>`;
+  resultsBox.innerHTML = `
+    <div class="result-group">
+      <div class="group-label">공정서</div>
+      ${officialRows}
+    </div>
+    <div class="result-group">
+      <div class="group-label">관능검사해설서</div>
+      ${sensoryRows}
+    </div>
+  `;
+  resultsBox.querySelectorAll('.result-item').forEach(el => {
+    el.addEventListener('click', () => showDetail(el.dataset.id));
+  });
+
+  if (official.length === 1 && sensory.length === 0) {
+    showDetail(official[0].id);
+  }
+}
+
+async function showDetail(id) {
+  const res = await fetch('/api/item/' + id);
+  if (!res.ok) return;
+  const item = await res.json();
+
+  if (item.kind === 'sensory') {
+    showSensoryDetail(item);
+    return;
+  }
+
+  const sectionsHtml = item.sections.map(sec => `
+    <div class="section">
+      <div class="label">${escapeHtml(sec.label)}</div>
+      ${sec.items && sec.items.length ? renderItemList(sec.items) : `<div class="body">${renderSectionBody(sec)}</div>`}
+    </div>
+  `).join('');
+
+  const definitionHtml = (item.definition_parts && item.definition_parts.length)
+    ? item.definition_parts.map(p => `<p class="${p.small ? 'quantitative' : ''}">${p.html}</p>`).join('')
+    : (item.definition ? `<p>${escapeHtml(item.definition)}</p>` : '');
+
+  detailBox.classList.remove('sensory-mode');
+  detailBox.innerHTML = `
+    <button class="close-btn" id="closeDetail">&times;</button>
+    <div class="detail-header">
+      <h2>${renderName(item)}${sourceBadge(item.source_tag)}</h2>
+      <p class="en">${escapeHtml(item.english_name || '')}</p>
+      <p class="latin">${escapeHtml(item.latin_name || '')}</p>
+    </div>
+    ${definitionHtml ? `<div class="definition">${definitionHtml}</div>` : ''}
+    ${sectionsHtml}
+  `;
+  _showDetailBox();
+}
+
+function showSensoryDetail(item) {
+  const pdfUrl = `/api/sensory_pdf?file=${encodeURIComponent(item.source_file)}&start=${item.page_start}&end=${item.page_end}`;
+  detailBox.classList.add('sensory-mode');
+  detailBox.innerHTML = `
+    <button class="sensory-close" id="closeDetail">&times;</button>
+    <iframe class="sensory-frame" src="${pdfUrl}" title="${escapeHtml(item.korean_name)} 원본 페이지"></iframe>
+  `;
+  _showDetailBox();
+}
+
+function _showDetailBox() {
+  detailBox.classList.add('show');
+  detailPlaceholder.classList.add('hide');
+  document.getElementById('closeDetail').addEventListener('click', () => {
+    detailBox.classList.remove('show', 'sensory-mode');
+    detailBox.innerHTML = '';
+    detailPlaceholder.classList.remove('hide');
+  });
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+// html 인자는 이미 이스케이프(및 <sub>/<table> 표시 처리)까지 끝난 문자열이어야 한다.
+function linkifyRef(html, refId) {
+  const m = html.match(/([「｢])([^」｣]+)([」｣])/);
+  if (!m) return html;
+  const before = html.slice(0, m.index);
+  const [full, openBracket, name, closeBracket] = m;
+  const after = html.slice(m.index + full.length);
+  return `${before}${openBracket}<a href="#" class="ref-link" data-id="${refId}">${name}</a>${closeBracket}${after}`;
+}
+
+function renderSectionBody(sec) {
+  const html = sec.html !== undefined ? sec.html : escapeHtml(sec.text);
+  return (sec.ref_id !== undefined && sec.ref_id !== null) ? linkifyRef(html, sec.ref_id) : html;
+}
+
+function renderItemText(it) {
+  const refId = (it.ref_id !== undefined && it.ref_id !== null) ? it.ref_id : null;
+  if (it.bold !== undefined) {
+    const boldHtml = it.bold_html !== undefined ? it.bold_html : escapeHtml(it.bold);
+    const restHtml = it.rest_html !== undefined ? it.rest_html : escapeHtml(it.rest);
+    const boldInner = it.bold ? (refId ? linkifyRef(boldHtml, refId) : boldHtml) : '';
+    const boldPart = it.bold ? `<strong>${boldInner}</strong>` : '';
+    const restPart = it.rest ? ` ${refId ? linkifyRef(restHtml, refId) : restHtml}` : '';
+    return `${boldPart}${restPart}`;
+  }
+  const textHtml = it.text_html !== undefined ? it.text_html : escapeHtml(it.text);
+  return refId ? linkifyRef(textHtml, refId) : textHtml;
+}
+
+function renderItemList(items) {
+  const lis = items.map(it => `
+    <li>
+      ${it.marker ? `<span class="item-marker">${escapeHtml(it.marker)}</span>` : ''}
+      <span class="item-text">${renderItemText(it)}</span>
+      ${it.children && it.children.length ? renderItemList(it.children) : ''}
+    </li>
+  `).join('');
+  return `<ol class="item-list">${lis}</ol>`;
+}
+
+function renderName(it) {
+  const primary = it.name_primary || it.korean_name;
+  const synonym = it.synonym_name || '';
+  return `${escapeHtml(primary)}${synonym ? ` <span class="synonym">${escapeHtml(synonym)}</span>` : ''}`;
+}
+
+function sourceBadge(tag) {
+  if (!tag) return '';
+  return `<span class="source-badge">${escapeHtml(tag)}</span>`;
+}
+
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+</script>
+</body>
+</html>
