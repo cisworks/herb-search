@@ -22,10 +22,35 @@
     color: var(--text);
   }
   header {
+    position: relative;
     background: var(--main);
     color: #fff;
     padding: 22px 20px;
     text-align: center;
+  }
+  .header-inner {
+    max-width: 1400px;
+    margin: 0 auto;
+  }
+  .org-badge {
+    position: absolute;
+    left: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .org-badge img {
+    width: 34px;
+    height: 34px;
+    flex-shrink: 0;
+  }
+  .org-badge .org-name {
+    text-align: left;
+    font-size: 0.72rem;
+    line-height: 1.35;
+    opacity: 0.95;
   }
   header h1 { margin: 0 0 4px; font-size: 1.5rem; }
   header p { margin: 0; font-size: 0.85rem; opacity: 0.9; }
@@ -269,6 +294,7 @@
   .formula-line {
     text-align: center;
     margin: 4px 0;
+    font-size: 95%;
   }
   .item-list {
     list-style: none;
@@ -314,8 +340,17 @@
 </head>
 <body>
 <header>
-  <h1>생약 검색</h1>
-  <p>공정서(대한약전, 생약규격집) {{ total_count }}품목, 관능검사해설서 {{ sensory_count }}품목</p>
+  <div class="org-badge">
+    <img src="{{ url_for('static', filename='seoul_logo.png') }}" alt="서울시 휘장">
+    <div class="org-name">
+      <div>서울시보건환경연구원</div>
+      <div>강북농수산물검사소</div>
+    </div>
+  </div>
+  <div class="header-inner">
+    <h1>생약 검색</h1>
+    <p>공정서(대한약전, 생약규격집) {{ total_count }}품목, 관능검사해설서 {{ sensory_count }}품목</p>
+  </div>
 </header>
 
 <div class="wrap">

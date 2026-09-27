@@ -91,12 +91,32 @@ def _cell_text(tc_elem):
 
 
 def _table_to_text(tbl_elem):
-    """<hp:tbl> 표를 "셀 | 셀 | 셀" 형태의 여러 줄 텍스트로 변환한다."""
-    rows = []
+    """<hp:tbl> 표를 "셀 | 셀 | 셀" 형태의 여러 줄 텍스트로 변환한다.
+    세로로 병합된(rowSpan>1) 셀은 그 아래 행의 XML에 아예 다시 나오지
+    않으므로, 셀 순서만 보고 이어붙이면 그 행의 나머지 값들이 왼쪽으로
+    밀려 버린다(예: 벤조피렌 분석 표에서 물질명 셀이 2행에 걸쳐 병합된
+    경우). 각 셀의 실제 열 위치(<hp:cellAddr colAddr>)를 읽어 그 자리에
+    끼워 넣어야 병합으로 빠진 자리가 빈 칸으로 남고 나머지 값이 제자리를
+    지킨다.
+    """
+    rows_cells = []
+    max_cols = 0
     for tr in tbl_elem.findall("hp:tr", NS):
-        cells = [_cell_text(tc) for tc in tr.findall("hp:tc", NS)]
-        if any(cells):
-            rows.append(" | ".join(cells))
+        row = []
+        for tc in tr.findall("hp:tc", NS):
+            addr = tc.find("hp:cellAddr", NS)
+            col = int(addr.get("colAddr")) if addr is not None and addr.get("colAddr") else len(row)
+            while len(row) <= col:
+                row.append("")
+            row[col] = _cell_text(tc)
+        rows_cells.append(row)
+        max_cols = max(max_cols, len(row))
+
+    rows = []
+    for row in rows_cells:
+        row = row + [""] * (max_cols - len(row))
+        if any(c.strip() for c in row):
+            rows.append(" | ".join(row))
     return "\n".join(rows)
 
 
@@ -380,6 +400,234 @@ def _parse_numbered_hierarchy(text: str, bold_labels: bool = False):
     return items
 
 
+# 정량법 끝부분에 거의 항상 붙는 "조작조건"(검출기/칼럼/이동상/유량 등)과
+# "시스템적합성"(시스템의 성능/재현성 등) 두 소제목. 원문에서는 번호 없이
+# 그냥 독립된 줄로만 나온다. 감초처럼 "1) 성분A ~ 조작조건 ~ 시스템적합성
+# 2) 성분B ~ 조작조건 ~ 시스템적합성" 형태로 성분마다 반복되기도 한다.
+_QUANT_SUBHEAD_LABELS = ("조작조건", "시스템적합성")
+
+
+def _split_colon_line(line: str):
+    """"검출기 : 자외부흡광광도계 (측정파장 254 nm)" 같은 줄을
+    (굵게 표시할 라벨, 나머지) 로 나눈다. 콜론이 없으면 (None, None).
+    "이동상 B - ~혼합액(100 : 75 : 1)"처럼 괄호 안의 비율 표기에 쓰인
+    콜론은 라벨 구분자가 아니므로, 괄호 밖에 있는 콜론만 찾는다."""
+    depth = 0
+    idx = -1
+    for i, ch in enumerate(line):
+        if ch in "([":
+            depth += 1
+        elif ch in ")]":
+            depth = max(0, depth - 1)
+        elif ch == ":" and depth == 0:
+            idx = i
+            break
+    if idx == -1:
+        return None, None
+    label, rest = line[: idx + 1].strip(), line[idx + 1 :].strip()
+    if not label or not rest:
+        return None, None
+    return label, rest
+
+
+def _build_opcond_children(body_lines):
+    """"조작조건"/"시스템적합성" 아래의 줄들을 콜론이 있는 줄(예: "검출기 : ~")
+    단위로 하위 항목화한다. "이동상 : ~" 다음에 오는, 콜론이 없는 줄("이동상
+    A - 메탄올" 등)이나 표는 그 바로 위 콜론 항목("이동상")의 하위 항목으로
+    한 단계 더 들어간다.
+    """
+    children = []
+    current = None  # 콜론 없는 줄/표를 받아줄, 가장 최근에 만든 콜론 항목
+    table_buf = []
+
+    def flush_table():
+        if table_buf:
+            node = {"marker": "", "text": "\n".join(table_buf), "children": []}
+            (current["children"] if current is not None else children).append(node)
+            table_buf.clear()
+
+    for ln in body_lines:
+        if not ln.strip():
+            continue
+        if _TABLE_LINE_RE.match(ln):
+            table_buf.append(ln)
+            continue
+        flush_table()
+        label, rest = _split_colon_line(ln)
+        if label:
+            node = {"marker": "", "text": ln, "children": [], "bold": label, "rest": rest}
+            children.append(node)
+            current = node
+        else:
+            node = {"marker": "", "text": ln, "children": []}
+            (current["children"] if current is not None else children).append(node)
+    flush_table()
+    return children
+
+
+def _split_opcond_sections(text: str):
+    """텍스트 하나(성분 하나 분량)를 "조작조건"/"시스템적합성" 기준으로
+    (그 앞의 절차 설명, [조작조건/시스템적합성 항목 리스트]) 로 나눈다.
+    두 표시가 전혀 없으면 (text, []) 를 그대로 돌려준다. "시스템적합성"은
+    "조작조건"과 같은 층이 아니라 그 바로 아래 하위 항목으로 들어간다."""
+    lines = text.split("\n")
+    head_positions = [i for i, ln in enumerate(lines) if ln.strip() in _QUANT_SUBHEAD_LABELS]
+    if not head_positions:
+        return text, []
+
+    lead = "\n".join(lines[: head_positions[0]]).strip("\n")
+    sub_items = []
+    current_opcond = None
+    for idx, pos in enumerate(head_positions):
+        label = lines[pos].strip()
+        end = head_positions[idx + 1] if idx + 1 < len(head_positions) else len(lines)
+        node = {
+            "marker": "",
+            "text": label,
+            "children": _build_opcond_children(lines[pos + 1 : end]),
+            "bold": label,
+            "rest": "",
+        }
+        if label == "조작조건":
+            sub_items.append(node)
+            current_opcond = node
+        elif current_opcond is not None:
+            # "시스템적합성" 은 조작조건의 하위 항목이다.
+            current_opcond["children"].append(node)
+        else:
+            # 조작조건 없이 시스템적합성만 있는 예외적인 경우 대비.
+            sub_items.append(node)
+    return lead, sub_items
+
+
+def _parse_quantitation_hierarchy(text: str):
+    """정량법 본문을 계층화한다.
+    - "1) 성분A ~ 조작조건 ~ 시스템적합성  2) 성분B ~" 처럼 번호 매긴
+      성분이 여러 개면, 번호를 상위 항목으로 하고 그 안에서 각각
+      "조작조건"/"시스템적합성"을 다시 하위 항목으로 묶는다.
+    - 번호가 아예 없으면(성분이 하나뿐인 경우) "조작조건"/"시스템적합성"을
+      바로 상위 항목으로 묶는다.
+    - "조작조건"/"시스템적합성" 표시가 전혀 없으면 빈 리스트를 반환한다
+      (기존처럼 평문으로 표시됨).
+    """
+    numbered_items = _parse_numbered_hierarchy(text, bold_labels=True)
+    if numbered_items:
+        any_opcond = False
+        for node in numbered_items:
+            lead, sub_items = _split_opcond_sections(node.get("text", ""))
+            if not sub_items:
+                continue
+            any_opcond = True
+            node["text"] = lead
+            if "bold" in node:
+                # 앞부분(lead)만으로 굵게 표시할 라벨을 다시 계산한다 -
+                # "글리시리진산  이 약의 가루~" 처럼 이중공백 라벨은 앞쪽에서
+                # 바로 잘리므로, 뒤에 조작조건 텍스트가 있든 없든 결과가 같다.
+                b, rest = _split_bold_label(lead)
+                node["bold"] = b
+                node["rest"] = rest
+            node["children"] = node.get("children", []) + sub_items
+        return numbered_items if any_opcond else []
+
+    lead, sub_items = _split_opcond_sections(text)
+    if not sub_items:
+        return []
+    items = []
+    if lead.strip():
+        items.append({"marker": "", "text": lead, "children": []})
+    items.extend(sub_items)
+    return items
+
+
+# 오매/초과의 벤조피렌 시험처럼 "4) 벤조피렌 ~ (제 1 법) ~ 가) ~ ① ~
+# 조작조건 : ~" 순서로 번호 - 시험법 - (가나다/동그라미숫자/조작조건)까지
+# 계층이 나뉘는 순도시험 항목이 있다. 이 조합(시험법 표시와 동그라미숫자
+# 표시가 함께 나옴)이 있는 문서에서만 아래 계층 파서를 쓰고, 그 외 문서는
+# 기존 2단계 파서(_parse_numbered_hierarchy)를 그대로 쓴다. 가나다("가)"),
+# 동그라미숫자("①"), "조작조건"은 서로 같은 계층으로 취급한다 - 원문에서
+# "가) 검액 조제 / ① 추출 / ② 정제 / 나) 표준액 조제 / ... / 라) 시험조작 /
+# ① ~ / 조작조건 / ② 정성시험 / ③ 정량시험" 처럼 한 시험법 안에서 나란히
+# 이어지는 절차 표시이지, "가)" 아래에 "①"이 종속되는 구조가 아니기 때문이다.
+_BEOPN_RE = re.compile(r"\(제\s*\d{1,2}\s*법\)")
+_CIRCLED_RE = re.compile(r"[①②③④⑤⑥⑦⑧⑨⑩]")
+_DEEP_MARKER_RE = re.compile(
+    r"(?:^|(?<=\n))(?P<num>\d{1,2})\)\s*"
+    r"|(?:^|(?<=\n))\(제\s*(?P<beopn>\d{1,2})\s*법\)\s*"
+    r"|(?:^|(?<=\s))(?P<kor>[가나다라마바사아자차카타파하])\)\s*"
+    r"|(?:^|(?<=\n))(?P<circled>[①②③④⑤⑥⑦⑧⑨⑩])\s*"
+    r"|(?:^|(?<=\n))(?P<opcond>조작조건|시스템적합성)(?=\s*(?:\n|$))"
+)
+_DEEP_MARKER_RANK = {"num": 0, "beopn": 1, "kor": 2, "circled": 2, "opcond": 2}
+
+
+def _has_deep_markers(text: str) -> bool:
+    return bool(_BEOPN_RE.search(text)) and bool(_CIRCLED_RE.search(text))
+
+
+def _parse_deep_numbered_hierarchy(text: str):
+    """번호/시험법/가나다/동그라미숫자/조작조건 표시를 만나는 순서대로
+    훑으면서, 각 표시를 그보다 앞서 나온 "더 얕은"(랭크가 작은) 표시의
+    자식으로 붙여 나간다. "(제 1 법) 또는 (제 2 법)에 따라 시험한다." 처럼
+    한 줄에 시험법 표시가 두 번 나오는 안내 문장은 실제 항목 구분이 아니므로
+    표시로 인정하지 않는다.
+    """
+    raw_matches = []  # [(start, kind, marker_text, end), ...]
+    for m in _DEEP_MARKER_RE.finditer(text):
+        if m.group("num"):
+            raw_matches.append((m.start(), "num", f"{m.group('num')})", m.end()))
+        elif m.group("beopn"):
+            line_end = text.find("\n", m.end())
+            if line_end == -1:
+                line_end = len(text)
+            if _BEOPN_RE.search(text[m.end():line_end]):
+                continue  # "(제 1 법) 또는 (제 2 법)..." 같은 안내 문장
+            raw_matches.append((m.start(), "beopn", f"(제 {m.group('beopn')} 법)", m.end()))
+        elif m.group("kor"):
+            raw_matches.append((m.start(), "kor", f"{m.group('kor')})", m.end()))
+        elif m.group("circled"):
+            raw_matches.append((m.start(), "circled", m.group("circled"), m.end()))
+        elif m.group("opcond"):
+            raw_matches.append((m.start(), "opcond", m.group("opcond"), m.end()))
+
+    if not raw_matches:
+        return []
+
+    def make_node(kind, marker, content, bold=False):
+        if kind == "opcond":
+            children = _build_opcond_children(content.split("\n"))
+            return {"marker": "", "text": marker, "children": children, "bold": marker, "rest": ""}
+        content = _insert_colon_before_origin(content)
+        node = {"marker": marker, "text": content, "children": []}
+        if bold:
+            b, rest = _split_bold_label(content)
+            node["bold"] = b
+            node["rest"] = rest
+        ref_name = _detect_purity_reference(content)
+        if ref_name:
+            node["ref_name"] = ref_name
+        return node
+
+    items = []
+    stack = []  # [(rank, node), ...]
+    for idx, (start, kind, marker, end) in enumerate(raw_matches):
+        content_end = raw_matches[idx + 1][0] if idx + 1 < len(raw_matches) else len(text)
+        content = text[end:content_end].strip()
+        rank = _DEEP_MARKER_RANK[kind]
+        node = make_node(kind, marker, content, bold=(kind == "num"))
+        while stack and stack[-1][0] >= rank:
+            stack.pop()
+        if stack:
+            stack[-1][1]["children"].append(node)
+        else:
+            items.append(node)
+        stack.append((rank, node))
+
+    lead = text[: raw_matches[0][0]].strip()
+    if lead:
+        items.insert(0, make_node("plain", "", lead))
+    return items
+
+
 # 성상 본문에서 "가자  이 약은 ...", "융모가자  이 약은 ..." 처럼
 # 생약명/식물명이 "이 약은"(또는 "이것은") 문장 앞에 붙어 변종·이명을
 # 구분하는 경우를 찾아내기 위한 패턴.
@@ -578,6 +826,55 @@ def _split_runs_at(runs, split_at: int):
 _FORMULA_TOKEN_RE = re.compile(r"(?:[A-Z][a-z]?\d{1,4}){2,}")
 _ELEMENT_DIGIT_RE = re.compile(r"([A-Z][a-z]?)(\d{1,4})")
 
+# "총 빌리루빈 또는 유리빌리루빈의 양 (mg)" 처럼 화학식 없이 "~의 양 (단위)"
+# 로만 끝나는 계산식 라벨 줄도 있다(우황의 빌리루빈처럼 화합물 하나를 특정하지
+# 않고 서술하는 경우). 화학식 토큰이 없어도 이 형태로 끝나면 바로 아래 "="
+# 계산식 줄과 한 덩어리로 묶일 라벨로 인정한다.
+_QUANT_LABEL_RE = re.compile(r"양\s*\([^()]*\)\s*$")
+
+# C, H, O, N 뒤에 바로 숫자가 오면 그 자체로 화학식의 원자 개수 표시이므로,
+# "FeSO4"나 "7H2O"처럼 원소기호+숫자 쌍이 한 번만 나와 위 규칙(2번 이상)에
+# 걸리지 않는 경우에도 항상 아래첨자로 표시한다. 이 네 원소는 "Rg1"처럼
+# 화합물 약칭에 붙는 문자(R 등)와 겹치지 않아 안전하다. 다만 "셀룰로오스
+# MN300"(박층크로마토그래프용 제품명)처럼 "N" 앞에 "M"이 붙어 있으면
+# 화학식이 아니라 제품 규격명이므로 제외한다.
+_CHON_DIGIT_RE = re.compile(r"(?<!M)([CHON])(\d{1,4})")
+
+# "(FeSO4·7H2O : 278.01)", "[KAl2(AlSi3O10)(OH)2]" 처럼 괄호 안에
+# 화학식·분자량이 있는 경우, 괄호 안에서는 원소기호(C/H/O/N 뿐 아니라 Fe,
+# Na, Ca, Al, F, S, Si 등 모두)+숫자를 예외 없이 아래첨자로 표시한다.
+# 괄호 밖에서는 "진세노시드 Rg1" 같은 화합물 약칭과 구분이 안 되므로
+# 이 규칙을 적용하지 않는다. "[...(...)...]" 처럼 괄호가 중첩된 경우도
+# 있어(운모 등), 정규식 하나로는 안쪽/바깥쪽을 함께 처리할 수 없다 - 가장
+# 바깥쪽 괄호 쌍을 직접 스캔해서 그 안의 내용 전체(중첩된 괄호 포함)에
+# 한 번에 적용한다.
+def _subscript_inside_brackets(text: str) -> str:
+    out = []
+    i, n = 0, len(text)
+    while i < n:
+        ch = text[i]
+        if ch in "([":
+            depth = 1
+            j = i + 1
+            while j < n and depth > 0:
+                if text[j] in "([":
+                    depth += 1
+                elif text[j] in ")]":
+                    depth -= 1
+                j += 1
+            if depth == 0:
+                inner = text[i + 1 : j - 1]
+                if "아플라톡신" not in inner:
+                    # "아플라톡신 B1, B2, G1 및 G2의 합" 처럼 독소 이름(B1 등)이지
+                    # 화학식이 아닌 경우는 그대로 둔다.
+                    inner = _ELEMENT_DIGIT_RE.sub(r"\1<sub>\2</sub>", inner)
+                out.append(text[i] + inner + text[j - 1])
+                i = j
+                continue
+        out.append(ch)
+        i += 1
+    return "".join(out)
+
 
 def _paragraph_runs_with_italic(p_elem, italic_charpr_ids):
     """
@@ -610,6 +907,10 @@ _EQ_SUB_MARKER_RE = re.compile(f"{_EQ_SUB_L}(.*?){_EQ_SUB_R}")
 # 찾아 뒤 글자를 아래첨자로 표시하기 위한 패턴.
 _PEAK_LABEL_RE = re.compile(r"(?<![A-Za-z0-9])([AQ])([TS])([a-e])?(?![A-Za-z0-9])")
 
+# "(OH)2" 처럼 원소기호가 아니라 (OH) 이온 묶음 뒤에 개수가 붙는 표기도
+# 아래첨자로 표시한다.
+_OH_GROUP_RE = re.compile(r"(\(OH\))(\d{1,4})")
+
 
 def _apply_subscript_markup(escaped_text: str) -> str:
     """이미 HTML 이스케이프된 문자열에 아래첨자 표시를 적용한다.
@@ -618,9 +919,12 @@ def _apply_subscript_markup(escaped_text: str) -> str:
     - 평문에 그대로 쓰인 "AT"/"AS"/"ATa"/"ASb" 등의 피크면적 표시 -> <sub>
     """
     s = _EQ_SUB_MARKER_RE.sub(r"<sub>\1</sub>", escaped_text)
+    s = _subscript_inside_brackets(s)
+    s = _OH_GROUP_RE.sub(r"\1<sub>\2</sub>", s)
     s = _FORMULA_TOKEN_RE.sub(
         lambda m: _ELEMENT_DIGIT_RE.sub(r"\1<sub>\2</sub>", m.group(0)), s
     )
+    s = _CHON_DIGIT_RE.sub(r"\1<sub>\2</sub>", s)
     s = _PEAK_LABEL_RE.sub(
         lambda m: f"{m.group(1)}<sub>{m.group(2)}{m.group(3) or ''}</sub>", s
     )
@@ -645,19 +949,43 @@ def _render_definition_html(runs) -> str:
 _TABLE_LINE_RE = re.compile(r".+ \| .+")
 
 # "= 테뉴이폴린표준품의 양(mg) ×A T / A S × 2" 같은 정량법 계산식 줄을
-# 찾기 위한 패턴. "="나 "×"가 있으면 계산식으로 보고 가운데 정렬한다("/"는
-# "mL/분" 같은 단위 표기에도 흔히 나와 그것만으로는 계산식으로 보지 않는다).
-_FORMULA_LINE_RE = re.compile(r"[=×]")
+# 찾기 위한 패턴("/"는 "mL/분" 같은 단위 표기에도 흔히 나와 그것만으로는
+# 계산식으로 보지 않는다). "="가 있으면 항상 계산식이다. "×"만 있고 "="가
+# 없는 줄은 "= ~ × A" 처럼 한 계산식이 여러 줄로 이어지는 경우("×"로
+# 시작하는 이어지는 줄)에만 나오므로 한글이 섞여 있지 않을 때만 계산식으로
+# 본다 - "Supelcosil ... (4.6 × 250 mm, 5 μm) 또는 이와 동등한 것"이나
+# "PCR용 완충액(10 × amplification buffer)"처럼 "×"가 그냥 곱하기 기호로
+# 쓰인 한글 설명문과 구분하기 위함이다.
+_FORMULA_EQ_RE = re.compile(r"=")
+_FORMULA_TIMES_ONLY_RE = re.compile(r"×")
+
+
+def _is_formula_line(line: str) -> bool:
+    if _FORMULA_EQ_RE.search(line):
+        return True
+    return bool(_FORMULA_TIMES_ONLY_RE.search(line)) and not _HANGUL_RE.search(line)
+
+# 라벨 줄과 "=" 계산식 줄을 하나로 합쳤을 때 이 길이(글자 수)를 넘으면
+# 화면 폭에서 줄바꿈이 일어나 가운데 정렬이 어색해지므로(예: 숙지황처럼
+# 화합물 이름이 길어서 라벨+계산식이 아주 긴 경우) 합치지 않고 원래처럼
+# 두 줄로 띄운다.
+_FORMULA_MERGE_MAX_LEN = 70
 
 
 def _render_text_line_html(line: str) -> str:
     return _apply_subscript_markup(html.escape(line, quote=False))
 
 
+_TABLE_CELL_SPLIT_RE = re.compile(r" ?\| ?")
+
+
 def _rows_to_table_html(table_lines) -> str:
     rows_html = []
     for ln in table_lines:
-        cells = [c.strip() for c in ln.split(" | ")]
+        # 병합된(rowSpan) 첫 칸이 빈 채로 남은 줄("| 252.0 | 226.0 | 24")은
+        # 줄 정리 단계에서 앞의 구분용 공백이 strip() 되어 맨 앞이 "|"로
+        # 시작하므로, 앞뒤 공백이 없어도 "|" 하나로 칸을 나눈다.
+        cells = [c.strip() for c in _TABLE_CELL_SPLIT_RE.split(ln)]
         cells_html = "".join(f"<td>{_render_text_line_html(c)}</td>" for c in cells)
         rows_html.append(f"<tr>{cells_html}</tr>")
     return f'<table class="orig-table">{"".join(rows_html)}</table>'
@@ -672,45 +1000,98 @@ def _render_rich_html(text: str) -> str:
     if not text:
         return ""
     lines = text.split("\n")
-    out = []
+    n = len(lines)
+
+    # 1단계: 줄들을 "table"/"formula"/"text" 구간(block)으로 나눈다. "= "가
+    # 있는 계산식 줄 바로 위, 화학식이 들어있는 라벨 줄(들)은 그 앞의 text
+    # 구간에서 떼어내 같은 formula 구간으로 옮긴다("OO의 양 (mg)" + "=
+    # ~" 를 한 덩어리로 묶기 위함). 이렇게 구간을 먼저 확정해 두면, 나중에
+    # "라벨이 사실은 다음 계산식 줄의 일부였다"는 이유로 간격 표시를
+    # 잘못 끼워 넣는 문제가 생기지 않는다.
+    blocks = []  # [(kind, [line_index, ...]), ...]
     i = 0
-    formula_count = 0
-    while i < len(lines):
+    while i < n:
         if _TABLE_LINE_RE.match(lines[i]):
-            table_lines = []
-            while i < len(lines) and _TABLE_LINE_RE.match(lines[i]):
-                table_lines.append(lines[i])
+            start = i
+            while i < n and _TABLE_LINE_RE.match(lines[i]):
                 i += 1
-            out.append(_rows_to_table_html(table_lines))
+            blocks.append(("table", list(range(start, i))))
             continue
-        if _FORMULA_LINE_RE.search(lines[i]):
-            # "= " 계산식 바로 위에 화학식이 들어있는 줄들("OO의 양 (mg)" 라벨,
-            # 여러 줄에 걸쳐 있을 수 있음)을 모두 끌어와 계산식과 한 덩어리로
-            # 묶어 함께 가운데 정렬한다. 첫 번째 계산식 앞에서만 앞 문단과
-            # 한 줄 띄워 구분한다.
-            label_lines = []
-            j = i - 1
-            while (
-                j >= 0
-                and out
-                and lines[j].strip()
-                and not _TABLE_LINE_RE.match(lines[j])
-                and not _FORMULA_LINE_RE.search(lines[j])
-                and _FORMULA_TOKEN_RE.search(lines[j])
-            ):
-                label_lines.append(out.pop())
-                j -= 1
-            label_lines.reverse()
-            block_parts = label_lines + [_render_text_line_html(lines[i])]
-            formula_count += 1
-            if formula_count == 1 and out:
-                out.append("")
-            out.append(f'<div class="formula-line">{"<br>".join(block_parts)}</div>')
+        if _is_formula_line(lines[i]):
+            pulled = []
+            if blocks and blocks[-1][0] == "text":
+                text_idxs = blocks[-1][1]
+                k = len(text_idxs) - 1
+                while (
+                    k >= 0
+                    and lines[text_idxs[k]].strip()
+                    and (
+                        _FORMULA_TOKEN_RE.search(lines[text_idxs[k]])
+                        or _QUANT_LABEL_RE.search(lines[text_idxs[k]])
+                    )
+                ):
+                    pulled.append(text_idxs[k])
+                    k -= 1
+                if pulled:
+                    pulled.reverse()
+                    remaining = text_idxs[: k + 1]
+                    if remaining:
+                        blocks[-1] = ("text", remaining)
+                    else:
+                        blocks.pop()
+            blocks.append(("formula", pulled + [i]))
             i += 1
             continue
-        out.append(_render_text_line_html(lines[i]))
+        if blocks and blocks[-1][0] == "text":
+            blocks[-1][1].append(i)
+        else:
+            blocks.append(("text", [i]))
         i += 1
-    return "<br>".join(out)
+
+    # 2단계: 구간을 HTML로 조립한다. 계산식 구간과 그 외 구간이 만나는
+    # 경계에서만 한 줄을 띄우고, 계산식 구간끼리 이어질 때는 띄우지 않는다.
+    # "계산식 구간"은 <div>(블록 요소)라서, 그 사이에 <br>를 하나라도
+    # 넣으면(구분자로 흔히 쓰는 빈 문자열을 <br>로 이어붙이는 방식) 그
+    # <br> 자체가 줄 하나를 더 차지해 버려 "간격 없음"이 아니라 빈 줄이
+    # 하나 생겨 버린다. 그래서 계산식끼리 이어질 때는 구분자를 아예
+    # 넣지 않고, 그 외의 경우에만 <br>로 잇는다.
+    out = []  # [(kind, html), ...]
+    for kind, idxs in blocks:
+        if kind == "table":
+            piece = _rows_to_table_html([lines[k] for k in idxs])
+        elif kind == "formula":
+            raw_merged = " ".join(lines[k] for k in idxs).replace(_EQ_SUB_L, "").replace(_EQ_SUB_R, "")
+            join_with = " " if len(raw_merged) <= _FORMULA_MERGE_MAX_LEN else "<br>"
+            piece = f'<div class="formula-line">{join_with.join(_render_text_line_html(lines[k]) for k in idxs)}</div>'
+        else:
+            piece = "<br>".join(_render_text_line_html(lines[k]) for k in idxs)
+        out.append((kind, piece))
+
+    # 3단계: 구간 사이를 이어붙인다. 계산식 구간(<div>, 블록 요소)은 그
+    # 자체로 줄이 바뀌므로, 그 바로 앞/뒤에서는 <br> 하나만으로 빈 줄 한
+    # 개가 만들어진다(반면 일반 텍스트는 줄바꿈이 저절로 일어나지 않으므로
+    # <br> 두 개 - 줄바꿈 + 빈 줄 - 가 필요하다). 계산식끼리 이어질 때는
+    # 아예 구분자를 넣지 않는다.
+    html_parts = []
+    prev_kind = None
+    for kind, piece in out:
+        if prev_kind is not None:
+            gap_needed = (prev_kind == "formula") != (kind == "formula")
+            if gap_needed:
+                sep = "<br>" if prev_kind in ("formula", "table") else "<br><br>"
+            elif prev_kind == "formula" and kind == "formula":
+                sep = ""
+            else:
+                sep = "<br>"
+            html_parts.append(sep)
+        html_parts.append(piece)
+        prev_kind = kind
+    if prev_kind == "formula":
+        # 마지막 구간이 계산식이면, 뒤에 이어지는 내용이 이 텍스트 안에는
+        # 없더라도(예: "조작조건"이 별도 하위 항목으로 분리되어 바로 뒤에
+        # 옴) 계산식 아래에 항상 빈 줄 하나를 남긴다.
+        html_parts.append("<br>")
+    return "".join(html_parts)
 
 
 def _enrich_item_html(items):
@@ -929,7 +1310,11 @@ def parse_hwpx_bytes_sections(
             text = "\n".join(cleaned)
             section = {"label": label, "text": text, "html": _render_rich_html(text)}
             if label in ("순도시험", "정량법"):
-                items = _parse_numbered_hierarchy(text, bold_labels=True)
+                items = _parse_deep_numbered_hierarchy(text) if _has_deep_markers(text) else []
+                if not items and label == "정량법":
+                    items = _parse_quantitation_hierarchy(text)
+                if not items:
+                    items = _parse_numbered_hierarchy(text, bold_labels=True)
                 if not items:
                     # "1)" 같은 번호가 전혀 없어도 "중금속  이 약의 가루 ~"
                     # 처럼 "라벨 + 설명" 한 문장뿐인 섹션이 있다(예: 자석).
