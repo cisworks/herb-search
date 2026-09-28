@@ -32,6 +32,16 @@ def _normalize(s: str) -> str:
     return re.sub(r"\s+", "", s or "").lower()
 
 
+def _text_has_keyword(norm_text: str, raw_keyword: str) -> bool:
+    """정규화된 본문(norm_text) 안에 raw_keyword가 있는지 찾는다. "가지"는
+    "가지고"(조사가 아니라 "가지다"의 활용형, 예: "이 약을 가지고 ~")에
+    흔히 우연히 포함되므로, 그 경우만 제외하고 찾는다."""
+    kw = _normalize(raw_keyword)
+    if kw == "가지":
+        return bool(re.search(r"가지(?!고)", norm_text))
+    return kw in norm_text
+
+
 def _source_tag(filename: str) -> str:
     """파일명으로 출처를 구분해 배지를 붙인다: 약전 -> KP, 생약(한약)규격집 -> KHP."""
     if "약전" in filename:
@@ -195,24 +205,31 @@ def api_test_item_search():
     """시험항목(확인시험/순도시험/정량법 및 순도시험의 하위 항목인 이물·
     변패·잔류농약·납·비소·수은·카드뮴·이산화황·벤조피렌·곰팡이독소 등)으로
     공정서 품목을 찾는다. "확인시험"/"순도시험"/"정량법"은 그 이름의
-    항목(section)이 있는지로, 그 외에는 순도시험 항목의 본문에 그 낱말이
-    나오는지로 찾는다."""
-    item = (request.args.get("item") or "").strip()
-    if not item:
+    항목(section)이 있는지로, 그 외에는 순도시험 항목의 본문에 그 낱말들
+    중 하나라도 나오는지로 찾는다("이물시험"처럼 "이물" 뿐 아니라 "줄기"/
+    "꽃대" 등 여러 낱말 중 하나만 있어도 해당하는 경우가 있어, item 파라미터는
+    쉼표로 구분된 여러 낱말을 받을 수 있다)."""
+    raw = (request.args.get("item") or "").strip()
+    if not raw:
+        return jsonify([])
+    needles_raw = [w.strip() for w in raw.split(",") if w.strip()]
+    if not needles_raw:
         return jsonify([])
 
     matches = []
-    if item in ("확인시험", "순도시험", "정량법"):
+    if len(needles_raw) == 1 and needles_raw[0] in ("확인시험", "순도시험", "정량법"):
+        item = needles_raw[0]
         for e in ENTRIES:
             if any(s["label"] == item for s in e["sections"]):
                 matches.append(e)
     else:
-        needle = _normalize(item)
         for e in ENTRIES:
             for s in e["sections"]:
-                if s["label"] == "순도시험" and needle in _normalize(s.get("text", "")):
-                    matches.append(e)
-                    break
+                if s["label"] == "순도시험":
+                    norm_text = _normalize(s.get("text", ""))
+                    if any(_text_has_keyword(norm_text, w) for w in needles_raw):
+                        matches.append(e)
+                        break
     matches.sort(key=lambda e: e["korean_name"])
     return jsonify([summary(e) for e in matches])
 

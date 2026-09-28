@@ -25,7 +25,7 @@
     position: relative;
     background: var(--main);
     color: #fff;
-    padding: 22px 20px;
+    padding: 22px 20px 8px;
     text-align: center;
   }
   .header-inner {
@@ -53,12 +53,13 @@
     opacity: 0.95;
   }
   header h1 { margin: 0 0 4px; font-size: 1.5rem; }
-  header p { margin: 0; font-size: 0.85rem; opacity: 0.9; }
-  header p.header-cite { margin-top: 4px; font-size: 0.72rem; opacity: 0.8; }
+  .header-meta { text-align: center; }
+  .header-meta p { margin: 0; font-size: 0.85rem; opacity: 0.9; }
+  .header-meta p.header-cite { margin-top: 4px; font-size: 0.72rem; opacity: 0.8; }
 
   .wrap {
     margin: 0 auto;
-    padding: 24px 16px 60px;
+    padding: 8px 16px 60px;
     display: flex;
     align-items: flex-start;
     gap: 20px;
@@ -413,8 +414,10 @@
   </div>
   <div class="header-inner">
     <h1>생약 검색</h1>
-    <p>공정서 {{ total_count }}품목, 관능검사해설서 {{ sensory_count }}품목</p>
-    <p class="header-cite">대한민국약전(제2026-44호, 2026. 6.29.) 의약품 각조 제2부 │ 대한민국약전외한약(생약)규격집(제2023-93호, 2023.12.27.) 의약품 각조 제1부</p>
+    <div class="header-meta">
+      <p>공정서 {{ total_count }}품목, 관능검사해설서 {{ sensory_count }}품목</p>
+      <p class="header-cite">대한민국약전(제2026-44호, 2026. 6.29.) 의약품 각조 제2부 │ 대한민국약전외한약(생약)규격집(제2023-93호, 2023.12.27.) 의약품 각조 제1부</p>
+    </div>
   </div>
 </header>
 
@@ -564,22 +567,24 @@ tabButtons.forEach(btn => {
 // ---- 시험항목 검색 탭 ---------------------------------------------------
 // 확인시험과 순도시험의 하위 항목들을 드롭다운에서 골라, 그 항목이 있는
 // 공정서 품목을 /api/test_item_search 로 찾아 공정서 카드에 표시한다.
-// label은 목록에 보이는 이름, keyword는 실제 검색에 쓰는 낱말이다
-// (예: 목록엔 "이물시험"으로 보이지만, 원문 순도시험 항목에는 "이물"로
-// 적혀 있어서 검색은 "이물"로 한다).
+// label은 목록에 보이는 이름, keywords는 실제 검색에 쓰는 낱말(들)이다
+// (예: 목록엔 "이물시험"으로 보이지만, 원문 순도시험 항목에는 "이물" 외에도
+// "줄기"/"꽃대"처럼 이물질의 구체적인 종류로 적혀 있는 경우가 있어, 그런
+// 낱말들도 함께 검색어로 쓴다 - 이 중 하나라도 있으면 그 시험항목으로 본다).
 const TEST_ITEMS = [
-  { label: '확인시험', keyword: '확인시험' },
-  { label: '정량법', keyword: '정량법' },
-  { label: '이물시험', keyword: '이물' },
-  { label: '변패', keyword: '변패' },
-  { label: '잔류농약', keyword: '잔류농약' },
-  { label: '납', keyword: '납' },
-  { label: '비소', keyword: '비소' },
-  { label: '수은', keyword: '수은' },
-  { label: '카드뮴', keyword: '카드뮴' },
-  { label: '이산화황', keyword: '이산화황' },
-  { label: '벤조피렌', keyword: '벤조피렌' },
-  { label: '곰팡이독소', keyword: '곰팡이독소' },
+  { label: '확인시험', keywords: ['확인시험'] },
+  { label: '정량법', keywords: ['정량법'] },
+  { label: '이물시험', keywords: ['이물', '줄기', '꽃대', '꽃받침', '가지', '열매꼭지', '포엽', '엽초', '아코니툼속 식물', '유삼', '유사동물'] },
+  { label: '변패, 산패', keywords: ['변패', '산패'] },
+  { label: '잔류농약', keywords: ['잔류농약'] },
+  { label: '납', keywords: ['납'] },
+  { label: '비소', keywords: ['비소'] },
+  { label: '수은', keywords: ['수은'] },
+  { label: '카드뮴', keywords: ['카드뮴'] },
+  { label: '이산화황', keywords: ['이산화황'] },
+  { label: '벤조피렌', keywords: ['벤조피렌'] },
+  { label: '곰팡이독소', keywords: ['곰팡이독소'] },
+  { label: '유전자검사', keywords: ['유전자'] },
 ];
 
 const testItemInput = document.getElementById('testItemInput');
@@ -616,7 +621,7 @@ function closeTestItemDropdown() {
 async function selectTestItem(testItem) {
   closeTestItemDropdown();
   testItemInput.value = testItem.label;
-  const res = await fetch('/api/test_item_search?item=' + encodeURIComponent(testItem.keyword));
+  const res = await fetch('/api/test_item_search?item=' + encodeURIComponent(testItem.keywords.join(',')));
   const items = await res.json();
   testResultsBox.style.display = 'flex';
   const rows = items.length
@@ -629,9 +634,67 @@ async function selectTestItem(testItem) {
     </div>
   `;
   testResultsBox.querySelectorAll('.result-item').forEach(el => {
-    el.addEventListener('click', () => showDetail(el.dataset.id));
+    el.addEventListener('click', () => showDetail(el.dataset.id, testItem));
   });
   fitTestResultsHeight();
+}
+
+// "text" 하나(예: "납  5 ppm 이하.")가 keywords 중 하나라도 담고 있는지
+// 정규화해서 검사한다. 계층형 항목의 "자기 자신" 텍스트만 보고(자식 항목
+// 내용은 제외) 판단해야, "1) 중금속"처럼 여러 하위 항목을 감싸는 상위
+// 노드가 아니라 실제로 일치하는 "가) 납" 같은 가장 구체적인 노드를
+// 찾아낼 수 있다.
+function _normJs(s) {
+  return (s || '').replace(/\s+/g, '').toLowerCase();
+}
+
+function _nodeOwnText(it) {
+  if (it.bold !== undefined) return (it.bold || '') + (it.rest || '');
+  return it.text || '';
+}
+
+// "가지"는 "가지고"(조사가 아니라 "가지다"의 활용형, 예: "~을 가지고
+// ~")에 흔히 우연히 포함되므로, 그 경우만 제외하고 찾는다.
+function _textHasKeyword(normText, rawKeyword) {
+  const kw = _normJs(rawKeyword);
+  if (kw === '가지') {
+    return /가지(?!고)/.test(normText);
+  }
+  return normText.includes(kw);
+}
+
+function _nodeMatchesAny(it, keywords) {
+  const t = _normJs(_nodeOwnText(it));
+  return keywords.some(k => _textHasKeyword(t, k));
+}
+
+// 계층형 항목 목록에서 keywords(이물시험처럼 "이물"/"줄기"/"꽃대" 등 여러
+// 낱말 중 하나라도 해당하면 되는 경우가 있어 배열로 받는다) 중 하나와
+// 일치하는 노드를 찾되, 그 노드가 속한 바로 위 계층까지 함께 보여준다.
+// 어떤 노드 자신이 일치하면 그 노드(와 하위 항목 전체)를 결과에 넣고 더
+// 깊이 들어가지 않는다("4) 벤조피렌"처럼 그 자체가 일치하면 (제1법)/(제2법)
+// 등 하위 구조를 그대로 통째로 보여준다). 자신은 일치하지 않지만 바로 아래
+// 자식들 중 일부가 일치하면("1) 중금속"의 자식인 "가) 납"처럼), 부모
+// 노드("중금속")는 계층(라벨)만 그대로 두고 그 자식은 실제로 일치하는
+// 것만 남겨서("나) 비소"/"다) 수은"/"라) 카드뮴"은 빼고) 순도시험 > 중금속
+// > 납 처럼 딱 그 항목까지만 계층적으로 보이게 한다. 그 조건에도 안 맞으면
+// 더 깊은 하위 항목에서 계속 찾는다.
+function findMatchingNodes(items, keywords) {
+  let out = [];
+  for (const it of (items || [])) {
+    const children = it.children || [];
+    if (_nodeMatchesAny(it, keywords)) {
+      out.push(it);
+      continue;
+    }
+    const matchedChildren = children.filter(c => _nodeMatchesAny(c, keywords));
+    if (matchedChildren.length) {
+      out.push(Object.assign({}, it, { children: matchedChildren }));
+    } else if (children.length) {
+      out = out.concat(findMatchingNodes(children, keywords));
+    }
+  }
+  return out;
 }
 
 // 시험항목 검색 결과 카드는 창 크기에 맞춰 세로로 늘어나되, 창 아래끝에서
@@ -745,7 +808,45 @@ function renderResults(data, q) {
   }
 }
 
-async function showDetail(id) {
+// 섹션 하나를 항상 통째로(하위 항목 전부) 보여줄 때 쓰는 기본 렌더링.
+function fullSectionHtml(sec) {
+  return `
+    <div class="section">
+      <div class="label">${escapeHtml(sec.label)}</div>
+      ${sec.items && sec.items.length ? renderItemList(sec.items) : `<div class="body">${renderSectionBody(sec)}</div>`}
+    </div>
+  `;
+}
+
+// filterItem이 있으면(시험항목 검색에서 넘어온 경우) 그 시험항목에 해당하는
+// 부분만 골라서 보여준다. "확인시험"/"정량법"/"순도시험"처럼 항목명 자체가
+// keyword면 그 섹션 전체를, 그 외(납/이산화황/유전자검사 등)는 순도시험
+// 계층 안에서 실제로 일치하는 하위 항목만 찾아 보여준다. 일치하는 게 없으면
+// (예상 밖의 경우를 대비해) 전체를 보여준다.
+function buildSectionsHtml(item, filterItem) {
+  if (!filterItem) {
+    return item.sections.map(fullSectionHtml).join('');
+  }
+  if (filterItem.keywords.length === 1 && ['확인시험', '정량법', '순도시험'].includes(filterItem.keywords[0])) {
+    const sec = item.sections.find(s => s.label === filterItem.keywords[0]);
+    return sec ? fullSectionHtml(sec) : item.sections.map(fullSectionHtml).join('');
+  }
+  const puritySec = item.sections.find(s => s.label === '순도시험');
+  if (puritySec && puritySec.items && puritySec.items.length) {
+    const matched = findMatchingNodes(puritySec.items, filterItem.keywords);
+    if (matched.length) {
+      return `
+        <div class="section">
+          <div class="label">${escapeHtml(puritySec.label)}</div>
+          ${renderItemList(matched)}
+        </div>
+      `;
+    }
+  }
+  return item.sections.map(fullSectionHtml).join('');
+}
+
+async function showDetail(id, filterItem) {
   const res = await fetch('/api/item/' + id);
   if (!res.ok) return;
   const item = await res.json();
@@ -755,12 +856,7 @@ async function showDetail(id) {
     return;
   }
 
-  const sectionsHtml = item.sections.map(sec => `
-    <div class="section">
-      <div class="label">${escapeHtml(sec.label)}</div>
-      ${sec.items && sec.items.length ? renderItemList(sec.items) : `<div class="body">${renderSectionBody(sec)}</div>`}
-    </div>
-  `).join('');
+  const sectionsHtml = buildSectionsHtml(item, filterItem);
 
   const definitionHtml = (item.definition_parts && item.definition_parts.length)
     ? item.definition_parts.map(p => `<p class="${p.small ? 'quantitative' : ''}">${p.html}</p>`).join('')

@@ -67,6 +67,13 @@ _EQ_SUB_L, _EQ_SUB_R = "\x02", "\x03"
 # <i> 로 표시하기 위한 마커. 아래첨자 마커와 겹치지 않는 별도의 제어문자를 쓴다.
 _ITALIC_L, _ITALIC_R = "\x04", "\x05"
 
+# 표 셀 하나 안에 문단이 여러 개 있는 경우(예: 녹용절편 PCR 조건표에서 한
+# 칸에 "변성"/"결합"/"증폭"을 세 줄로 적은 경우)의 줄바꿈 표시. 문서 전체의
+# 줄 구분자인 "\n"과 겹치면 그 표 줄 전체가 별개의 줄로 쪼개져 버리므로,
+# 셀 안에서만 쓰는 별도의 제어문자를 쓰고 표를 <table>로 그릴 때 <br>로
+# 바꾼다.
+_CELL_LINE_BREAK = "\x06"
+
 _MARKUP_CHARS = _EQ_SUB_L + _EQ_SUB_R + _ITALIC_L + _ITALIC_R
 
 
@@ -123,23 +130,29 @@ def _cell_text(tc_elem, subscript_charpr_ids=frozenset(), italic_charpr_ids=froz
     """표 셀의 텍스트를 모은다. 셀 안의 run이 아래첨자 서식(charPr)을 쓰면
     그 부분을 나중에 <sub>로 바꿀 수 있도록 마커로 감싼다(예: "벤조피렌-d12"에서
     "12"만 별도 run으로 아래첨자 지정된 경우). 이탤릭 서식(주로 학명)도
-    같은 방식으로 마커를 씌운다."""
-    parts = []
-    for run in tc_elem.iter(f"{{{NS['hp']}}}run"):
-        char_pr = run.get("charPrIDRef")
-        is_sub = char_pr in subscript_charpr_ids
-        is_italic = char_pr in italic_charpr_ids
-        for t in run.findall("hp:t", NS):
-            text = "".join(t.itertext())
-            if not text:
-                continue
-            if is_sub:
-                text = _EQ_SUB_L + text + _EQ_SUB_R
-            if is_italic:
-                text = _ITALIC_L + text + _ITALIC_R
-            parts.append(text)
-    text = "".join(parts)
-    return re.sub(r"\s+", " ", text).strip()
+    같은 방식으로 마커를 씌운다. 셀 안에 문단(<hp:p>)이 여러 개 있으면(예:
+    한 칸에 "변성"/"결합"/"증폭"처럼 줄을 나눠 적은 경우), 그 문단 경계를
+    _CELL_LINE_BREAK 로 표시해서 원래 줄바꿈이 살아남게 한다."""
+    lines = []
+    for p in tc_elem.iter(f"{{{NS['hp']}}}p"):
+        parts = []
+        for run in p.findall("hp:run", NS):
+            char_pr = run.get("charPrIDRef")
+            is_sub = char_pr in subscript_charpr_ids
+            is_italic = char_pr in italic_charpr_ids
+            for t in run.findall("hp:t", NS):
+                text = "".join(t.itertext())
+                if not text:
+                    continue
+                if is_sub:
+                    text = _EQ_SUB_L + text + _EQ_SUB_R
+                if is_italic:
+                    text = _ITALIC_L + text + _ITALIC_R
+                parts.append(text)
+        line = re.sub(r"\s+", " ", "".join(parts)).strip()
+        if line:
+            lines.append(line)
+    return _CELL_LINE_BREAK.join(lines)
 
 
 def _table_to_text(tbl_elem, subscript_charpr_ids=frozenset(), italic_charpr_ids=frozenset()):
@@ -316,8 +329,12 @@ def _looks_like_hanja_only(text: str) -> bool:
 # 표기 끝자락이 "10)", "1)" 로 끝나 마커처럼 오인되는 것을 막기 위함이다.
 # 가나다 표시("가)", "나)")는 "2) 중금속  가) 납" 처럼 숫자 표시와 같은 줄에
 # 바로 이어 나오는 경우가 많아 기존처럼 공백 뒤에서도 인정한다.
+# "주 1) ~ / 2) ~" 처럼 각주 목록의 번호 줄은 "주"로 시작하기도 한다(녹용절편,
+# 오르소시폰가루 등). 그런 줄도 번호 표시로 인정하되, "주"가 실제로 붙어
+# 있었는지는 juprefix 그룹으로 따로 구분해 둔다(각주 목록의 시작인지
+# 판단하는 데 쓴다 - _parse_numbered_hierarchy 참조).
 _LIST_MARKER_RE = re.compile(
-    r"(?:^|(?<=\n))(?P<num>\d{1,2})\)\s*"
+    r"(?:^|(?<=\n))(?P<juprefix>주\s*)?(?P<num>\d{1,2})\)\s*"
     r"|(?:^|(?<=\s))(?P<kor>[가나다라마바사아자차카타파하])\)\s*"
 )
 
@@ -423,6 +440,15 @@ def _detect_purity_reference(text: str):
     return m.group(1).strip() if m else None
 
 
+# 녹용절편처럼 "라) 결과 확인 및 판정" 같은 가나다 항목 끝에 "주 1) ~ / 2) ~
+# / 3) ~" 처럼 용어를 설명하는 각주 목록이 붙는 문서가 있다. "주"로 시작하는
+# 이 각주 번호는 순도시험 전체의 새 최상위 항목이 아니라, 바로 앞의
+# 가나다(또는 숫자) 항목의 하위 항목으로 묶여야 한다("주"가 각주 첫 줄에만
+# 붙기도 하고("주 1)" 그 다음은 "2)"), 매 줄에 반복되기도 한다("주1)","주2)")
+# - 두 경우 모두 지원한다. "주" 표시 자체는 _LIST_MARKER_RE의 juprefix
+# 그룹으로 인식한다).
+
+
 def _parse_numbered_hierarchy(text: str, bold_labels: bool = False):
     """
     "1) 이물 ...  2) 중금속  가) 납 ...  나) 비소 ..." 같은 순도시험류 본문을
@@ -448,22 +474,45 @@ def _parse_numbered_hierarchy(text: str, bold_labels: bool = False):
             node["ref_name"] = ref_name
         return node
 
+    def make_footnote_node(marker, content):
+        label, rest = _split_colon_line(content)
+        if label:
+            return {"marker": marker, "text": content, "children": [], "bold": label, "rest": rest}
+        return {"marker": marker, "text": content, "children": []}
+
     items = []
     current_l1 = None
+    current_l2 = None
+    footnote_next = None  # "주" 각주 목록에서 다음에 와야 할 번호. 각주 목록 밖이면 None.
     for idx, m in enumerate(matches):
         content_start = m.end()
         content_end = matches[idx + 1].start() if idx + 1 < len(matches) else len(text)
         content = _insert_colon_before_origin(text[content_start:content_end].strip())
         if m.group("num"):
+            num_val = int(m.group("num"))
+            starts_footnote = m.group("juprefix") is not None
+            if starts_footnote or num_val == footnote_next:
+                footnote_next = num_val + 1
+                node = make_footnote_node(f"{m.group('num')})", content)
+                parent = current_l2 or current_l1
+                if parent is not None:
+                    parent["children"].append(node)
+                else:
+                    items.append(node)
+                continue
+            footnote_next = None
             node = make_node(f"{m.group('num')})", content, bold=bold_labels)
             items.append(node)
             current_l1 = node
+            current_l2 = None
         else:
+            footnote_next = None
             node = make_node(f"{m.group('kor')})", content)
             if current_l1 is not None:
                 current_l1["children"].append(node)
             else:
                 items.append(node)  # "가)" 로 바로 시작하는 예외적인 경우
+            current_l2 = node
 
     lead = text[: matches[0].start()].strip()
     if lead:
@@ -1238,7 +1287,9 @@ def _rows_to_table_html(table_lines) -> str:
         # 줄 정리 단계에서 앞의 구분용 공백이 strip() 되어 맨 앞이 "|"로
         # 시작하므로, 앞뒤 공백이 없어도 "|" 하나로 칸을 나눈다.
         cells = [c.strip() for c in _TABLE_CELL_SPLIT_RE.split(ln)]
-        cells_html = "".join(f"<td>{_render_text_line_html(c)}</td>" for c in cells)
+        cells_html = "".join(
+            f"<td>{_render_text_line_html(c).replace(_CELL_LINE_BREAK, '<br>')}</td>" for c in cells
+        )
         rows_html.append(f"<tr>{cells_html}</tr>")
     return f'<table class="orig-table">{"".join(rows_html)}</table>'
 
