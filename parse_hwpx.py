@@ -63,6 +63,33 @@ def _local(tag: str) -> str:
 # 항목/문단 분리 정규식들(콜론·이중공백·번호 등 판정)과 절대 겹치지 않게 한다.
 _EQ_SUB_L, _EQ_SUB_R = "\x02", "\x03"
 
+# 원문에서 <hh:italic/> 서식이 지정된 run(주로 라틴 학명)을 최종 HTML에서
+# <i> 로 표시하기 위한 마커. 아래첨자 마커와 겹치지 않는 별도의 제어문자를 쓴다.
+_ITALIC_L, _ITALIC_R = "\x04", "\x05"
+
+_MARKUP_CHARS = _EQ_SUB_L + _EQ_SUB_R + _ITALIC_L + _ITALIC_R
+
+
+def _strip_markup_with_map(s: str):
+    """아래첨자/이탤릭 마커 제어문자를 뺀 문자열과, 그 결과 문자열의 각
+    인덱스가 원본 문자열의 몇 번째 인덱스였는지 매핑을 함께 반환한다.
+
+    "이 약은"/"현미경" 같은 문단 구조 판정용 정규식은 "Glycyrrhiza
+    korshinskyi Grig. 이 약은 ~"처럼 학명이 이탤릭 마커로 감싸인 줄에서
+    ^로 시작하는 매칭에 실패해 하위 항목으로 못 쪼개지는 문제가 있었다.
+    이 함수로 마커를 뺀 문자열에 대고 매칭한 다음, 매칭 위치를 원본
+    문자열 위치로 되돌려 써야(마커를 그대로 남겨 이탤릭 표시가 유지된
+    채로) 두 문제를 동시에 해결한다."""
+    stripped_chars = []
+    index_map = []
+    for i, ch in enumerate(s):
+        if ch in _MARKUP_CHARS:
+            continue
+        stripped_chars.append(ch)
+        index_map.append(i)
+    index_map.append(len(s))
+    return "".join(stripped_chars), index_map
+
 
 def _convert_equation(script_text: str) -> str:
     """hwpx 수식 스크립트를 아래첨자 마커가 포함된 텍스트로 변환한다.
@@ -92,23 +119,30 @@ def _convert_equation(script_text: str) -> str:
     return s
 
 
-def _cell_text(tc_elem, subscript_charpr_ids=frozenset()):
+def _cell_text(tc_elem, subscript_charpr_ids=frozenset(), italic_charpr_ids=frozenset()):
     """표 셀의 텍스트를 모은다. 셀 안의 run이 아래첨자 서식(charPr)을 쓰면
     그 부분을 나중에 <sub>로 바꿀 수 있도록 마커로 감싼다(예: "벤조피렌-d12"에서
-    "12"만 별도 run으로 아래첨자 지정된 경우)."""
+    "12"만 별도 run으로 아래첨자 지정된 경우). 이탤릭 서식(주로 학명)도
+    같은 방식으로 마커를 씌운다."""
     parts = []
     for run in tc_elem.iter(f"{{{NS['hp']}}}run"):
-        is_sub = run.get("charPrIDRef") in subscript_charpr_ids
+        char_pr = run.get("charPrIDRef")
+        is_sub = char_pr in subscript_charpr_ids
+        is_italic = char_pr in italic_charpr_ids
         for t in run.findall("hp:t", NS):
             text = "".join(t.itertext())
             if not text:
                 continue
-            parts.append(_EQ_SUB_L + text + _EQ_SUB_R if is_sub else text)
+            if is_sub:
+                text = _EQ_SUB_L + text + _EQ_SUB_R
+            if is_italic:
+                text = _ITALIC_L + text + _ITALIC_R
+            parts.append(text)
     text = "".join(parts)
     return re.sub(r"\s+", " ", text).strip()
 
 
-def _table_to_text(tbl_elem, subscript_charpr_ids=frozenset()):
+def _table_to_text(tbl_elem, subscript_charpr_ids=frozenset(), italic_charpr_ids=frozenset()):
     """<hp:tbl> 표를 "셀 | 셀 | 셀" 형태의 여러 줄 텍스트로 변환한다.
     세로로 병합된(rowSpan>1) 셀은 그 아래 행의 XML에 아예 다시 나오지
     않으므로, 셀 순서만 보고 이어붙이면 그 행의 나머지 값들이 왼쪽으로
@@ -126,7 +160,7 @@ def _table_to_text(tbl_elem, subscript_charpr_ids=frozenset()):
             col = int(addr.get("colAddr")) if addr is not None and addr.get("colAddr") else len(row)
             while len(row) <= col:
                 row.append("")
-            row[col] = _cell_text(tc, subscript_charpr_ids)
+            row[col] = _cell_text(tc, subscript_charpr_ids, italic_charpr_ids)
         rows_cells.append(row)
         max_cols = max(max_cols, len(row))
 
@@ -144,6 +178,7 @@ def _paragraph_segments(
     subheader_style_ids=frozenset(),
     bold_charpr_ids=frozenset(),
     subscript_charpr_ids=frozenset(),
+    italic_charpr_ids=frozenset(),
 ):
     """
     <hp:p> 하나를 순서대로 훑어서
@@ -163,8 +198,10 @@ def _paragraph_segments(
         # header.xml 에서 확인한 뒤에만 항목명 어휘 매칭을 시도한다 - 그래야
         # "비중 : 5.17 ～ 5.18" 처럼 그냥 본문에 항목명과 같은 단어가 나올 때
         # 헤더로 오인하지 않는다.
-        run_is_bold = run.get("charPrIDRef") in bold_charpr_ids
-        run_is_subscript = run.get("charPrIDRef") in subscript_charpr_ids
+        run_charpr = run.get("charPrIDRef")
+        run_is_bold = run_charpr in bold_charpr_ids
+        run_is_subscript = run_charpr in subscript_charpr_ids
+        run_is_italic = run_charpr in italic_charpr_ids
         for child in run:
             tag = _local(child.tag)
             if tag == "t":
@@ -193,13 +230,17 @@ def _paragraph_segments(
                     # 서식 그대로 마커로 감싸서 나중에 <sub>로 렌더링한다.
                     if run_is_subscript:
                         text = _EQ_SUB_L + text + _EQ_SUB_R
+                    # 학명 등 이탤릭 서식(charPr의 <hh:italic/>)이 지정된
+                    # run도 마찬가지로 마커로 감싸서 나중에 <i>로 렌더링한다.
+                    if run_is_italic:
+                        text = _ITALIC_L + text + _ITALIC_R
                     segments.append(("text", text))
             elif tag == "equation":
                 script = child.find("hp:script", NS)
                 if script is not None and script.text:
                     segments.append(("text", _convert_equation(script.text)))
             elif tag == "tbl":
-                table_text = _table_to_text(child, subscript_charpr_ids)
+                table_text = _table_to_text(child, subscript_charpr_ids, italic_charpr_ids)
                 if table_text:
                     segments.append(("text", "\n" + table_text + "\n"))
     return segments, has_subheader
@@ -741,11 +782,19 @@ def _parse_seongsang_blocks(text: str):
             # "이 약은"으로 시작하지 않더라도 무조건 새 블록으로 취급한다.
             blocks.append({"marker": "", "text": line, "children": []})
             continue
-        m = _VARIETY_LABEL_RE.match(line)
+        # 아래첨자/이탤릭 마커가 줄 맨 앞(예: 이탤릭 처리된 학명)에 끼어
+        # 있으면 "^"로 시작하는 아래 판정들이 실패하므로, 마커를 뺀
+        # 문자열로 판정하고 위치만 원본 문자열 기준으로 되돌린다.
+        stripped, idx_map = _strip_markup_with_map(line)
+        m = _VARIETY_LABEL_RE.match(stripped)
         if m and m.group("label").strip():
-            blocks.append({"marker": m.group("label").strip(), "text": line[m.end():].strip(), "children": []})
+            rest_start = idx_map[m.end()]
+            # marker는 stripped가 아니라 원본 line에서 그대로 잘라내
+            # 이탤릭 마커(학명 표시)가 남아 있게 한다 - _enrich_item_html이
+            # 이를 보고 marker_html을 만들고 marker 자체는 평문으로 정리한다.
+            blocks.append({"marker": line[:rest_start].strip(), "text": line[rest_start:].strip(), "children": []})
             continue
-        if _ORIGIN_SENTENCE_RE.match(line) or line.startswith(_MICROSCOPE_TRIGGERS):
+        if _ORIGIN_SENTENCE_RE.match(stripped) or stripped.startswith(_MICROSCOPE_TRIGGERS):
             blocks.append({"marker": "", "text": line, "children": []})
             continue
         if blocks:
@@ -930,6 +979,7 @@ def _paragraph_runs_with_italic(p_elem, italic_charpr_ids):
 
 
 _EQ_SUB_MARKER_RE = re.compile(f"{_EQ_SUB_L}(.*?){_EQ_SUB_R}")
+_ITALIC_MARKER_RE = re.compile(f"{_ITALIC_L}(.*?){_ITALIC_R}")
 
 
 # "피크면적 AT 및 AS를 측정한다" 처럼 수식이 아니라 평문 설명에 그대로 쓰인
@@ -943,12 +993,14 @@ _OH_GROUP_RE = re.compile(r"(\(OH\))(\d{1,4})")
 
 
 def _apply_subscript_markup(escaped_text: str) -> str:
-    """이미 HTML 이스케이프된 문자열에 아래첨자 표시를 적용한다.
+    """이미 HTML 이스케이프된 문자열에 아래첨자/이탤릭 표시를 적용한다.
     - 수식(계산식)에서 온 \\x02..\\x03 마커 -> <sub>
+    - 이탤릭 서식(주로 학명)에서 온 \\x04..\\x05 마커 -> <i>
     - "C42H62O16" 같은 화학식의 숫자 -> <sub>
     - 평문에 그대로 쓰인 "AT"/"AS"/"ATa"/"ASb" 등의 피크면적 표시 -> <sub>
     """
-    s = _EQ_SUB_MARKER_RE.sub(r"<sub>\1</sub>", escaped_text)
+    s = _ITALIC_MARKER_RE.sub(r"<i>\1</i>", escaped_text)
+    s = _EQ_SUB_MARKER_RE.sub(r"<sub>\1</sub>", s)
     s = _subscript_inside_brackets(s)
     s = _OH_GROUP_RE.sub(r"\1<sub>\2</sub>", s)
     s = _FORMULA_TOKEN_RE.sub(
@@ -1090,7 +1142,13 @@ def _render_rich_html(text: str) -> str:
         if kind == "table":
             piece = _rows_to_table_html([lines[k] for k in idxs])
         elif kind == "formula":
-            raw_merged = " ".join(lines[k] for k in idxs).replace(_EQ_SUB_L, "").replace(_EQ_SUB_R, "")
+            raw_merged = (
+                " ".join(lines[k] for k in idxs)
+                .replace(_EQ_SUB_L, "")
+                .replace(_EQ_SUB_R, "")
+                .replace(_ITALIC_L, "")
+                .replace(_ITALIC_R, "")
+            )
             join_with = " " if len(raw_merged) <= _FORMULA_MERGE_MAX_LEN else "<br>"
             piece = f'<div class="formula-line">{join_with.join(_render_text_line_html(lines[k]) for k in idxs)}</div>'
         else:
@@ -1126,8 +1184,20 @@ def _render_rich_html(text: str) -> str:
 
 def _enrich_item_html(items):
     """계층형 항목(순도시험/정량법/확인시험/성상)의 bold/rest/text 필드에
-    표시용 HTML 필드(bold_html/rest_html/text_html)를 덧붙인다."""
+    표시용 HTML 필드(bold_html/rest_html/text_html)를 덧붙인다. marker에
+    아래첨자/이탤릭 마커가 섞여 있으면(예: 성상의 "Glycyrrhiza korshinskyi
+    Grig." 처럼 학명이 그대로 표시(marker)로 쓰이는 경우) marker_html도
+    만들고, marker 자체는 마커 문자를 뺀 평문으로 정리한다."""
     for it in items:
+        marker_raw = it.get("marker", "")
+        if any(c in marker_raw for c in _MARKUP_CHARS):
+            it["marker_html"] = _render_rich_html(marker_raw)
+            it["marker"] = (
+                marker_raw.replace(_EQ_SUB_L, "")
+                .replace(_EQ_SUB_R, "")
+                .replace(_ITALIC_L, "")
+                .replace(_ITALIC_R, "")
+            )
         if "bold" in it:
             it["bold_html"] = _render_rich_html(it.get("bold", ""))
             it["rest_html"] = _render_rich_html(it.get("rest", ""))
@@ -1289,7 +1359,8 @@ def parse_hwpx_bytes_sections(
         # 엉뚱한 줄바꿈이 섞여 들어가므로, 문서 흐름과 동일한 직계 자식만 사용한다.
         for p in root.findall("hp:p", NS):
             segments, has_subheader = _paragraph_segments(
-                p, header_style_ids, subheader_style_ids, bold_charpr_ids, subscript_charpr_ids
+                p, header_style_ids, subheader_style_ids, bold_charpr_ids,
+                subscript_charpr_ids, italic_charpr_ids,
             )
             plain_text = "".join(t for k, t in segments if k == "text").strip()
             has_header = any(k == "header" for k, _ in segments)
