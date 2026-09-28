@@ -190,6 +190,32 @@ def api_search():
     )
 
 
+@app.route("/api/test_item_search")
+def api_test_item_search():
+    """시험항목(확인시험/순도시험 및 그 하위 항목인 이물·잔류농약·납·비소·
+    수은·카드뮴·이산화황·벤조피렌·곰팡이독소 등)으로 공정서 품목을 찾는다.
+    "확인시험"/"순도시험"은 그 이름의 항목(section)이 있는지로, 그 외에는
+    순도시험 항목의 본문에 그 낱말이 나오는지로 찾는다."""
+    item = (request.args.get("item") or "").strip()
+    if not item:
+        return jsonify([])
+
+    matches = []
+    if item in ("확인시험", "순도시험"):
+        for e in ENTRIES:
+            if any(s["label"] == item for s in e["sections"]):
+                matches.append(e)
+    else:
+        needle = _normalize(item)
+        for e in ENTRIES:
+            for s in e["sections"]:
+                if s["label"] == "순도시험" and needle in _normalize(s.get("text", "")):
+                    matches.append(e)
+                    break
+    matches.sort(key=lambda e: e["korean_name"])
+    return jsonify([summary(e) for e in matches])
+
+
 @app.route("/api/item/<int:item_id>")
 def api_item(item_id):
     e = ENTRY_BY_ID.get(item_id)

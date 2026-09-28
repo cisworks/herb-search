@@ -65,7 +65,7 @@
   .left-panel {
     flex: 0 0 auto;
     width: max-content;
-    min-width: 260px;
+    min-width: 400px;
     max-width: 45%;
     position: sticky;
     top: 24px;
@@ -86,7 +86,7 @@
   }
   .search-box input {
     width: 100%;
-    padding: 14px 16px;
+    padding: 14px 40px 14px 16px;
     font-size: 1.05rem;
     border: 2px solid var(--border);
     border-radius: 10px;
@@ -94,6 +94,39 @@
     transition: border-color 0.15s;
   }
   .search-box input:focus { border-color: var(--main); }
+  .combo-toggle {
+    position: absolute;
+    right: 6px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 30px;
+    height: 30px;
+    border: none;
+    background: none;
+    color: var(--sub);
+    font-size: 0.9rem;
+    cursor: pointer;
+    border-radius: 6px;
+  }
+  .combo-toggle:hover { color: var(--main-dark); background: #eef3ec; }
+
+  /* 화살표로 여는 공정서 전체 목록 팝업. 검색 결과(#results)와는 완전히
+     별개의 레이어라서, 이 팝업을 열고 닫아도 검색 결과 카드는 그대로
+     남아 있다. */
+  .combo-dropdown {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    right: 0;
+    z-index: 30;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.15);
+    overflow-y: auto;
+    overflow-x: auto;
+    max-height: 60vh;
+  }
 
   .meta {
     font-size: 0.8rem;
@@ -106,17 +139,18 @@
     flex-direction: column;
     gap: 48px;
     margin-top: 48px;
-    overflow-y: auto;
-    overflow-x: auto;
     margin-bottom: 24px;
-    max-height: calc(100vh - 228px);
   }
+  /* 카드 하나가 길어지면(품목이 많으면) 카드 안에서만 스크롤되고, 맨 위
+     "공정서 (숫자)" 라벨은 sticky로 고정되어 스크롤해도 항상 보인다. */
   .result-group {
     background: var(--card);
     border: 1px solid var(--border);
     border-radius: 10px;
-    overflow: hidden;
+    overflow-y: auto;
+    overflow-x: auto;
     flex: none;
+    max-height: min(480px, 55vh);
   }
   .result-item {
     padding: 12px 16px;
@@ -152,6 +186,9 @@
     font-size: 0.9rem;
   }
   .group-label {
+    position: sticky;
+    top: 0;
+    z-index: 1;
     padding: 10px 16px;
     font-size: 0.9rem;
     font-weight: 700;
@@ -336,6 +373,32 @@
     color: var(--sub);
     cursor: pointer;
   }
+
+  .tab-bar {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 14px;
+  }
+  .tab-btn {
+    flex: 1 1 0;
+    padding: 10px 12px;
+    font-size: 0.92rem;
+    font-weight: 600;
+    border: 2px solid var(--border);
+    background: #fff;
+    color: var(--sub);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s, color 0.15s;
+  }
+  .tab-btn:hover { border-color: var(--main); color: var(--main-dark); }
+  .tab-btn.active {
+    background: var(--main);
+    border-color: var(--main);
+    color: #fff;
+  }
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
 </style>
 </head>
 <body>
@@ -355,10 +418,28 @@
 
 <div class="wrap">
   <div class="left-panel">
-    <div class="search-box">
-      <input type="text" id="searchInput" placeholder="생약명을 입력하세요" autocomplete="off">
+    <div class="tab-bar">
+      <button type="button" class="tab-btn active" id="nameTabBtn" data-tab="nameTab">생약 검색</button>
+      <button type="button" class="tab-btn" id="testTabBtn" data-tab="testTab">시험항목 검색</button>
     </div>
-    <div class="results" id="results" style="display:none;"></div>
+
+    <div class="tab-panel active" id="nameTab">
+      <div class="search-box">
+        <input type="text" id="searchInput" placeholder="생약명을 입력하거나 목록에서 선택하세요" autocomplete="off">
+        <button type="button" class="combo-toggle" id="comboToggle" aria-label="공정서 전체 목록 보기" title="공정서 전체 목록 보기">▾</button>
+        <div class="combo-dropdown" id="comboDropdown" style="display:none;"></div>
+      </div>
+      <div class="results" id="results" style="display:none;"></div>
+    </div>
+
+    <div class="tab-panel" id="testTab">
+      <div class="search-box">
+        <input type="text" id="testItemInput" placeholder="시험항목을 선택하세요" autocomplete="off" readonly>
+        <button type="button" class="combo-toggle" id="testItemToggle" aria-label="시험항목 목록 보기" title="시험항목 목록 보기">▾</button>
+        <div class="combo-dropdown" id="testItemDropdown" style="display:none;"></div>
+      </div>
+      <div class="results" id="testResults" style="display:none;"></div>
+    </div>
   </div>
   <div class="right-panel">
     <div class="detail-placeholder" id="detailPlaceholder">왼쪽에서 생약을 검색하고 선택하세요.</div>
@@ -368,11 +449,204 @@
 
 <script>
 const searchInput = document.getElementById('searchInput');
+const comboToggle = document.getElementById('comboToggle');
+const comboDropdown = document.getElementById('comboDropdown');
 const resultsBox = document.getElementById('results');
 const detailBox = document.getElementById('detail');
 const detailPlaceholder = document.getElementById('detailPlaceholder');
 
 let debounceTimer = null;
+let officialListCache = null;
+// 전체 목록 fetch(599건, 느림)와 타이핑에 의한 검색 fetch(적음, 빠름)가
+// 겹치면 늦게 끝난 쪽이 화면을 덮어써 버릴 수 있다. 매 요청마다 번호를
+// 매겨, 그 사이 더 최신 요청이 시작됐으면 응답이 와도 그리지 않도록 막는다.
+let requestSeq = 0;
+
+async function getOfficialList() {
+  if (!officialListCache) {
+    const res = await fetch('/api/list');
+    officialListCache = await res.json();
+  }
+  return officialListCache;
+}
+
+// 콤보박스 전체 목록에는 국문명만 보여준다(이명, 영문명, 라틴 학명은 뺀다).
+// korean_name에는 "갈화(葛花) 갈조화(葛條花), Pueraria Flower"처럼 이명이
+// 이미 이어붙어 있는 경우가 있어, 이명이 빠진 name_primary를 우선 쓴다.
+function comboRowHtml(it) {
+  const primary = it.name_primary || it.korean_name;
+  return `
+    <div class="result-item" data-id="${it.id}">
+      <span class="rname">${escapeHtml(primary)}${sourceBadge(it.source_tag)}</span>
+    </div>
+  `;
+}
+
+// 화살표로 여는 전체 목록 팝업(comboDropdown)은 검색 결과(#results)와
+// 완전히 분리된 레이어다. 그래서 팝업을 열고 닫아도 이미 표시된 검색
+// 결과 카드는 절대 사라지지 않는다.
+async function showAllOfficial() {
+  const seq = ++requestSeq;
+  const items = await getOfficialList();
+  if (seq !== requestSeq) return;
+  const rows = items.map(comboRowHtml).join('');
+  comboDropdown.innerHTML = `
+    <div class="group-label">공정서 전체 목록 (${items.length})</div>
+    ${rows}
+  `;
+  comboDropdown.querySelectorAll('.result-item').forEach(el => {
+    el.addEventListener('click', () => {
+      const it = items.find(x => String(x.id) === el.dataset.id);
+      if (it) selectComboItem(it);
+    });
+  });
+}
+
+function openComboDropdown() {
+  showAllOfficial();
+  comboDropdown.style.display = 'block';
+}
+
+function closeComboDropdown() {
+  comboDropdown.style.display = 'none';
+}
+
+// 콤보박스에서 품목을 고르면: 드롭다운 목록을 닫고, 검색칸에 한글
+// 생약명만(한자 없이) 채운 다음, 그 이름으로 실제 검색을 실행해
+// 공정서/관능검사해설서 카드에 결과를 보여주고, 고른 품목의 상세를
+// 오른쪽 화면에 표시한다(동명이품목이 있어도 고른 id를 그대로 보여주기
+// 위해 검색 결과와 무관하게 마지막에 다시 확정한다).
+async function selectComboItem(it) {
+  closeComboDropdown();
+  const nameOnly = it.name_only || it.name_primary || it.korean_name;
+  searchInput.value = nameOnly;
+  await doSearch(nameOnly);
+  showDetail(it.id);
+}
+
+comboToggle.addEventListener('click', () => {
+  if (comboDropdown.style.display === 'block') {
+    closeComboDropdown();
+  } else {
+    openComboDropdown();
+  }
+});
+
+// ---- 탭 전환 ----------------------------------------------------------
+const tabButtons = document.querySelectorAll('.tab-btn');
+tabButtons.forEach(btn => {
+  btn.addEventListener('click', () => {
+    tabButtons.forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById(btn.dataset.tab).classList.add('active');
+    closeComboDropdown();
+    closeTestItemDropdown();
+    if (btn.dataset.tab === 'testTab') fitTestResultsHeight();
+  });
+});
+
+// ---- 시험항목 검색 탭 ---------------------------------------------------
+// 확인시험과 순도시험의 하위 항목들을 드롭다운에서 골라, 그 항목이 있는
+// 공정서 품목을 /api/test_item_search 로 찾아 공정서 카드에 표시한다.
+// label은 목록에 보이는 이름, keyword는 실제 검색에 쓰는 낱말이다
+// (예: 목록엔 "이물시험"으로 보이지만, 원문 순도시험 항목에는 "이물"로
+// 적혀 있어서 검색은 "이물"로 한다).
+const TEST_ITEMS = [
+  { label: '확인시험', keyword: '확인시험' },
+  { label: '이물시험', keyword: '이물' },
+  { label: '변패', keyword: '변패' },
+  { label: '잔류농약', keyword: '잔류농약' },
+  { label: '납', keyword: '납' },
+  { label: '비소', keyword: '비소' },
+  { label: '수은', keyword: '수은' },
+  { label: '카드뮴', keyword: '카드뮴' },
+  { label: '이산화황', keyword: '이산화황' },
+  { label: '벤조피렌', keyword: '벤조피렌' },
+  { label: '곰팡이독소', keyword: '곰팡이독소' },
+];
+
+const testItemInput = document.getElementById('testItemInput');
+const testItemToggle = document.getElementById('testItemToggle');
+const testItemDropdown = document.getElementById('testItemDropdown');
+const testResultsBox = document.getElementById('testResults');
+
+// 시험항목 검색결과 카드에는 이명/영문명/학명 등은 빼고 국문명만 보여준다.
+function testResultRowHtml(it) {
+  const primary = it.name_primary || it.korean_name;
+  return `
+    <div class="result-item" data-id="${it.id}">
+      <span class="rname">${escapeHtml(primary)}${sourceBadge(it.source_tag)}</span>
+    </div>
+  `;
+}
+
+function openTestItemDropdown() {
+  testItemDropdown.innerHTML = TEST_ITEMS.map((t, i) => `
+    <div class="result-item" data-idx="${i}">
+      <span class="rname">${escapeHtml(t.label)}</span>
+    </div>
+  `).join('');
+  testItemDropdown.querySelectorAll('.result-item').forEach(el => {
+    el.addEventListener('click', () => selectTestItem(TEST_ITEMS[Number(el.dataset.idx)]));
+  });
+  testItemDropdown.style.display = 'block';
+}
+
+function closeTestItemDropdown() {
+  testItemDropdown.style.display = 'none';
+}
+
+async function selectTestItem(testItem) {
+  closeTestItemDropdown();
+  testItemInput.value = testItem.label;
+  const res = await fetch('/api/test_item_search?item=' + encodeURIComponent(testItem.keyword));
+  const items = await res.json();
+  testResultsBox.style.display = 'flex';
+  const rows = items.length
+    ? items.map(testResultRowHtml).join('')
+    : `<div class="empty-msg">"${escapeHtml(testItem.label)}" 항목이 있는 품목이 없습니다.</div>`;
+  testResultsBox.innerHTML = `
+    <div class="result-group">
+      <div class="group-label">공정서 (${items.length})</div>
+      ${rows}
+    </div>
+  `;
+  testResultsBox.querySelectorAll('.result-item').forEach(el => {
+    el.addEventListener('click', () => showDetail(el.dataset.id));
+  });
+  fitTestResultsHeight();
+}
+
+// 시험항목 검색 결과 카드는 창 크기에 맞춰 세로로 늘어나되, 창 아래끝에서
+// 한 칸(약 48px) 정도는 남기고 그 안에서 카드 자체가 스크롤되게 한다.
+function fitTestResultsHeight() {
+  const group = testResultsBox.querySelector('.result-group');
+  if (!group) return;
+  const top = group.getBoundingClientRect().top;
+  const bottomGap = 48;
+  const height = window.innerHeight - top - bottomGap;
+  group.style.maxHeight = Math.max(160, height) + 'px';
+}
+
+window.addEventListener('resize', fitTestResultsHeight);
+
+testItemToggle.addEventListener('click', () => {
+  if (testItemDropdown.style.display === 'block') {
+    closeTestItemDropdown();
+  } else {
+    openTestItemDropdown();
+  }
+});
+
+testItemInput.addEventListener('click', () => {
+  if (testItemDropdown.style.display !== 'block') openTestItemDropdown();
+});
+
+document.addEventListener('click', (ev) => {
+  if (!ev.target.closest('#nameTab .search-box')) closeComboDropdown();
+  if (!ev.target.closest('#testTab .search-box')) closeTestItemDropdown();
+});
 
 detailBox.addEventListener('click', (ev) => {
   const link = ev.target.closest('.ref-link');
@@ -406,9 +680,10 @@ searchInput.addEventListener('keydown', async (ev) => {
 });
 
 async function doSearch(q) {
+  const seq = ++requestSeq;
   const res = await fetch('/api/search?q=' + encodeURIComponent(q));
   const data = await res.json();
-  renderResults(data, q);
+  if (seq === requestSeq) renderResults(data, q);
   return data;
 }
 
