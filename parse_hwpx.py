@@ -536,12 +536,182 @@ def _build_opcond_children(body_lines):
     return children
 
 
+# 정량법에서 "○ 내부표준액 ~", "○ 시약 ․시액." 처럼 "○"로 시작하는
+# 글머리표. 사향처럼 시약 하나하나에 순도 규격(비선광도/유연물질 등)이
+# 딸려 있는 문서에서, 조작조건과 시약 항목들이 서로를 집어삼키지 않도록
+# 이것도 조작조건/시스템적합성과 같은 층의 구분자로 인정한다.
+_BULLET_MARK_RE = re.compile(r"^○\s*")
+_BULLET_LABEL_RE = re.compile(
+    r"(내부표준액|내부표준용액|표준원액|표준액|검액|대조액|TMS\s*화제|"
+    r"시약\s*[·․,]?\s*시액|시약|시액)"
+)
+
+
+def _split_bullet_label(body: str):
+    """"○"를 뗀 나머지("내부표준액 시클로펜타데카논의...")에서 정량법에
+    관용적으로 쓰이는 짧은 라벨(내부표준액/시약·시액 등)을 찾아
+    ("○ 라벨", 나머지)로 나눈다. 못 찾으면 ("○", 전체)를 그대로 돌려준다."""
+    m = _BULLET_LABEL_RE.match(body)
+    if not m:
+        return "○", body
+    rest = re.sub(r"^[\s:：.]+", "", body[m.end() :])
+    label = re.sub(r"\s+", "", m.group(1))
+    return f"○ {label}", rest.strip()
+
+
+def _split_reagent_line(line: str):
+    """"  l-무스콘, 박층크로마토그래프용  C16H30O  무색 ～ ..." 처럼 "○
+    시약·시액" 아래 들여쓰기로 시작하는 시약 항목 한 줄을 (이름(등급 등),
+    나머지 설명)으로 나눈다. 이름 뒤에 화학식(예: "C16H30O")이 바로 오면
+    그것까지 이름에 포함하고, 화학식이 없으면 "다만," 앞까지, 그것도 없으면
+    첫 이중공백 앞까지를 이름으로 본다. 아래첨자/이탤릭 마커가 화학식
+    문자 사이에 끼어 있으면 정규식이 못 찾으므로, 마커를 뺀 문자열로 찾은
+    다음 원본 문자열 위치로 되돌린다."""
+    stripped, idx_map = _strip_markup_with_map(line)
+    lead_ws = len(stripped) - len(stripped.lstrip())
+    core = stripped[lead_ws:]
+
+    end_in_stripped = None
+    m = _FORMULA_TOKEN_RE.search(core)
+    if m and m.start() <= 40:
+        formula_end = m.end()
+        # "C16H30O"의 마지막 "O"처럼, 화학식 끝에 숫자 없이 원소기호 하나가
+        # 더 붙는 경우까지 포함한다.
+        m_tail = re.match(r"[A-Z][a-z]?(?!\d)", core[formula_end:])
+        if m_tail:
+            formula_end += m_tail.end()
+        end_in_stripped = lead_ws + formula_end
+    else:
+        idx = core.find("다만,")
+        if idx != -1:
+            end_in_stripped = lead_ws + idx
+        else:
+            m2 = _DOUBLE_SPACE_RE.search(core)
+            if m2:
+                end_in_stripped = lead_ws + m2.start()
+
+    if end_in_stripped is None:
+        return line.strip(), ""
+    orig_end = idx_map[end_in_stripped]
+    label = re.sub(r"\s+", " ", line[:orig_end]).strip()
+    rest = line[orig_end:].strip(" .").strip()
+    return label, rest
+
+
+def _build_reagent_children(body_lines):
+    """"○ 시약·시액" 아래에서, 들여쓰기로 시작하는 줄마다 새 시약 항목을
+    만들고, 그 뒤에 들여쓰기 없이 이어지는 줄들(물성/순도 규격 등)을 그
+    시약의 하위 항목으로 묶는다. 그 안에 다시 "조작조건"이 나오면(예:
+    사향의 "정량용" 시약이 통과해야 하는 별도 시험법) 그 뒤의 검출기/칼럼
+    같은 줄들은 조작조건의 하위 항목으로 넣는다."""
+    items = []
+    current = None
+    current_opcond = None
+    for ln in body_lines:
+        if not ln.strip():
+            continue
+        indented = _strip_markup_with_map(ln)[0].startswith("  ")
+        if indented:
+            label, rest = _split_reagent_line(ln)
+            node = {"marker": "", "text": ln.strip(), "children": [], "bold": label, "rest": rest}
+            items.append(node)
+            current = node
+            current_opcond = None
+            continue
+        target = current["children"] if current is not None else items
+        if ln.strip() == "조작조건":
+            opcond_node = {"marker": "", "text": "조작조건", "children": [], "bold": "조작조건", "rest": ""}
+            target.append(opcond_node)
+            current_opcond = opcond_node
+            continue
+        label, rest = _split_colon_line(ln)
+        if not label:
+            label, rest = _split_bold_label(ln)
+        node = (
+            {"marker": "", "text": ln, "children": [], "bold": label, "rest": rest}
+            if label and rest
+            else {"marker": "", "text": ln, "children": []}
+        )
+        (current_opcond["children"] if current_opcond is not None else target).append(node)
+    return items
+
+
+def _split_bullet_sections(lines, bullet_positions):
+    """"○ 내부표준액 ~", "○ 시약·시액." 같은 글머리표 단위로 나눈다. 각
+    글머리표 구간 안에 다시 "조작조건"/"시스템적합성"이 있으면 그 구간의
+    하위 항목으로 한 단계 더 들어가고(예: 사향의 "○ 내부표준액" 아래
+    "조작조건"), "시약·시액" 구간은 들여쓰기로 시작하는 시약 항목 단위로
+    다시 나눈다."""
+    lead = "\n".join(lines[: bullet_positions[0]]).strip("\n")
+    items = []
+    for idx, pos in enumerate(bullet_positions):
+        end = bullet_positions[idx + 1] if idx + 1 < len(bullet_positions) else len(lines)
+        body_after_mark = _BULLET_MARK_RE.sub("", lines[pos].strip())
+        label, rest = _split_bullet_label(body_after_mark)
+        body_lines = lines[pos + 1 : end]
+
+        if "시약" in label or "시액" in label:
+            children = _build_reagent_children(body_lines)
+        else:
+            inner_head_positions = [
+                i for i, ln in enumerate(body_lines) if ln.strip() in _QUANT_SUBHEAD_LABELS
+            ]
+            if inner_head_positions:
+                inner_lead = "\n".join(body_lines[: inner_head_positions[0]]).strip("\n")
+                children = []
+                current_opcond = None
+                for jdx, jpos in enumerate(inner_head_positions):
+                    jend = (
+                        inner_head_positions[jdx + 1]
+                        if jdx + 1 < len(inner_head_positions)
+                        else len(body_lines)
+                    )
+                    jlabel = body_lines[jpos].strip()
+                    jnode = {
+                        "marker": "",
+                        "text": jlabel,
+                        "children": _build_opcond_children(body_lines[jpos + 1 : jend]),
+                        "bold": jlabel,
+                        "rest": "",
+                    }
+                    if jlabel == "조작조건":
+                        children.append(jnode)
+                        current_opcond = jnode
+                    elif current_opcond is not None:
+                        current_opcond["children"].append(jnode)
+                    else:
+                        children.append(jnode)
+                if inner_lead:
+                    rest = f"{rest} {inner_lead}".strip() if rest else inner_lead
+            else:
+                children = []
+                extra = "\n".join(body_lines).strip()
+                if extra:
+                    rest = f"{rest} {extra}".strip() if rest else extra
+
+        items.append(
+            {
+                "marker": "",
+                "text": f"{label} {rest}".strip(),
+                "children": children,
+                "bold": label,
+                "rest": rest,
+            }
+        )
+    return lead, items
+
+
 def _split_opcond_sections(text: str):
-    """텍스트 하나(성분 하나 분량)를 "조작조건"/"시스템적합성" 기준으로
-    (그 앞의 절차 설명, [조작조건/시스템적합성 항목 리스트]) 로 나눈다.
-    두 표시가 전혀 없으면 (text, []) 를 그대로 돌려준다. "시스템적합성"은
-    "조작조건"과 같은 층이 아니라 그 바로 아래 하위 항목으로 들어간다."""
+    """텍스트 하나(성분 하나 분량)를 "조작조건"/"시스템적합성"(및 "○"
+    글머리표가 있으면 그것) 기준으로 (그 앞의 절차 설명, [하위 항목
+    리스트]) 로 나눈다. 표시가 전혀 없으면 (text, []) 를 그대로 돌려준다.
+    "시스템적합성"은 "조작조건"과 같은 층이 아니라 그 바로 아래 하위
+    항목으로 들어간다."""
     lines = text.split("\n")
+    bullet_positions = [i for i, ln in enumerate(lines) if _BULLET_MARK_RE.match(ln.strip())]
+    if bullet_positions:
+        return _split_bullet_sections(lines, bullet_positions)
+
     head_positions = [i for i, ln in enumerate(lines) if ln.strip() in _QUANT_SUBHEAD_LABELS]
     if not head_positions:
         return text, []
@@ -1104,14 +1274,15 @@ def _render_rich_html(text: str) -> str:
             if blocks and blocks[-1][0] == "text":
                 text_idxs = blocks[-1][1]
                 k = len(text_idxs) - 1
-                while (
-                    k >= 0
-                    and lines[text_idxs[k]].strip()
-                    and (
-                        _FORMULA_TOKEN_RE.search(lines[text_idxs[k]])
-                        or _QUANT_LABEL_RE.search(lines[text_idxs[k]])
-                    )
-                ):
+                while k >= 0 and lines[text_idxs[k]].strip():
+                    # 화학식 숫자가 실제 아래첨자 서식(<hh:subscript/>)으로
+                    # 지정된 경우 "C19H20O5" 사이에 마커 문자가 끼어들어
+                    # _FORMULA_TOKEN_RE가 못 찾는다("총 데쿠르신 [...화학식...]
+                    # 및" 처럼 라벨이 두 줄에 걸쳐 있을 때 특히 문제가 된다) -
+                    # 마커를 뺀 문자열로 판정한다.
+                    candidate = _strip_markup_with_map(lines[text_idxs[k]])[0]
+                    if not (_FORMULA_TOKEN_RE.search(candidate) or _QUANT_LABEL_RE.search(candidate)):
+                        break
                     pulled.append(text_idxs[k])
                     k -= 1
                 if pulled:
@@ -1205,6 +1376,77 @@ def _enrich_item_html(items):
             it["text_html"] = _render_rich_html(it.get("text", ""))
         if it.get("children"):
             _enrich_item_html(it["children"])
+
+
+def _build_section_items(label, text):
+    """라벨(순도시험/정량법/확인시험/성상)에 맞는 계층 파서로 items를
+    만든다. 못 찾으면 빈 리스트."""
+    if label in ("순도시험", "정량법"):
+        items = _parse_deep_numbered_hierarchy(text) if _has_deep_markers(text) else []
+        if not items and label == "정량법":
+            items = _parse_quantitation_hierarchy(text)
+        if not items:
+            items = _parse_numbered_hierarchy(text, bold_labels=True)
+        if not items:
+            # "1)" 같은 번호가 전혀 없어도 "중금속  이 약의 가루 ~" 처럼
+            # "라벨 + 설명" 한 문장뿐인 섹션이 있다(예: 자석). 이런 경우
+            # 그 라벨을 표시 없는 하위 항목 하나로 인식한다.
+            b, rest = _split_section_label(text)
+            if b and rest:
+                node = {"marker": "", "text": text, "children": [], "bold": b, "rest": rest}
+                ref_name = _detect_purity_reference(text)
+                if ref_name:
+                    node["ref_name"] = ref_name
+                items = [node]
+        return items
+    if label == "확인시험":
+        return _parse_numbered_hierarchy(text)
+    if label == "성상":
+        items = _parse_seongsang_blocks(text)
+        return items if len(items) >= 2 else []
+    return []
+
+
+def _finalize_sections(sections):
+    """항목(entry)의 섹션 리스트를 마무리한다.
+
+    사향처럼 정량법 안에서 시약의 순도 규격을 설명하려고 "순도시험"이라는
+    항목명을 재사용하는 문서가 있다 - 이걸 원문 서식만으로는 새 섹션과
+    구분할 수 없어서, 우선은 늘 새 섹션으로 나뉜다. 이미 진짜 순도시험
+    섹션이 앞에 있는데 정량법 뒤에 "순도시험"이 또 나오면, 그건 새 섹션이
+    아니라 정량법에 딸린 내용이므로 정량법에 도로 합친다. 이 판단은 모든
+    섹션의 라벨을 다 본 뒤에야 할 수 있으므로, html/items 계산은 여기서
+    (합칠 건 합친 다음) 한 번에 한다."""
+    seen_real_purity = False
+    seen_quant = False
+    merged = []
+    for sec in sections:
+        label = sec["label"]
+        if label == "순도시험" and seen_quant and seen_real_purity and merged:
+            merged[-1]["text"] = (merged[-1]["text"] + "\n" + sec["text"]).strip()
+            continue
+        if label == "순도시험" and not seen_quant:
+            seen_real_purity = True
+        if label == "정량법":
+            seen_quant = True
+        merged.append(sec)
+
+    for section in merged:
+        label = section["label"]
+        text = section["text"]
+        section["html"] = _render_rich_html(text)
+        items = _build_section_items(label, text)
+        if items:
+            _enrich_item_html(items)
+            section["items"] = items
+        else:
+            # "1)" 같은 목록 표시가 없어 계층화되지 않은 섹션이라도(예:
+            # "대한민국약전 「두충」의 순도시험 1) 에 따른다." 한 문장뿐인
+            # 경우), 다른 생약 참조는 감지해서 링크를 만들 수 있게 한다.
+            ref_name = _detect_purity_reference(text)
+            if ref_name:
+                section["ref_name"] = ref_name
+    return merged
 
 
 _KNOWN_HEADER_LABELS = {
@@ -1431,45 +1673,9 @@ def parse_hwpx_bytes_sections(
                 cleaned.pop()
             label = current_section["label"]
             text = "\n".join(cleaned)
-            section = {"label": label, "text": text, "html": _render_rich_html(text)}
-            if label in ("순도시험", "정량법"):
-                items = _parse_deep_numbered_hierarchy(text) if _has_deep_markers(text) else []
-                if not items and label == "정량법":
-                    items = _parse_quantitation_hierarchy(text)
-                if not items:
-                    items = _parse_numbered_hierarchy(text, bold_labels=True)
-                if not items:
-                    # "1)" 같은 번호가 전혀 없어도 "중금속  이 약의 가루 ~"
-                    # 처럼 "라벨 + 설명" 한 문장뿐인 섹션이 있다(예: 자석).
-                    # 이런 경우 그 라벨을 표시 없는 하위 항목 하나로 인식한다.
-                    b, rest = _split_section_label(text)
-                    if b and rest:
-                        node = {"marker": "", "text": text, "children": [], "bold": b, "rest": rest}
-                        ref_name = _detect_purity_reference(text)
-                        if ref_name:
-                            node["ref_name"] = ref_name
-                        items = [node]
-                if items:
-                    _enrich_item_html(items)
-                    section["items"] = items
-            elif label == "확인시험":
-                items = _parse_numbered_hierarchy(text)
-                if items:
-                    _enrich_item_html(items)
-                    section["items"] = items
-            elif label == "성상":
-                items = _parse_seongsang_blocks(text)
-                if len(items) >= 2:
-                    _enrich_item_html(items)
-                    section["items"] = items
-            if "items" not in section:
-                # "1)" 같은 목록 표시가 없어 계층화되지 않은 섹션이라도(예:
-                # "대한민국약전 「두충」의 순도시험 1) 에 따른다." 한 문장뿐인
-                # 경우), 다른 생약 참조는 감지해서 링크를 만들 수 있게 한다.
-                ref_name = _detect_purity_reference(text)
-                if ref_name:
-                    section["ref_name"] = ref_name
-            entry["sections"].append(section)
+            # html/items 계산은 _finalize_sections 에서 (필요하면 순도시험
+            # 재사용 섹션을 정량법에 합친 다음) 한꺼번에 한다.
+            entry["sections"].append({"label": label, "text": text})
         current_section = None
 
     def close_entry():
@@ -1478,6 +1684,7 @@ def parse_hwpx_bytes_sections(
         if entry is not None:
             _finalize_title(entry, title_lines)
             entry["definition"] = entry["definition"].strip()
+            entry["sections"] = _finalize_sections(entry["sections"])
             if entry["korean_name"] or entry["sections"]:
                 entries.append(entry)
         entry = None
