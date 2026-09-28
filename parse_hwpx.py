@@ -1332,7 +1332,15 @@ def _render_rich_html(text: str) -> str:
                     # 및" 처럼 라벨이 두 줄에 걸쳐 있을 때 특히 문제가 된다) -
                     # 마커를 뺀 문자열로 판정한다.
                     candidate = _strip_markup_with_map(lines[text_idxs[k]])[0]
-                    if not (_FORMULA_TOKEN_RE.search(candidate) or _QUANT_LABEL_RE.search(candidate)):
+                    # 라벨 줄은 항상 짧다("에스트라골 (C10H12O)의 양(mg)" 등).
+                    # 길이 제한이 없으면 화학식 토큰을 "지나가는 말로" 언급한
+                    # 긴 서술 문단(예: "...에스트라골(C10H12O : 148.20)이
+                    # 10.0 % 이하이다." 로 끝나는 절차 설명)까지 수식줄
+                    # 라벨로 잘못 끌려 들어와 그 문단 전체가 가운데 정렬되어
+                    # 버린다.
+                    if len(candidate) > 80 or not (
+                        _FORMULA_TOKEN_RE.search(candidate) or _QUANT_LABEL_RE.search(candidate)
+                    ):
                         break
                     pulled.append(text_idxs[k])
                     k -= 1
