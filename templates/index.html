@@ -505,11 +505,24 @@ async function showAllOfficial() {
 function openComboDropdown() {
   showAllOfficial();
   comboDropdown.style.display = 'block';
+  fitComboDropdownHeight();
 }
 
 function closeComboDropdown() {
   comboDropdown.style.display = 'none';
 }
+
+// 공정서 전체 목록 팝업도 창 크기에 맞춰 세로로 늘어나되, 창 아래끝에서
+// 한 칸(약 48px) 정도는 남기고 그 안에서 스크롤되게 한다.
+function fitComboDropdownHeight() {
+  if (comboDropdown.style.display !== 'block') return;
+  const top = comboDropdown.getBoundingClientRect().top;
+  const bottomGap = 48;
+  const height = window.innerHeight - top - bottomGap;
+  comboDropdown.style.maxHeight = Math.max(160, height) + 'px';
+}
+
+window.addEventListener('resize', fitComboDropdownHeight);
 
 // 콤보박스에서 품목을 고르면: 드롭다운 목록을 닫고, 검색칸에 한글
 // 생약명만(한자 없이) 채운 다음, 그 이름으로 실제 검색을 실행해
@@ -554,6 +567,7 @@ tabButtons.forEach(btn => {
 // 적혀 있어서 검색은 "이물"로 한다).
 const TEST_ITEMS = [
   { label: '확인시험', keyword: '확인시험' },
+  { label: '정량법', keyword: '정량법' },
   { label: '이물시험', keyword: '이물' },
   { label: '변패', keyword: '변패' },
   { label: '잔류농약', keyword: '잔류농약' },
@@ -817,7 +831,7 @@ function renderItemText(it) {
 function renderItemList(items) {
   const lis = items.map(it => `
     <li>
-      ${it.marker ? `<span class="item-marker">${escapeHtml(it.marker)}</span>` : ''}
+      ${it.marker ? `<span class="item-marker">${it.marker_html !== undefined ? it.marker_html : escapeHtml(it.marker)}</span>` : ''}
       <span class="item-text">${renderItemText(it)}</span>
       ${it.children && it.children.length ? renderItemList(it.children) : ''}
     </li>
