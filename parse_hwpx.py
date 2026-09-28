@@ -66,9 +66,14 @@ _EQ_SUB_L, _EQ_SUB_R = "\x02", "\x03"
 
 def _convert_equation(script_text: str) -> str:
     """hwpx 수식 스크립트를 아래첨자 마커가 포함된 텍스트로 변환한다.
-    예: "{A  _{rm Ta}} over {A  _{rm Sa}}" -> "A  \\x02Ta\\x03 / A  \\x02Sa\\x03"
+    예: "{A  _{rm Ta}} over {A  _{rm Sa}}" -> "A\\x02Ta\\x03 / A\\x02Sa\\x03"
     """
     s = script_text or ""
+
+    # "ALPHA"는 그리스 대문자 알파(Α)를 가리키는 수식 키워드인데, 이 서체에서는
+    # 라틴 대문자 "A"와 구분 없이 똑같이 보인다. 원문 의도대로 "A"로 바꾼다
+    # (그대로 두면 "AT" 앞에 글자 그대로의 "ALPHA"가 붙어 나온다).
+    s = re.sub(r"\bALPHA\b", "A", s)
 
     def _sub_repl(m):
         inner = m.group(1)
@@ -77,7 +82,9 @@ def _convert_equation(script_text: str) -> str:
         inner = re.sub(r"\s+", "", inner).strip()
         return _EQ_SUB_L + inner + _EQ_SUB_R if inner else ""
 
-    s = re.sub(r"_\{([^{}]*)\}", _sub_repl, s)
+    # 밑변수와 "_{...}" 사이의 공백까지 함께 지워서, 렌더링됐을 때
+    # "A" 와 아래첨자 사이에 불필요한 틈이 생기지 않게 한다.
+    s = re.sub(r"[ \t]*_\{([^{}]*)\}", _sub_repl, s)
     s = re.sub(r"\s+over\s+", " / ", s)
     s = s.replace("{", "").replace("}", "")
     s = s.replace("_", "")  # 위 패턴으로 잡히지 않은 잔여 "_" (빈 수식 등) 제거
@@ -85,12 +92,23 @@ def _convert_equation(script_text: str) -> str:
     return s
 
 
-def _cell_text(tc_elem):
-    text = "".join(tc_elem.itertext())
+def _cell_text(tc_elem, subscript_charpr_ids=frozenset()):
+    """표 셀의 텍스트를 모은다. 셀 안의 run이 아래첨자 서식(charPr)을 쓰면
+    그 부분을 나중에 <sub>로 바꿀 수 있도록 마커로 감싼다(예: "벤조피렌-d12"에서
+    "12"만 별도 run으로 아래첨자 지정된 경우)."""
+    parts = []
+    for run in tc_elem.iter(f"{{{NS['hp']}}}run"):
+        is_sub = run.get("charPrIDRef") in subscript_charpr_ids
+        for t in run.findall("hp:t", NS):
+            text = "".join(t.itertext())
+            if not text:
+                continue
+            parts.append(_EQ_SUB_L + text + _EQ_SUB_R if is_sub else text)
+    text = "".join(parts)
     return re.sub(r"\s+", " ", text).strip()
 
 
-def _table_to_text(tbl_elem):
+def _table_to_text(tbl_elem, subscript_charpr_ids=frozenset()):
     """<hp:tbl> 표를 "셀 | 셀 | 셀" 형태의 여러 줄 텍스트로 변환한다.
     세로로 병합된(rowSpan>1) 셀은 그 아래 행의 XML에 아예 다시 나오지
     않으므로, 셀 순서만 보고 이어붙이면 그 행의 나머지 값들이 왼쪽으로
@@ -108,7 +126,7 @@ def _table_to_text(tbl_elem):
             col = int(addr.get("colAddr")) if addr is not None and addr.get("colAddr") else len(row)
             while len(row) <= col:
                 row.append("")
-            row[col] = _cell_text(tc)
+            row[col] = _cell_text(tc, subscript_charpr_ids)
         rows_cells.append(row)
         max_cols = max(max_cols, len(row))
 
@@ -120,7 +138,13 @@ def _table_to_text(tbl_elem):
     return "\n".join(rows)
 
 
-def _paragraph_segments(p_elem, header_style_ids, subheader_style_ids=frozenset(), bold_charpr_ids=frozenset()):
+def _paragraph_segments(
+    p_elem,
+    header_style_ids,
+    subheader_style_ids=frozenset(),
+    bold_charpr_ids=frozenset(),
+    subscript_charpr_ids=frozenset(),
+):
     """
     <hp:p> 하나를 순서대로 훑어서
     [("header", "성상"), ("text", " "), ("text", "이 약은 ...")] 같은
@@ -140,6 +164,7 @@ def _paragraph_segments(p_elem, header_style_ids, subheader_style_ids=frozenset(
         # "비중 : 5.17 ～ 5.18" 처럼 그냥 본문에 항목명과 같은 단어가 나올 때
         # 헤더로 오인하지 않는다.
         run_is_bold = run.get("charPrIDRef") in bold_charpr_ids
+        run_is_subscript = run.get("charPrIDRef") in subscript_charpr_ids
         for child in run:
             tag = _local(child.tag)
             if tag == "t":
@@ -163,13 +188,18 @@ def _paragraph_segments(p_elem, header_style_ids, subheader_style_ids=frozenset(
                 else:
                     if char_style in subheader_style_ids:
                         has_subheader = True
+                    # "AS"/"AIS"/"ASAM"/"ASAMIS" 처럼 "A" 뒤에 아래첨자 서식
+                    # (charPr의 <hh:subscript/>)만 지정된 run이 있다 - 원문
+                    # 서식 그대로 마커로 감싸서 나중에 <sub>로 렌더링한다.
+                    if run_is_subscript:
+                        text = _EQ_SUB_L + text + _EQ_SUB_R
                     segments.append(("text", text))
             elif tag == "equation":
                 script = child.find("hp:script", NS)
                 if script is not None and script.text:
                     segments.append(("text", _convert_equation(script.text)))
             elif tag == "tbl":
-                table_text = _table_to_text(child)
+                table_text = _table_to_text(child, subscript_charpr_ids)
                 if table_text:
                     segments.append(("text", "\n" + table_text + "\n"))
     return segments, has_subheader
@@ -1205,6 +1235,23 @@ def _detect_bold_charpr_ids(header_xml_bytes):
     return ids
 
 
+def _detect_subscript_charpr_ids(header_xml_bytes):
+    """header.xml 의 문자 모양(charPr) 카탈로그에서 <hh:subscript/> 가 붙은 id를
+    모은다. "AS"/"AIS"/"ASAM"/"ASAMIS"나 "벤조피렌-d12"의 "12"처럼, 원문에서
+    이미 실제 아래첨자 서식으로 지정해 둔 run을 그대로 활용하기 위함이다."""
+    ids = set()
+    try:
+        root = ET.fromstring(header_xml_bytes)
+    except ET.ParseError:
+        return ids
+    for charpr in root.findall(".//hh:charPr", NS):
+        if charpr.find("hh:subscript", NS) is not None:
+            cid = charpr.get("id")
+            if cid:
+                ids.add(cid)
+    return ids
+
+
 _DEFINITION_STARTERS = ("이 약은", "이것은", "본품은", "이 제제는", "이 약의")
 
 
@@ -1219,6 +1266,7 @@ def parse_hwpx_bytes_sections(
     subheader_style_ids=None,
     italic_charpr_ids=None,
     bold_charpr_ids=None,
+    subscript_charpr_ids=None,
 ):
     """여러 section*.xml 바이트를 순서대로 이어붙여 파싱한다."""
     if not header_style_ids:
@@ -1229,6 +1277,8 @@ def parse_hwpx_bytes_sections(
         italic_charpr_ids = frozenset()
     if not bold_charpr_ids:
         bold_charpr_ids = frozenset()
+    if not subscript_charpr_ids:
+        subscript_charpr_ids = frozenset()
 
     # --- 1단계: 빈 문단을 걸러내고, 각 문단을 미리 분석해 둔다. ---------------
     flat = []
@@ -1238,7 +1288,9 @@ def parse_hwpx_bytes_sections(
         # 각주/텍스트상자 등에 중첩된 <hp:p> 까지 끼어들어 본문 중간에
         # 엉뚱한 줄바꿈이 섞여 들어가므로, 문서 흐름과 동일한 직계 자식만 사용한다.
         for p in root.findall("hp:p", NS):
-            segments, has_subheader = _paragraph_segments(p, header_style_ids, subheader_style_ids, bold_charpr_ids)
+            segments, has_subheader = _paragraph_segments(
+                p, header_style_ids, subheader_style_ids, bold_charpr_ids, subscript_charpr_ids
+            )
             plain_text = "".join(t for k, t in segments if k == "text").strip()
             has_header = any(k == "header" for k, _ in segments)
             if not plain_text and not has_header:
@@ -1467,12 +1519,14 @@ def parse_hwpx(path):
         subheader_style_ids = set()
         italic_charpr_ids = set()
         bold_charpr_ids = set()
+        subscript_charpr_ids = set()
         if "Contents/header.xml" in zf.namelist():
             header_xml_bytes = zf.read("Contents/header.xml")
             header_style_ids = _detect_named_char_style_ids(header_xml_bytes, "항목명")
             subheader_style_ids = _detect_named_char_style_ids(header_xml_bytes, "소항목명")
             italic_charpr_ids = _detect_italic_charpr_ids(header_xml_bytes)
             bold_charpr_ids = _detect_bold_charpr_ids(header_xml_bytes)
+            subscript_charpr_ids = _detect_subscript_charpr_ids(header_xml_bytes)
 
         # 스타일 이름표(예: "항목명")로 못 찾았거나 실제 본문 사용과 어긋날 수
         # 있으므로, 표준 항목명 어휘가 실제로 어떤 스타일을 쓰는지 본문에서
@@ -1484,7 +1538,12 @@ def parse_hwpx(path):
             header_style_ids = DEFAULT_HEADER_STYLE_IDS
 
     return parse_hwpx_bytes_sections(
-        section_bytes, header_style_ids, subheader_style_ids, italic_charpr_ids, bold_charpr_ids
+        section_bytes,
+        header_style_ids,
+        subheader_style_ids,
+        italic_charpr_ids,
+        bold_charpr_ids,
+        subscript_charpr_ids,
     )
 
 
