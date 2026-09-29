@@ -1,0 +1,237 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -60 650 860" width="650" height="860">
+  <!-- 생약 검색 시작화면 배경 그림: 감수·청상자·상륙·서봄화 네 품목의
+       실제 형태(잎맥·꽃차례·열매 배열·뿌리 모양)를 최대한 사실적으로
+       살려 그린 원본 라인아트. 색은 넣지 않고 사이트 포인트 컬러 한
+       가지 톤(윤곽선 + 옅은 동색 채움)만 사용한다. -->
+  <g fill="none" stroke="#2f6f4f" stroke-linecap="round" stroke-linejoin="round" opacity="0.38">
+
+    <!-- ============ ① 감수: 우산모양으로 갈라지는 줄기, 배상꽃차례, 뒤틀린 뿌리 ============ -->
+    <g transform="translate(30,10)">
+      <path d="M58 320 C62 280 56 240 66 205 C74 178 84 160 90 132" stroke-width="3.4"/>
+
+      <!-- 잎(피침형, 잎맥 포함) -->
+      <g stroke-width="1.5">
+        <path d="M66 205 C48 202 34 210 18 202 C22 188 34 182 48 186 C58 190 64 198 66 205 Z" fill="#2f6f4f" fill-opacity="0.16"/>
+        <path d="M64 200 L24 196" stroke-width="0.8"/>
+        <path d="M78 168 C94 162 104 168 118 160 C114 146 100 142 88 148 C80 152 76 160 78 168 Z" fill="#2f6f4f" fill-opacity="0.16"/>
+        <path d="M82 162 L112 156" stroke-width="0.8"/>
+        <path d="M60 258 C42 254 28 262 12 254 C16 240 28 234 42 238 C52 242 58 250 60 258 Z" fill="#2f6f4f" fill-opacity="0.16"/>
+      </g>
+
+      <!-- 우산모양꽃차례: 중심에서 여러 갈래로 갈라짐 -->
+      <path d="M90 132 C74 110 54 100 34 78" stroke-width="2"/>
+      <path d="M90 132 C104 108 126 98 140 72" stroke-width="2"/>
+      <path d="M90 132 C90 106 96 84 90 58" stroke-width="2"/>
+      <path d="M34 78 C24 58 24 40 12 22" stroke-width="1.6"/>
+      <path d="M34 78 C46 62 56 54 64 36" stroke-width="1.6"/>
+      <path d="M140 72 C142 50 154 36 150 14" stroke-width="1.6"/>
+      <path d="M140 72 C156 60 168 56 180 40" stroke-width="1.6"/>
+      <path d="M90 58 C82 40 84 24 74 8" stroke-width="1.6"/>
+      <path d="M90 58 C98 42 108 34 112 16" stroke-width="1.6"/>
+
+      <!-- 배상꽃차례(술잔 모양 포배 + 작은 선체) -->
+      <g stroke-width="1.2">
+        <g transform="translate(12,22)">
+          <path d="M-8 0 C-8 8 -3 14 0 14 C3 14 8 8 8 0 C8 -6 3 -10 0 -10 C-3 -10 -8 -6 -8 0 Z" fill="#2f6f4f" fill-opacity="0.22"/>
+          <path d="M-10 -2 C-14 -8 -12 -14 -16 -18" stroke-width="1"/>
+          <path d="M10 -2 C14 -8 12 -14 16 -18" stroke-width="1"/>
+        </g>
+        <g transform="translate(64,36)">
+          <path d="M-8 0 C-8 8 -3 14 0 14 C3 14 8 8 8 0 C8 -6 3 -10 0 -10 C-3 -10 -8 -6 -8 0 Z" fill="#2f6f4f" fill-opacity="0.22"/>
+          <path d="M-10 -2 C-14 -8 -12 -14 -16 -18" stroke-width="1"/>
+        </g>
+        <g transform="translate(150,14)">
+          <path d="M-8 0 C-8 8 -3 14 0 14 C3 14 8 8 8 0 C8 -6 3 -10 0 -10 C-3 -10 -8 -6 -8 0 Z" fill="#2f6f4f" fill-opacity="0.22"/>
+          <path d="M10 -2 C14 -8 12 -14 16 -18" stroke-width="1"/>
+        </g>
+        <g transform="translate(180,40)">
+          <path d="M-8 0 C-8 8 -3 14 0 14 C3 14 8 8 8 0 C8 -6 3 -10 0 -10 C-3 -10 -8 -6 -8 0 Z" fill="#2f6f4f" fill-opacity="0.22"/>
+        </g>
+        <g transform="translate(74,8)">
+          <path d="M-8 0 C-8 8 -3 14 0 14 C3 14 8 8 8 0 C8 -6 3 -10 0 -10 C-3 -10 -8 -6 -8 0 Z" fill="#2f6f4f" fill-opacity="0.22"/>
+        </g>
+        <g transform="translate(112,16)">
+          <path d="M-8 0 C-8 8 -3 14 0 14 C3 14 8 8 8 0 C8 -6 3 -10 0 -10 C-3 -10 -8 -6 -8 0 Z" fill="#2f6f4f" fill-opacity="0.22"/>
+        </g>
+      </g>
+
+      <!-- 뒤틀린 뿌리(양끝 가늘고 가운데가 굵은 구근형, 주름 표시) -->
+      <g stroke-width="2.2">
+        <path d="M120 342 C104 330 100 314 112 300 C128 288 156 288 178 298
+                 C198 306 210 300 224 306 C236 312 234 326 220 330
+                 C200 336 178 326 158 328 C140 330 132 338 120 342 Z"
+              fill="#2f6f4f" fill-opacity="0.14"/>
+        <path d="M128 306 C140 310 150 316 162 314" stroke-width="1"/>
+        <path d="M150 300 C162 306 172 312 184 312" stroke-width="1"/>
+        <path d="M180 302 C192 308 200 312 210 316" stroke-width="1"/>
+      </g>
+    </g>
+
+    <!-- ============ ② 청상자: 좁고 긴 잎, 원통형 꽃이삭(비늘무늬), 씨앗 ============ -->
+    <g transform="translate(380,0)">
+      <path d="M46 320 C48 250 44 180 50 108" stroke-width="3.2"/>
+      <path d="M50 108 C46 78 52 48 46 16" stroke-width="2.6"/>
+      <path d="M50 108 C68 84 74 58 88 26" stroke-width="2.4"/>
+      <path d="M50 108 C32 82 24 56 8 28" stroke-width="2.4"/>
+
+      <!-- 뿌리쪽 좁고 긴 잎 -->
+      <g stroke-width="1.4">
+        <path d="M48 280 C28 272 10 278 -10 264 C-6 250 10 246 26 252 C40 258 46 270 48 280 Z" fill="#2f6f4f" fill-opacity="0.16"/>
+        <path d="M44 274 L2 260" stroke-width="0.7"/>
+        <path d="M46 250 C26 242 10 246 -8 232 C-2 220 14 216 30 222 C42 228 46 240 46 250 Z" fill="#2f6f4f" fill-opacity="0.16"/>
+        <path d="M50 300 C68 290 84 292 100 278 C96 264 80 262 66 270 C56 276 50 290 50 300 Z" fill="#2f6f4f" fill-opacity="0.16"/>
+        <path d="M48 226 C64 216 78 216 92 202 C86 190 72 190 60 198 C52 204 48 216 48 226 Z" fill="#2f6f4f" fill-opacity="0.16"/>
+      </g>
+
+      <!-- 원통형 꽃이삭(비늘처럼 겹친 결 표시) -->
+      <g stroke-width="1.1">
+        <path d="M46 16 C38 -8 38 -36 46 -62 C54 -36 54 -8 46 16 Z" fill="#2f6f4f" fill-opacity="0.2"/>
+        <path d="M40 4 C42 -2 50 -2 52 4" stroke-width="0.8"/>
+        <path d="M39 -10 C42 -16 50 -16 53 -10" stroke-width="0.8"/>
+        <path d="M39 -24 C42 -30 50 -30 53 -24" stroke-width="0.8"/>
+        <path d="M40 -38 C43 -44 49 -44 52 -38" stroke-width="0.8"/>
+        <path d="M41 -50 C43 -55 49 -55 51 -50" stroke-width="0.8"/>
+
+        <path d="M88 26 C82 0 84 -26 94 -48 C104 -24 104 2 96 26 Z" fill="#2f6f4f" fill-opacity="0.2"/>
+        <path d="M83 14 C86 8 94 8 96 14" stroke-width="0.8"/>
+        <path d="M82 0 C85 -6 93 -6 96 0" stroke-width="0.8"/>
+        <path d="M83 -14 C86 -20 94 -20 97 -14" stroke-width="0.8"/>
+        <path d="M85 -28 C88 -33 94 -33 97 -28" stroke-width="0.8"/>
+
+        <path d="M8 28 C0 4 0 -22 10 -42 C20 -20 20 4 14 28 Z" fill="#2f6f4f" fill-opacity="0.2"/>
+        <path d="M3 16 C6 10 14 10 16 16" stroke-width="0.8"/>
+        <path d="M2 2 C5 -4 13 -4 16 2" stroke-width="0.8"/>
+        <path d="M3 -12 C6 -18 14 -18 17 -12" stroke-width="0.8"/>
+      </g>
+
+      <!-- 씨앗(납작한 렌즈형) -->
+      <g fill="#2f6f4f" fill-opacity="0.85" stroke="#2f6f4f" stroke-width="0.6">
+        <ellipse cx="-36" cy="150" rx="5" ry="4" transform="rotate(20 -36 150)"/>
+        <ellipse cx="-22" cy="160" rx="5" ry="4" transform="rotate(-10 -22 160)"/>
+        <ellipse cx="-40" cy="172" rx="5" ry="4" transform="rotate(30 -40 172)"/>
+        <ellipse cx="-24" cy="182" rx="5" ry="4" transform="rotate(-5 -24 182)"/>
+      </g>
+    </g>
+
+    <!-- ============ ③ 상륙: 뾰족한 타원잎(잎맥) + 늘어진 열매송이(꽃자루 포함) ============ -->
+    <g transform="translate(60,420)">
+      <path d="M20 320 C56 284 64 254 100 226 C126 206 138 190 160 162" stroke-width="4"/>
+      <path d="M100 226 C122 204 140 196 156 172" stroke-width="3"/>
+      <circle cx="100" cy="226" r="3" fill="#2f6f4f"/>
+      <circle cx="156" cy="172" r="3" fill="#2f6f4f"/>
+
+      <!-- 뾰족한 타원형 잎(측맥 포함) -->
+      <g stroke-width="1.8">
+        <path d="M96 232 C74 216 46 220 32 242 C24 262 38 282 66 288 C90 292 108 280 112 260
+                 C114 248 108 238 96 232 Z" fill="#2f6f4f" fill-opacity="0.15"/>
+        <path d="M50 236 L96 278" stroke-width="0.9"/>
+        <path d="M58 240 L66 254" stroke-width="0.7"/>
+        <path d="M68 252 L78 266" stroke-width="0.7"/>
+        <path d="M78 264 L90 276" stroke-width="0.7"/>
+
+        <path d="M154 178 C132 162 104 166 90 188 C82 208 96 228 124 234 C148 238 166 226 170 206
+                 C172 194 166 184 154 178 Z" fill="#2f6f4f" fill-opacity="0.15"/>
+        <path d="M108 182 L154 224" stroke-width="0.9"/>
+        <path d="M116 186 L124 200" stroke-width="0.7"/>
+        <path d="M126 198 L136 212" stroke-width="0.7"/>
+
+        <path d="M198 128 C176 112 148 116 134 138 C126 158 140 178 168 184 C192 188 210 176 214 156
+                 C216 144 210 134 198 128 Z" fill="#2f6f4f" fill-opacity="0.15"/>
+        <path d="M152 132 L198 174" stroke-width="0.9"/>
+      </g>
+
+      <!-- 늘어진 열매송이(작은 꽃자루로 축에 연결) -->
+      <path d="M102 238 C94 262 100 288 88 316" stroke-width="2"/>
+      <g stroke-width="1">
+        <path d="M92 250 L102 252"/><circle cx="90" cy="250" r="5" fill="#2f6f4f" fill-opacity="0.85"/>
+        <path d="M86 262 L98 262"/><circle cx="84" cy="262" r="5" fill="#2f6f4f" fill-opacity="0.85"/>
+        <path d="M92 276 L102 276"/><circle cx="90" cy="276" r="5" fill="#2f6f4f" fill-opacity="0.85"/>
+        <path d="M84 290 L96 290"/><circle cx="82" cy="290" r="5" fill="#2f6f4f" fill-opacity="0.85"/>
+        <path d="M90 304 L100 304"/><circle cx="88" cy="304" r="5" fill="#2f6f4f" fill-opacity="0.85"/>
+      </g>
+      <path d="M160 182 C152 208 160 234 148 260" stroke-width="2"/>
+      <g stroke-width="1">
+        <path d="M150 196 L160 198"/><circle cx="148" cy="196" r="5" fill="#2f6f4f" fill-opacity="0.85"/>
+        <path d="M144 210 L156 210"/><circle cx="142" cy="210" r="5" fill="#2f6f4f" fill-opacity="0.85"/>
+        <path d="M150 224 L160 224"/><circle cx="148" cy="224" r="5" fill="#2f6f4f" fill-opacity="0.85"/>
+        <path d="M142 238 L154 238"/><circle cx="140" cy="238" r="5" fill="#2f6f4f" fill-opacity="0.85"/>
+      </g>
+    </g>
+
+    <!-- ============ ④ 서봄화: 피침형 잎, 여러 송이 두상화, 수염뿌리 ============ -->
+    <g transform="translate(360,420)">
+      <path d="M44 320 C48 260 42 200 50 140 C54 108 64 84 62 46" stroke-width="3.4"/>
+
+      <!-- 피침형 잎(잎맥 포함) -->
+      <g stroke-width="1.5">
+        <path d="M50 140 C68 132 78 130 94 118 C90 104 76 102 64 110 C54 116 48 128 50 140 Z" fill="#2f6f4f" fill-opacity="0.16"/>
+        <path d="M56 132 L88 116" stroke-width="0.7"/>
+        <path d="M48 180 C30 172 18 174 2 164 C6 150 22 148 36 156 C46 162 50 172 48 180 Z" fill="#2f6f4f" fill-opacity="0.16"/>
+        <path d="M42 172 L10 160" stroke-width="0.7"/>
+        <path d="M50 220 C68 212 78 210 94 198 C90 184 76 182 64 190 C54 196 48 208 50 220 Z" fill="#2f6f4f" fill-opacity="0.16"/>
+        <path d="M44 260 C26 252 14 254 -2 244 C2 230 18 228 32 236 C42 242 46 252 44 260 Z" fill="#2f6f4f" fill-opacity="0.16"/>
+      </g>
+
+      <path d="M62 46 C50 34 48 24 38 10" stroke-width="1.8"/>
+      <path d="M62 46 C74 36 82 28 94 16" stroke-width="1.8"/>
+
+      <!-- 두상화(선형 설상화 + 통상화 중심) : 세 송이, 크기를 달리해 자연스럽게 -->
+      <g>
+        <g transform="translate(38,10)">
+          <g stroke-width="1.1">
+            <path d="M0 -8 C-2 -18 -2 -30 0 -40 C2 -30 2 -18 0 -8 Z"/>
+            <path d="M0 -8 C-2 -18 -2 -30 0 -40 C2 -30 2 -18 0 -8 Z" transform="rotate(40)"/>
+            <path d="M0 -8 C-2 -18 -2 -30 0 -40 C2 -30 2 -18 0 -8 Z" transform="rotate(80)"/>
+            <path d="M0 -8 C-2 -18 -2 -30 0 -40 C2 -30 2 -18 0 -8 Z" transform="rotate(120)"/>
+            <path d="M0 -8 C-2 -18 -2 -30 0 -40 C2 -30 2 -18 0 -8 Z" transform="rotate(160)"/>
+            <path d="M0 -8 C-2 -18 -2 -30 0 -40 C2 -30 2 -18 0 -8 Z" transform="rotate(200)"/>
+            <path d="M0 -8 C-2 -18 -2 -30 0 -40 C2 -30 2 -18 0 -8 Z" transform="rotate(240)"/>
+            <path d="M0 -8 C-2 -18 -2 -30 0 -40 C2 -30 2 -18 0 -8 Z" transform="rotate(280)"/>
+            <path d="M0 -8 C-2 -18 -2 -30 0 -40 C2 -30 2 -18 0 -8 Z" transform="rotate(320)"/>
+          </g>
+          <circle r="6.5" fill="#2f6f4f" fill-opacity="0.5" stroke-width="1"/>
+          <g fill="#2f6f4f" stroke="none" opacity="0.8">
+            <circle cx="-2" cy="-1" r="0.8"/><circle cx="2" cy="-2" r="0.8"/><circle cx="0" cy="2" r="0.8"/>
+            <circle cx="-3" cy="2" r="0.8"/><circle cx="3" cy="1" r="0.8"/>
+          </g>
+        </g>
+        <g transform="translate(94,16) scale(1.15)">
+          <g stroke-width="1.1">
+            <path d="M0 -8 C-2 -18 -2 -30 0 -40 C2 -30 2 -18 0 -8 Z"/>
+            <path d="M0 -8 C-2 -18 -2 -30 0 -40 C2 -30 2 -18 0 -8 Z" transform="rotate(40)"/>
+            <path d="M0 -8 C-2 -18 -2 -30 0 -40 C2 -30 2 -18 0 -8 Z" transform="rotate(80)"/>
+            <path d="M0 -8 C-2 -18 -2 -30 0 -40 C2 -30 2 -18 0 -8 Z" transform="rotate(120)"/>
+            <path d="M0 -8 C-2 -18 -2 -30 0 -40 C2 -30 2 -18 0 -8 Z" transform="rotate(160)"/>
+            <path d="M0 -8 C-2 -18 -2 -30 0 -40 C2 -30 2 -18 0 -8 Z" transform="rotate(200)"/>
+            <path d="M0 -8 C-2 -18 -2 -30 0 -40 C2 -30 2 -18 0 -8 Z" transform="rotate(240)"/>
+            <path d="M0 -8 C-2 -18 -2 -30 0 -40 C2 -30 2 -18 0 -8 Z" transform="rotate(280)"/>
+            <path d="M0 -8 C-2 -18 -2 -30 0 -40 C2 -30 2 -18 0 -8 Z" transform="rotate(320)"/>
+          </g>
+          <circle r="6.5" fill="#2f6f4f" fill-opacity="0.5" stroke-width="1"/>
+        </g>
+        <g transform="translate(94,198) scale(0.8)">
+          <g stroke-width="1.1">
+            <path d="M0 -8 C-2 -18 -2 -30 0 -40 C2 -30 2 -18 0 -8 Z"/>
+            <path d="M0 -8 C-2 -18 -2 -30 0 -40 C2 -30 2 -18 0 -8 Z" transform="rotate(40)"/>
+            <path d="M0 -8 C-2 -18 -2 -30 0 -40 C2 -30 2 -18 0 -8 Z" transform="rotate(80)"/>
+            <path d="M0 -8 C-2 -18 -2 -30 0 -40 C2 -30 2 -18 0 -8 Z" transform="rotate(120)"/>
+            <path d="M0 -8 C-2 -18 -2 -30 0 -40 C2 -30 2 -18 0 -8 Z" transform="rotate(160)"/>
+            <path d="M0 -8 C-2 -18 -2 -30 0 -40 C2 -30 2 -18 0 -8 Z" transform="rotate(200)"/>
+            <path d="M0 -8 C-2 -18 -2 -30 0 -40 C2 -30 2 -18 0 -8 Z" transform="rotate(240)"/>
+            <path d="M0 -8 C-2 -18 -2 -30 0 -40 C2 -30 2 -18 0 -8 Z" transform="rotate(280)"/>
+            <path d="M0 -8 C-2 -18 -2 -30 0 -40 C2 -30 2 -18 0 -8 Z" transform="rotate(320)"/>
+          </g>
+          <circle r="6.5" fill="#2f6f4f" fill-opacity="0.5" stroke-width="1"/>
+        </g>
+      </g>
+
+      <!-- 수염뿌리 -->
+      <g stroke-width="1.6">
+        <path d="M44 320 C36 332 38 344 28 356 C24 362 30 368 36 362"/>
+        <path d="M44 320 C50 334 46 346 54 358 C58 364 52 370 46 364"/>
+        <path d="M44 320 C42 336 44 348 38 362"/>
+        <path d="M44 320 C48 332 52 340 60 350"/>
+      </g>
+    </g>
+  </g>
+</svg>
