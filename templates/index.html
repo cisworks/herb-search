@@ -250,9 +250,14 @@
     min-height: 200px;
     color: var(--sub);
     font-size: 0.95rem;
-    background: var(--card);
+    background: var(--card) url("{{ url_for('static', filename='herb_bg.svg') }}") center / contain no-repeat;
     border: 1px dashed var(--border);
     border-radius: 12px;
+  }
+  .detail-placeholder span {
+    background: rgba(255, 255, 255, 0.82);
+    padding: 8px 18px;
+    border-radius: 999px;
   }
   .detail-placeholder.hide { display: none; }
   .detail-header {
@@ -447,7 +452,7 @@
     </div>
   </div>
   <div class="right-panel">
-    <div class="detail-placeholder" id="detailPlaceholder">왼쪽에서 생약을 검색하고 선택하세요.</div>
+    <div class="detail-placeholder" id="detailPlaceholder"><span>왼쪽에서 생약을 검색하고 선택하세요.</span></div>
     <div class="detail" id="detail"></div>
   </div>
 </div>
