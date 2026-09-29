@@ -338,6 +338,20 @@ _LIST_MARKER_RE = re.compile(
     r"|(?:^|(?<=\s))(?P<kor>[가나다라마바사아자차카타파하])\)\s*"
 )
 
+# "가) 또는 나)의 방법으로 시험할 때..."처럼, 뒤에 나오는 하위 항목을
+# 안내 문장 속에서 "언급"만 한 것인데도 가나다 마커로 잘못 인식되는
+# 경우가 있다(활석의 "8) 석면" 도입부 등). 실제 하위 항목 표시는 항상
+# "가) 납"처럼 ")" 뒤에 공백을 두고 바로 설명이 이어지므로, ")" 뒤에
+# 공백 없이 조사가 붙거나("나)의", "다)에서") 다음 단어가 "또는"이면
+# 언급으로 보고 걸러낸다.
+def _is_spurious_kor_mention(text: str, m: "re.Match") -> bool:
+    paren_pos = m.start("kor") + 1
+    after = paren_pos + 1
+    if after >= len(text) or text[after] not in " \t\n":
+        return True
+    rest = text[after:].lstrip(" \t")
+    return rest.startswith("또는")
+
 
 def _insert_colon_before_origin(text: str) -> str:
     """"이물  이 약은 ~" 처럼 소제목 뒤에 바로 정의문이 이어지면
@@ -460,6 +474,7 @@ def _parse_numbered_hierarchy(text: str, bold_labels: bool = False):
     하위 항목은 굵게 처리하지 않는다.
     """
     matches = list(_LIST_MARKER_RE.finditer(text))
+    matches = [m for m in matches if not (m.group("kor") and _is_spurious_kor_mention(text, m))]
     if not matches:
         return []
 
@@ -873,6 +888,8 @@ def _parse_deep_numbered_hierarchy(text: str):
                 continue  # "(제 1 법) 또는 (제 2 법)..." 같은 안내 문장
             raw_matches.append((m.start(), "beopn", f"(제 {m.group('beopn')} 법)", m.end()))
         elif m.group("kor"):
+            if _is_spurious_kor_mention(text, m):
+                continue
             raw_matches.append((m.start(), "kor", f"{m.group('kor')})", m.end()))
         elif m.group("circled"):
             raw_matches.append((m.start(), "circled", m.group("circled"), m.end()))

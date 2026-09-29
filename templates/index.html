@@ -243,11 +243,11 @@
   }
   .detail.show { display: block; }
   .detail-placeholder {
+    height: calc(100vh - 180px);
+    min-height: 200px;
     display: flex;
     align-items: center;
     justify-content: center;
-    height: calc(100vh - 180px);
-    min-height: 200px;
     color: var(--sub);
     font-size: 0.95rem;
     background: var(--card) url("{{ url_for('static', filename='herb_bg.svg') }}") center / contain no-repeat;
@@ -421,7 +421,7 @@
     <h1>생약 검색</h1>
     <div class="header-meta">
       <p>공정서 {{ total_count }}품목, 관능검사해설서 {{ sensory_count }}품목</p>
-      <p class="header-cite">대한민국약전(제2026-44호, 2026. 6.29.) 의약품 각조 제2부 │ 대한민국약전외한약(생약)규격집(제2023-93호, 2023.12.27.) 의약품 각조 제1부</p>
+      <p class="header-cite">대한민국약전 의약품 각조 제2부(제2026-44호, 2026. 6.29.) │ 대한민국약전외한약(생약)규격집 의약품 각조 제1부(제2023-93호, 2023.12.27.)</p>
     </div>
   </div>
 </header>
@@ -464,6 +464,19 @@ const comboDropdown = document.getElementById('comboDropdown');
 const resultsBox = document.getElementById('results');
 const detailBox = document.getElementById('detail');
 const detailPlaceholder = document.getElementById('detailPlaceholder');
+
+// 시작화면 오른쪽 배경 영역은 창 높이에 맞춰 아래끝까지 채운다(고정
+// calc(100vh - Npx) 값은 헤더 줄 수가 바뀌면 실제 높이와 어긋나 아래에
+//빈 공간이 남거나 반대로 넘칠 수 있어, 실제 위치를 측정해서 맞춘다).
+function fitDetailPlaceholderHeight() {
+  if (detailPlaceholder.classList.contains('hide')) return;
+  const top = detailPlaceholder.getBoundingClientRect().top;
+  const bottomGap = 24;
+  const height = window.innerHeight - top - bottomGap;
+  detailPlaceholder.style.height = Math.max(200, height) + 'px';
+}
+window.addEventListener('resize', fitDetailPlaceholderHeight);
+fitDetailPlaceholderHeight();
 
 let debounceTimer = null;
 let officialListCache = null;
@@ -898,6 +911,7 @@ function _showDetailBox() {
     detailBox.classList.remove('show', 'sensory-mode');
     detailBox.innerHTML = '';
     detailPlaceholder.classList.remove('hide');
+    fitDetailPlaceholderHeight();
   });
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
