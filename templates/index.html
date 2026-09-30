@@ -482,13 +482,26 @@ const detailPlaceholder = document.getElementById('detailPlaceholder');
 // 성상/확인시험/순도시험/정량법 등 각 섹션의 헤더(라벨 + 네모 안의 +/-
 // 표시)를 클릭하면 그 섹션만 접고 펼친다. detailBox.innerHTML이 매번
 // 통째로 새로 그려지므로, 개별 헤더마다 리스너를 다시 달지 않고 detailBox
-// 하나에 위임해서 처리한다.
+// 하나에 위임해서 처리한다. 단, 순도시험 안의 특정 시험항목만 골라 보여주는
+// "purity-toggle" 섹션은 접고 펼치는 대신 "해당 시험항목만" ↔ "순도시험
+// 전체"를 번갈아 보여준다(purityToggleSectionHtml 참조).
 detailBox.addEventListener('click', (e) => {
   const header = e.target.closest('.section > .section-header');
   if (!header) return;
   const section = header.parentElement;
-  section.classList.toggle('collapsed');
   const icon = header.querySelector('.toggle-icon');
+  if (section.classList.contains('purity-toggle')) {
+    const showingFull = section.dataset.state === 'full';
+    const tpl = section.querySelector(showingFull ? '.narrowed-content-template' : '.full-content-template');
+    const content = section.querySelector('.section-content');
+    if (tpl && content) {
+      content.innerHTML = tpl.innerHTML;
+      section.dataset.state = showingFull ? 'narrowed' : 'full';
+      if (icon) icon.textContent = showingFull ? '+' : '−';
+    }
+    return;
+  }
+  section.classList.toggle('collapsed');
   if (icon) icon.textContent = section.classList.contains('collapsed') ? '+' : '−';
 });
 
@@ -917,13 +930,33 @@ function buildSectionsHtml(item, filterItem) {
     if (matched.length) {
       return item.sections.map(sec => {
         if (sec === puritySec) {
-          return sectionHtml(sec.label, renderItemList(matched), true);
+          return purityToggleSectionHtml(sec.label, renderItemList(matched), renderItemList(sec.items));
         }
         return fullSectionHtml(sec, false);
       }).join('');
     }
   }
   return item.sections.map(sec => fullSectionHtml(sec, true)).join('');
+}
+
+// 순도시험 안의 특정 시험항목(납/비소/이산화황 등)만 걸러서 보여주는
+// 섹션은 일반 섹션과 달리 접었다 펼쳤다 하는 게 아니라, 헤더를 클릭할
+// 때마다 "해당 시험항목만" ↔ "순도시험 전체"를 번갈아 보여준다. 두
+// 내용을 각각 <template>에 미리 담아두면(템플릿 안 내용은 렌더링되지
+// 않고 그대로 보관됨) 클릭 시 innerHTML만 바꿔치기하면 된다(클릭 처리는
+// detailBox의 위임 리스너 참조).
+function purityToggleSectionHtml(label, narrowedBody, fullBody) {
+  return `
+    <div class="section purity-toggle" data-state="narrowed">
+      <div class="section-header">
+        <div class="label">${escapeHtml(label)}</div>
+        <span class="toggle-icon">+</span>
+      </div>
+      <div class="section-content">${narrowedBody}</div>
+      <template class="narrowed-content-template">${narrowedBody}</template>
+      <template class="full-content-template">${fullBody}</template>
+    </div>
+  `;
 }
 
 async function showDetail(id, filterItem) {
