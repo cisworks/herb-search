@@ -525,12 +525,15 @@ function closeComboDropdown() {
   comboDropdown.style.display = 'none';
 }
 
-// 공정서 전체 목록 팝업도 창 크기에 맞춰 세로로 늘어나되, 창 아래끝에서
-// 한 칸(약 48px) 정도는 남기고 그 안에서 스크롤되게 한다.
+// 배경 그림(detailPlaceholder)의 아래끝은 항상 "창 아래끝 - 24px"에
+// 온다(fitDetailPlaceholderHeight 참조: 높이 = innerHeight - top - 24 이므로
+// top이 얼마든 아래끝은 innerHeight - 24로 고정된다). 팝업도 같은 24px
+// 간격을 그대로 써서 같은 계산식으로 아래끝을 맞추면, DOM 위치를 직접
+// 읽지 않고도 창 크기가 바뀔 때마다 배경 그림과 같은 높이로 따라온다.
 function fitComboDropdownHeight() {
   if (comboDropdown.style.display !== 'block') return;
   const top = comboDropdown.getBoundingClientRect().top;
-  const bottomGap = 48;
+  const bottomGap = 24;
   const height = window.innerHeight - top - bottomGap;
   comboDropdown.style.maxHeight = Math.max(160, height) + 'px';
 }
@@ -620,11 +623,26 @@ function openTestItemDropdown() {
     el.addEventListener('click', () => selectTestItem(TEST_ITEMS[Number(el.dataset.idx)]));
   });
   testItemDropdown.style.display = 'block';
+  fitTestItemDropdownHeight();
 }
 
 function closeTestItemDropdown() {
   testItemDropdown.style.display = 'none';
 }
+
+// 시험항목 목록(13개)은 css의 기본 max-height(60vh)만 쓰면 창이 넓어도
+// 그 비율에 갇혀 불필요하게 스크롤이 생길 수 있다. 생약 검색 탭의
+// comboDropdown과 같은 "창 아래끝 - 24px" 식으로 실제 남은 공간을 다시
+// 계산해 넣어, 공간이 넉넉하면(13개 목록 전체 높이보다 크면) 스크롤 없이
+// 전체 목록이 그대로 다 보이게 한다.
+function fitTestItemDropdownHeight() {
+  if (testItemDropdown.style.display !== 'block') return;
+  const top = testItemDropdown.getBoundingClientRect().top;
+  const bottomGap = 24;
+  const height = window.innerHeight - top - bottomGap;
+  testItemDropdown.style.maxHeight = Math.max(160, height) + 'px';
+}
+window.addEventListener('resize', fitTestItemDropdownHeight);
 
 async function selectTestItem(testItem) {
   closeTestItemDropdown();
@@ -705,13 +723,14 @@ function findMatchingNodes(items, keywords) {
   return out;
 }
 
-// 시험항목 검색 결과 카드는 창 크기에 맞춰 세로로 늘어나되, 창 아래끝에서
-// 한 칸(약 48px) 정도는 남기고 그 안에서 카드 자체가 스크롤되게 한다.
+// 시험항목 검색 결과 카드는 생약 검색 탭의 comboDropdown과 같은 방식
+// (창 아래끝 - 24px)으로 창 크기에 맞춰 세로로 늘어나고, 그 안에서 카드
+// 자체가 스크롤되게 한다.
 function fitTestResultsHeight() {
   const group = testResultsBox.querySelector('.result-group');
   if (!group) return;
   const top = group.getBoundingClientRect().top;
-  const bottomGap = 48;
+  const bottomGap = 24;
   const height = window.innerHeight - top - bottomGap;
   group.style.maxHeight = Math.max(160, height) + 'px';
 }
