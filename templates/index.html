@@ -67,8 +67,7 @@
   .left-panel {
     flex: 0 0 auto;
     width: max-content;
-    min-width: 400px;
-    max-width: 45%;
+    min-width: 150px;
     position: sticky;
     top: 24px;
   }
@@ -76,10 +75,38 @@
     flex: 1 1 0;
     min-width: 0;
   }
+  /* 좌우 패널 사이의 드래그로 너비를 조절하는 핸들. 가운데 2px짜리
+     선만 보이고, 클릭/드래그는 더 넓은 영역(6px)에서 받는다. */
+  .panel-resizer {
+    flex: 0 0 auto;
+    width: 6px;
+    align-self: stretch;
+    position: sticky;
+    top: 24px;
+    height: calc(100vh - 48px);
+    cursor: col-resize;
+    z-index: 5;
+  }
+  .panel-resizer::after {
+    content: "";
+    position: absolute;
+    left: 50%;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    transform: translateX(-50%);
+    background: var(--border);
+    transition: background 0.15s;
+  }
+  .panel-resizer:hover::after,
+  .panel-resizer.dragging::after {
+    background: var(--main);
+  }
   @media (max-width: 860px) {
     .wrap { flex-direction: column; }
-    .left-panel { position: static; width: 100%; }
+    .left-panel { position: static; width: 100% !important; }
     .right-panel { width: 100%; }
+    .panel-resizer { display: none; }
   }
 
   .search-box {
@@ -242,6 +269,38 @@
     margin: 0 auto;
   }
   .detail.show { display: block; }
+  .detail-wrap { position: relative; }
+  /* 생약 내용(.detail)의 왼쪽/오른쪽 모서리를 끌어서 가로 너비를
+     조절하는 핸들. .detail이 보일 때만 보이도록 JS가 detailWrap에
+     show 클래스를 붙이고(왼쪽 핸들은 .detail보다 DOM상 앞에 있어
+     형제 선택자로는 걸 수 없다), 위치(left)는 .detail의 실제 좌우
+     끝에 맞춰 JS가 매번 다시 계산해 넣는다. */
+  .detail-resizer {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 10px;
+    margin-left: -5px;
+    cursor: ew-resize;
+    display: none;
+    z-index: 4;
+  }
+  .detail-wrap.show .detail-resizer { display: block; }
+  .detail-resizer::after {
+    content: "";
+    position: absolute;
+    left: 50%;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    transform: translateX(-50%);
+    background: var(--border);
+    transition: background 0.15s;
+  }
+  .detail-resizer:hover::after,
+  .detail-resizer.dragging::after {
+    background: var(--main);
+  }
   .detail-placeholder {
     height: calc(100vh - 180px);
     min-height: 200px;
@@ -420,6 +479,31 @@
   }
   .tab-panel { display: none; }
   .tab-panel.active { display: block; }
+
+  .collapse-btn {
+    flex: 0 0 auto;
+    width: 19px;
+    height: 45px;
+    padding: 0;
+    font-size: 0.85rem;
+    border: 2px solid var(--border);
+    background: #fff;
+    color: var(--sub);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s, color 0.15s;
+  }
+  .collapse-btn:hover { border-color: var(--main); color: var(--main-dark); }
+
+  /* 접힌 상태: 탭 버튼/본문은 숨기고 접기 버튼만 남겨 좁은 세로 띠로
+     만든다(너비는 JS에서 원래 접힘 너비(44px)의 30%로 계산해서 넣는다).
+     그 너비가 접기 버튼(19px)보다 좁아 버튼이 살짝 삐져나오므로
+     overflow는 visible로 둔다. 오른쪽 패널은 flex: 1 1 0이라 자동으로
+     남은 폭을 채운다. */
+  .left-panel.collapsed { min-width: 0; overflow: visible; }
+  .left-panel.collapsed .tab-bar { margin-bottom: 0; justify-content: center; }
+  .left-panel.collapsed .tab-bar .tab-btn { display: none; }
+  .left-panel.collapsed .tab-panel { display: none; }
 </style>
 </head>
 <body>
@@ -445,6 +529,7 @@
     <div class="tab-bar">
       <button type="button" class="tab-btn active" id="nameTabBtn" data-tab="nameTab">생약 검색</button>
       <button type="button" class="tab-btn" id="testTabBtn" data-tab="testTab">시험항목 검색</button>
+      <button type="button" class="collapse-btn" id="leftPanelCollapseBtn" title="왼쪽 화면 접기" aria-label="왼쪽 화면 접기">◀</button>
     </div>
 
     <div class="tab-panel active" id="nameTab">
@@ -465,9 +550,14 @@
       <div class="results" id="testResults" style="display:none;"></div>
     </div>
   </div>
+  <div class="panel-resizer" id="panelResizer"></div>
   <div class="right-panel">
     <div class="detail-placeholder" id="detailPlaceholder"></div>
-    <div class="detail" id="detail"></div>
+    <div class="detail-wrap" id="detailWrap">
+      <div class="detail-resizer" id="detailResizerLeft" title="끌어서 너비 조절"></div>
+      <div class="detail" id="detail"></div>
+      <div class="detail-resizer" id="detailResizerRight" title="끌어서 너비 조절"></div>
+    </div>
   </div>
 </div>
 
@@ -478,6 +568,193 @@ const comboDropdown = document.getElementById('comboDropdown');
 const resultsBox = document.getElementById('results');
 const detailBox = document.getElementById('detail');
 const detailPlaceholder = document.getElementById('detailPlaceholder');
+
+// 좌우 패널 사이의 핸들을 마우스로 끌어 왼쪽 패널 너비를 조절한다.
+// 초기 너비는 검색창 안내 문구("생약명을 입력하거나 목록에서
+// 선택하세요")가 잘리지 않고 다 보이는 만큼으로 고정해서 시작하고,
+// 리사이저로는 그 초기 너비의 절반까지만 줄일 수 있게 한다.
+function measureTextWidth(text, font) {
+  const canvas = measureTextWidth._canvas || (measureTextWidth._canvas = document.createElement('canvas'));
+  const ctx = canvas.getContext('2d');
+  ctx.font = font;
+  return ctx.measureText(text).width;
+}
+
+function computeInitialLeftWidth(leftPanel) {
+  const inputStyle = getComputedStyle(searchInput);
+  const font = `${inputStyle.fontWeight} ${inputStyle.fontSize} ${inputStyle.fontFamily}`;
+  const textWidth = measureTextWidth(searchInput.placeholder, font);
+  const horizontalPadding = parseFloat(inputStyle.paddingLeft) + parseFloat(inputStyle.paddingRight);
+  const horizontalBorder = parseFloat(inputStyle.borderLeftWidth) + parseFloat(inputStyle.borderRightWidth);
+  const slack = 4; // 안내 문구 끝이 테두리에 바짝 붙지 않도록 여유를 조금 둔다.
+  const inputNeeded = Math.ceil(textWidth + horizontalPadding + horizontalBorder + slack);
+  const tabBar = leftPanel.querySelector('.tab-bar');
+  const tabBarNeeded = tabBar ? tabBar.scrollWidth : 0;
+  return Math.max(inputNeeded, tabBarNeeded, 200);
+}
+
+(function initPanelResizer() {
+  const leftPanel = document.querySelector('.left-panel');
+  const panelResizer = document.getElementById('panelResizer');
+  const wrapEl = document.querySelector('.wrap');
+  if (!leftPanel || !panelResizer || !wrapEl) return;
+
+  const baseLeftWidth = computeInitialLeftWidth(leftPanel);
+  leftPanel.style.width = baseLeftWidth + 'px';
+
+  let dragging = false;
+  let startX = 0;
+  let startWidth = 0;
+
+  function clampWidth(w) {
+    const min = baseLeftWidth / 2;
+    const max = Math.max(min, wrapEl.clientWidth * 0.6);
+    return Math.min(max, Math.max(min, w));
+  }
+
+  function onMouseMove(e) {
+    if (!dragging) return;
+    leftPanel.style.width = clampWidth(startWidth + (e.clientX - startX)) + 'px';
+  }
+
+  function onMouseUp() {
+    if (!dragging) return;
+    dragging = false;
+    panelResizer.classList.remove('dragging');
+    document.body.style.userSelect = '';
+    document.body.style.cursor = '';
+    // 왼쪽 패널 너비가 바뀌면 줄바꿈 때문에 오른쪽 배경/목록창의 세로
+    // 위치도 바뀔 수 있어, 기존 창 크기 변경 때 쓰던 높이 재계산 함수들을
+    // 그대로 다시 불러 맞춘다.
+    fitDetailPlaceholderHeight();
+    fitComboDropdownHeight();
+    fitTestItemDropdownHeight();
+    fitTestResultsHeight();
+    positionDetailResizer();
+  }
+
+  panelResizer.addEventListener('mousedown', (e) => {
+    dragging = true;
+    startX = e.clientX;
+    startWidth = leftPanel.getBoundingClientRect().width;
+    panelResizer.classList.add('dragging');
+    document.body.style.userSelect = 'none';
+    document.body.style.cursor = 'col-resize';
+    e.preventDefault();
+  });
+  document.addEventListener('mousemove', onMouseMove);
+  document.addEventListener('mouseup', onMouseUp);
+})();
+
+// 시험항목 검색 버튼 오른쪽의 ◀ 버튼을 누르면 왼쪽 화면 전체를 좁은
+// 띠(원래 접힘 너비였던 44px의 30% = 약 13px)로 접고, 오른쪽 화면(배경
+// 그림/상세 내용)이 남은 폭을 채운다. 다시 누르면 접기 전 너비로
+// 되돌아온다.
+(function initLeftPanelCollapse() {
+  const leftPanel = document.querySelector('.left-panel');
+  const panelResizer = document.getElementById('panelResizer');
+  const collapseBtn = document.getElementById('leftPanelCollapseBtn');
+  if (!leftPanel || !panelResizer || !collapseBtn) return;
+
+  const COLLAPSED_WIDTH = 44 * 0.3;
+  let savedWidth = null;
+
+  collapseBtn.addEventListener('click', () => {
+    const collapsed = leftPanel.classList.toggle('collapsed');
+    if (collapsed) {
+      savedWidth = leftPanel.style.width;
+      leftPanel.style.width = COLLAPSED_WIDTH + 'px';
+      panelResizer.style.display = 'none';
+      collapseBtn.textContent = '▶';
+      collapseBtn.title = '왼쪽 화면 펼치기';
+      collapseBtn.setAttribute('aria-label', '왼쪽 화면 펼치기');
+    } else {
+      if (savedWidth) leftPanel.style.width = savedWidth;
+      panelResizer.style.display = '';
+      collapseBtn.textContent = '◀';
+      collapseBtn.title = '왼쪽 화면 접기';
+      collapseBtn.setAttribute('aria-label', '왼쪽 화면 접기');
+    }
+    fitDetailPlaceholderHeight();
+    fitComboDropdownHeight();
+    fitTestItemDropdownHeight();
+    fitTestResultsHeight();
+    positionDetailResizer();
+  });
+})();
+
+// 생약 내용을 보여주는 .detail 박스는 항상 오른쪽 화면(.detail-wrap)
+// 가운데 정렬을 유지한다(margin:0 auto). 왼쪽/오른쪽 모서리 중 어느 쪽을
+// 끌어도 고정된 중심점(centerX)을 기준으로 "중심에서 마우스까지 거리 ×
+// 2"를 새 너비로 계산해 넣기만 하면, margin:auto가 알아서 다시 가운데로
+// 맞춰준다 - 그래서 결과 너비는 항상 가운데 정렬된 채로 끝난다. 핸들
+// 위치는 .detail의 실제 좌우 끝에 맞춰 positionDetailResizer가 다시
+// 계산해 넣는다(패널 폭이 바뀌는 다른 조작들에서도 호출된다).
+function positionDetailResizer() {
+  const detailWrap = document.getElementById('detailWrap');
+  const resizerLeft = document.getElementById('detailResizerLeft');
+  const resizerRight = document.getElementById('detailResizerRight');
+  if (!detailWrap || !resizerLeft || !resizerRight) return;
+  // 관능검사해설서(PDF) 화면은 원래 전체 폭 고정이라 너비 조절 핸들이
+  // 필요 없다.
+  const shown = detailBox.classList.contains('show') && !detailBox.classList.contains('sensory-mode');
+  detailWrap.classList.toggle('show', shown);
+  if (!shown) return;
+  resizerLeft.style.left = detailBox.offsetLeft + 'px';
+  resizerRight.style.left = (detailBox.offsetLeft + detailBox.offsetWidth) + 'px';
+}
+
+(function initDetailResizer() {
+  const detailWrap = document.getElementById('detailWrap');
+  const resizerLeft = document.getElementById('detailResizerLeft');
+  const resizerRight = document.getElementById('detailResizerRight');
+  if (!detailWrap || !resizerLeft || !resizerRight || !detailBox) return;
+
+  let dragging = false;
+  let centerX = 0;
+
+  function clampWidth(w) {
+    const min = 400;
+    const max = Math.max(min, detailWrap.getBoundingClientRect().width);
+    return Math.min(max, Math.max(min, w));
+  }
+
+  function onMouseMove(e) {
+    if (!dragging) return;
+    detailBox.style.width = clampWidth(2 * Math.abs(e.clientX - centerX)) + 'px';
+    positionDetailResizer();
+  }
+
+  function onMouseUp() {
+    if (!dragging) return;
+    dragging = false;
+    resizerLeft.classList.remove('dragging');
+    resizerRight.classList.remove('dragging');
+    document.body.style.userSelect = '';
+    document.body.style.cursor = '';
+  }
+
+  function startDrag(resizerEl) {
+    return (e) => {
+      dragging = true;
+      const rect = detailBox.getBoundingClientRect();
+      centerX = rect.left + rect.width / 2;
+      detailBox.style.maxWidth = 'none';
+      detailBox.style.marginLeft = 'auto';
+      detailBox.style.marginRight = 'auto';
+      resizerEl.classList.add('dragging');
+      document.body.style.userSelect = 'none';
+      document.body.style.cursor = 'ew-resize';
+      e.preventDefault();
+    };
+  }
+
+  resizerLeft.addEventListener('mousedown', startDrag(resizerLeft));
+  resizerRight.addEventListener('mousedown', startDrag(resizerRight));
+  document.addEventListener('mousemove', onMouseMove);
+  document.addEventListener('mouseup', onMouseUp);
+  window.addEventListener('resize', positionDetailResizer);
+})();
 
 // 성상/확인시험/순도시험/정량법 등 각 섹션의 헤더(라벨 + 네모 안의 +/-
 // 표시)를 클릭하면 그 섹션만 접고 펼친다. detailBox.innerHTML이 매번
@@ -991,6 +1268,15 @@ async function showDetail(id, filterItem) {
 
 function showSensoryDetail(item) {
   const pdfUrl = `/api/sensory_pdf?file=${encodeURIComponent(item.source_file)}&start=${item.page_start}&end=${item.page_end}`;
+  // 생약 내용(.detail) 쪽에서 좌우 모서리 드래그로 width/max-width/margin에
+  // 인라인 스타일이 남아있을 수 있다. 관능검사해설서 화면은 원래부터 항상
+  // 전체 폭을 꽉 채우는 고정 레이아웃(.sensory-mode)이라 그 설정과
+  // 무관해야 하므로, 전환할 때마다 인라인 스타일을 지워 원래 설정대로
+  // 돌아가게 한다.
+  detailBox.style.width = '';
+  detailBox.style.maxWidth = '';
+  detailBox.style.marginLeft = '';
+  detailBox.style.marginRight = '';
   detailBox.classList.add('sensory-mode');
   detailBox.innerHTML = `
     <button class="sensory-close" id="closeDetail">&times;</button>
@@ -1009,6 +1295,7 @@ function _showDetailBox() {
     fitDetailPlaceholderHeight();
   });
   window.scrollTo({ top: 0, behavior: 'smooth' });
+  positionDetailResizer();
 }
 
 // html 인자는 이미 이스케이프(및 <sub>/<table> 표시 처리)까지 끝난 문자열이어야 한다.
