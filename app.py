@@ -19,6 +19,7 @@ from flask import Flask, Response, abort, jsonify, render_template, request
 
 from parse_hwpx import parse_hwpx
 from parse_sensory_pdf import build_sensory_entries
+from parse_case_pdf import parse_case_pdf
 
 BASE_DIR = Path(__file__).resolve().parent
 
@@ -26,6 +27,7 @@ app = Flask(__name__)
 
 ENTRIES = []  # 공정서(hwpx)에서 파싱된 생약 목록 (앱 시작 시 1회 로드)
 SENSORY_ENTRIES = []  # 관능검사해설서(pdf)에서 파싱된 생약 목록
+CASE_ENTRIES = []  # 관능검사 사례집(pdf)에서 파싱된 부적합/적합 사례 목록
 
 
 def _normalize(s: str) -> str:
@@ -112,9 +114,11 @@ def load_entries():
 
 
 def load_sensory_entries(start_id):
-    """이 폴더의 *.pdf(관능검사해설서)를 찾아 파싱한다. id는 공정서 항목
-    다음부터 이어서 매겨, 두 목록을 하나의 id 공간으로 조회할 수 있게 한다."""
-    pdf_files = sorted(BASE_DIR.glob("*.pdf"))
+    """이 폴더의 *.pdf(관능검사해설서) 중 "사례집"이 파일명에 없는 것들을
+    찾아 파싱한다("관능검사사례집.pdf"는 형식이 전혀 달라 load_case_entries
+    가 따로 처리한다). id는 공정서 항목 다음부터 이어서 매겨, 두 목록을
+    하나의 id 공간으로 조회할 수 있게 한다."""
+    pdf_files = sorted(p for p in BASE_DIR.glob("*.pdf") if "사례집" not in p.name)
     entries = []
     for f in pdf_files:
         try:
@@ -134,8 +138,28 @@ def load_sensory_entries(start_id):
     return entries, [f.name for f in pdf_files]
 
 
+def load_case_entries():
+    """이 폴더의 "...사례집....pdf"(관능검사 사례집)를 찾아 파싱한다.
+    공정서/관능검사해설서와 달리 검색 결과에서 생약 하나당 여러 건(카테고리별)
+    으로 나올 수 있어 ENTRY_BY_ID에는 넣지 않고, /api/search에서 herb_name으로
+    직접 매칭한다."""
+    case_files = sorted(BASE_DIR.glob("*사례집*.pdf"))
+    entries = []
+    for f in case_files:
+        try:
+            file_entries = parse_case_pdf(f)
+        except Exception as exc:  # noqa: BLE001
+            print(f"[경고] {f} 파싱 실패: {exc}")
+            continue
+        for e in file_entries:
+            e["source_file"] = f.name
+        entries.extend(file_entries)
+    return entries, [f.name for f in case_files]
+
+
 ENTRIES, LOADED_FILES = load_entries()
 SENSORY_ENTRIES, SENSORY_FILES = load_sensory_entries(start_id=len(ENTRIES))
+CASE_ENTRIES, CASE_FILES = load_case_entries()
 ENTRY_BY_ID = {e["id"]: e for e in ENTRIES + SENSORY_ENTRIES}
 
 
@@ -184,18 +208,42 @@ def _search(entries, q):
     return exact + starts + contains
 
 
+def _search_case_entries(q):
+    """관능검사 사례집에서 herb_name에 q가 포함된 사례를 찾아 카테고리별로
+    묶는다. 카테고리는 1~4 순서로, 그 안에서는 생약명 가나다순으로 정렬한다."""
+    matches = [c for c in CASE_ENTRIES if q in _normalize(c["herb_name"])]
+    matches.sort(key=lambda c: (c["category"], c["herb_name"]))
+    grouped = []
+    last_category = None
+    for c in matches:
+        if c["category"] != last_category:
+            grouped.append({"category": c["category"], "label": c["category_label"], "items": []})
+            last_category = c["category"]
+        grouped[-1]["items"].append(
+            {
+                "herb_name": c["herb_name"],
+                "source_file": c["source_file"],
+                "page_start": c["page_start"],
+                "page_end": c["page_end"],
+            }
+        )
+    return grouped
+
+
 @app.route("/api/search")
 def api_search():
     q = _normalize(request.args.get("q", ""))
     if not q:
-        return jsonify({"official": [], "sensory": []})
+        return jsonify({"official": [], "sensory": [], "case": []})
 
     official = _search(ENTRIES, q)[:50]
     sensory = _search(SENSORY_ENTRIES, q)[:50]
+    case = _search_case_entries(q)
     return jsonify(
         {
             "official": [summary(e) for e in official],
             "sensory": [summary(e) for e in sensory],
+            "case": case,
         }
     )
 
@@ -307,4 +355,5 @@ def api_sensory_pdf():
 if __name__ == "__main__":
     print(f"[생약검색] {len(LOADED_FILES)}개 hwpx 파일에서 {len(ENTRIES)}개 품목을 불러왔습니다: {LOADED_FILES}")
     print(f"[생약검색] {len(SENSORY_FILES)}개 pdf 파일에서 {len(SENSORY_ENTRIES)}개 품목을 불러왔습니다: {SENSORY_FILES}")
+    print(f"[생약검색] {len(CASE_FILES)}개 pdf 파일에서 {len(CASE_ENTRIES)}개 사례를 불러왔습니다: {CASE_FILES}")
     app.run(debug=True)

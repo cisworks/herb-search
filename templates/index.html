@@ -218,13 +218,24 @@
     position: sticky;
     top: 0;
     z-index: 1;
-    padding: 10px 16px;
+    padding: 6px 16px;
     font-size: 0.9rem;
     font-weight: 700;
     color: var(--main-dark);
     background: var(--bg);
     border-bottom: 1px solid var(--border);
     white-space: nowrap;
+  }
+  /* 관능검사 사례집 카드 안의 카테고리(기원/약용부위·이물/충해·곰팡이/
+     가공방법) 구분 라벨. group-label보다 한 단계 아래 제목이라 sticky는
+     쓰지 않는다. */
+  .case-category-label {
+    padding: 4.8px 16px;
+    font-size: 0.82rem;
+    font-weight: 700;
+    color: var(--sub);
+    background: #fafbf9;
+    border-bottom: 1px solid var(--border);
   }
   .detail.sensory-mode {
     padding: 0;
@@ -1129,11 +1140,38 @@ function resultRowHtml(it) {
   `;
 }
 
+// 관능검사 사례집 카드는 카테고리(1~4)별로 묶여서 온다(/api/search의
+// case 필드). 카테고리 라벨 아래에 그 카테고리에서 검색된 생약명을
+// 나열하고, 클릭하면 showSensoryDetail을 그대로 재사용해 PDF 해당
+// 페이지 구간을 오른쪽 화면에 보여준다(공정서/관능검사해설서의 일반
+// result-item과 섞이지 않도록 case-item 클래스로 구분한다).
+function caseGroupHtml(group) {
+  const rows = group.items.map(it => `
+    <div class="result-item case-item" data-file="${escapeHtml(it.source_file)}" data-start="${it.page_start}" data-end="${it.page_end}" data-name="${escapeHtml(it.herb_name)}">
+      <span class="rname">${escapeHtml(it.herb_name)}</span>
+    </div>
+  `).join('');
+  return `
+    <div class="case-category-label">${escapeHtml(group.label)}</div>
+    ${rows}
+  `;
+}
+
+function selectCaseItem(data) {
+  showSensoryDetail({
+    source_file: data.file,
+    page_start: Number(data.start),
+    page_end: Number(data.end),
+    korean_name: `${data.name} - 관능검사 사례집`,
+  });
+}
+
 function renderResults(data, q) {
   resultsBox.style.display = 'flex';
   const official = data.official || [];
   const sensory = data.sensory || [];
-  if (official.length === 0 && sensory.length === 0) {
+  const caseGroups = data.case || [];
+  if (official.length === 0 && sensory.length === 0 && caseGroups.length === 0) {
     resultsBox.innerHTML = `<div class="empty-msg">"${escapeHtml(q)}"에 대한 검색 결과가 없습니다.</div>`;
     return;
   }
@@ -1143,18 +1181,28 @@ function renderResults(data, q) {
   const sensoryRows = sensory.length
     ? sensory.map(resultRowHtml).join('')
     : `<div class="empty-msg">검색 결과가 없습니다.</div>`;
+  const caseRows = caseGroups.length
+    ? caseGroups.map(caseGroupHtml).join('')
+    : `<div class="empty-msg">검색 결과가 없습니다.</div>`;
   resultsBox.innerHTML = `
     <div class="result-group">
       <div class="group-label">공정서</div>
       ${officialRows}
     </div>
     <div class="result-group">
-      <div class="group-label">관능검사해설서</div>
+      <div class="group-label">관능검사 해설서</div>
       ${sensoryRows}
     </div>
+    <div class="result-group">
+      <div class="group-label">관능검사 사례집</div>
+      ${caseRows}
+    </div>
   `;
-  resultsBox.querySelectorAll('.result-item').forEach(el => {
+  resultsBox.querySelectorAll('.result-item:not(.case-item)').forEach(el => {
     el.addEventListener('click', () => showDetail(el.dataset.id));
+  });
+  resultsBox.querySelectorAll('.case-item').forEach(el => {
+    el.addEventListener('click', () => selectCaseItem(el.dataset));
   });
 
   if (official.length === 1 && sensory.length === 0) {
@@ -1267,7 +1315,10 @@ async function showDetail(id, filterItem) {
 }
 
 function showSensoryDetail(item) {
-  const pdfUrl = `/api/sensory_pdf?file=${encodeURIComponent(item.source_file)}&start=${item.page_start}&end=${item.page_end}`;
+  // 끝에 붙인 "#page=1"은 PDF 뷰어 공통 오픈 파라미터로, 브라우저 내장
+  // 뷰어가 같은 PDF를 이전에 열었을 때의 스크롤 위치를 기억해뒀다가
+  // 복원하는 것을 막고 항상 문서 맨 위(1쪽)부터 보이게 한다.
+  const pdfUrl = `/api/sensory_pdf?file=${encodeURIComponent(item.source_file)}&start=${item.page_start}&end=${item.page_end}#page=1`;
   // 생약 내용(.detail) 쪽에서 좌우 모서리 드래그로 width/max-width/margin에
   // 인라인 스타일이 남아있을 수 있다. 관능검사해설서 화면은 원래부터 항상
   // 전체 폭을 꽉 채우는 고정 레이아웃(.sensory-mode)이라 그 설정과
