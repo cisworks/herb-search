@@ -1040,6 +1040,37 @@ def _parse_seongsang_blocks(text: str):
     return blocks
 
 
+# 제법 본문에서 "염부자(鹽附子)  6 〜 8월 사이에 ~", "부자편(附子片)  염부자를
+# 가지고 ~"처럼 가공법에 따른 이름(한자 포함)이 문단 맨 앞에 붙어 그 문단을
+# 구분하는 경우를 찾는다(부자(附子)의 제법). 성상의 _VARIETY_LABEL_RE와
+# 달리 "이 약은" 같은 문장 트리거 없이, 라벨 뒤에 공백을 두고 바로 설명이
+# 이어지는 형태로 식별한다.
+_PROCESS_LABEL_RE = re.compile(
+    r"^(?P<label>[가-힣][가-힣0-9]{0,8}\([" + _HANJA_RANGE + r"]{1,10}\))\s+(?=\S)"
+)
+
+
+def _parse_process_blocks(text: str):
+    """제법 본문을 염부자(鹽附子)/부자편(附子片)/포부자(炮附子)처럼 가공법
+    이름이 붙은 문단 단위로 쪼갠다. 그런 라벨이 둘 이상 없으면(대부분의
+    생약은 제법이 라벨 없는 한 문단이다) 빈 리스트를 반환해 기존처럼
+    평문으로 표시되게 한다."""
+    blocks = []
+    for raw_line in text.split("\n"):
+        line = raw_line.strip()
+        if not line:
+            continue
+        m = _PROCESS_LABEL_RE.match(line)
+        if m:
+            blocks.append({"marker": m.group("label"), "text": line[m.end():].strip(), "children": []})
+        elif blocks:
+            blocks[-1]["text"] = (blocks[-1]["text"] + " " + line).strip()
+        else:
+            blocks.append({"marker": "", "text": line, "children": []})
+    labeled = sum(1 for b in blocks if b["marker"])
+    return blocks if labeled >= 2 else []
+
+
 def _split_name(korean_name: str):
     # "개자(芥子) 겨자, Mustard Seed" 처럼 한자 뒤에 이명이 더 붙는 경우가
     # 있어, 문자열 끝이 아니라 맨 처음 나오는 "이름(한자)" 괄호 쌍만
@@ -1480,6 +1511,8 @@ def _build_section_items(label, text):
     if label == "성상":
         items = _parse_seongsang_blocks(text)
         return items if len(items) >= 2 else []
+    if label == "제법":
+        return _parse_process_blocks(text)
     return []
 
 
