@@ -251,25 +251,6 @@
     height: 100%;
     border: none;
   }
-  .sensory-close {
-    position: absolute;
-    top: 10px;
-    right: 10px;
-    width: 32px;
-    height: 32px;
-    border-radius: 50%;
-    border: none;
-    background: rgba(30, 30, 30, 0.65);
-    color: #fff;
-    font-size: 1.1rem;
-    line-height: 1;
-    cursor: pointer;
-    z-index: 5;
-  }
-  .sensory-close:hover {
-    background: rgba(30, 30, 30, 0.85);
-  }
-
   .detail {
     background: var(--card);
     border: 1px solid var(--border);
@@ -456,15 +437,6 @@
   .ref-link:hover {
     color: var(--main);
   }
-  .close-btn {
-    float: right;
-    background: none;
-    border: none;
-    font-size: 1.2rem;
-    color: var(--sub);
-    cursor: pointer;
-  }
-
   .tab-bar {
     display: flex;
     gap: 6px;
@@ -1302,7 +1274,6 @@ async function showDetail(id, filterItem) {
 
   detailBox.classList.remove('sensory-mode');
   detailBox.innerHTML = `
-    <button class="close-btn" id="closeDetail">&times;</button>
     <div class="detail-header">
       <h2>${renderName(item)}${sourceBadge(item.source_tag)}</h2>
       <p class="en">${escapeHtml(item.english_name || '')}</p>
@@ -1330,7 +1301,6 @@ function showSensoryDetail(item) {
   detailBox.style.marginRight = '';
   detailBox.classList.add('sensory-mode');
   detailBox.innerHTML = `
-    <button class="sensory-close" id="closeDetail">&times;</button>
     <iframe class="sensory-frame" src="${pdfUrl}" title="${escapeHtml(item.korean_name)} 원본 페이지"></iframe>
   `;
   _showDetailBox();
@@ -1339,12 +1309,6 @@ function showSensoryDetail(item) {
 function _showDetailBox() {
   detailBox.classList.add('show');
   detailPlaceholder.classList.add('hide');
-  document.getElementById('closeDetail').addEventListener('click', () => {
-    detailBox.classList.remove('show', 'sensory-mode');
-    detailBox.innerHTML = '';
-    detailPlaceholder.classList.remove('hide');
-    fitDetailPlaceholderHeight();
-  });
   window.scrollTo({ top: 0, behavior: 'smooth' });
   positionDetailResizer();
 }
