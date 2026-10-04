@@ -566,6 +566,7 @@
     background: var(--main);
     border-radius: 10px 10px 0 0;
   }
+  .tm-dialog-head { cursor: move; user-select: none; touch-action: none; }  /* 제목줄을 잡고 창을 옮긴다 */
   .tm-dialog-head button {
     font-size: 1.3rem;
     line-height: 1;
@@ -1716,6 +1717,7 @@ async function openTestMethod(key) {
   tmTitle.textContent = tmFullTitle(key, data);
   tmBody.innerHTML = data.html;
   tmBody.scrollTop = 0;
+  setTmOffset(0, 0);  // 지난번에 옮겼더라도 열 때는 가운데에서 시작
   tmModal.hidden = false;
 }
 
@@ -1723,6 +1725,41 @@ function closeTestMethod() {
   tmModal.hidden = true;
   tmBody.innerHTML = '';
 }
+
+// 제목줄을 마우스(또는 터치)로 끌어 창을 옮긴다. 창 위치는 transform 으로 옮기고, 창이 화면
+// 밖으로 완전히 나가 제목줄을 잡을 수 없게 되지 않도록 화면 안에 가둔다. 새로 열 때마다
+// 가운데로 되돌린다.
+const tmDialog = tmModal.querySelector('.tm-dialog');
+const tmDialogHead = tmModal.querySelector('.tm-dialog-head');
+let tmOffset = { x: 0, y: 0 };
+let tmDrag = null;
+
+function setTmOffset(x, y) {
+  tmOffset = { x, y };
+  tmDialog.style.transform = `translate(${x}px, ${y}px)`;
+}
+
+tmDialogHead.addEventListener('pointerdown', (ev) => {
+  if (ev.target.closest('button') || (ev.pointerType === 'mouse' && ev.button !== 0)) return;
+  const r = tmDialog.getBoundingClientRect();
+  tmDrag = {
+    startX: ev.clientX, startY: ev.clientY, baseX: tmOffset.x, baseY: tmOffset.y,
+    // 창이 움직일 수 있는 범위: 창의 일부(40px)와 제목줄이 항상 화면 안에 남도록
+    minDx: -(r.left + r.width) + 40, maxDx: window.innerWidth - r.left - 40,
+    minDy: -r.top, maxDy: window.innerHeight - r.top - 40,
+  };
+  tmDialogHead.setPointerCapture(ev.pointerId);
+  ev.preventDefault();
+});
+tmDialogHead.addEventListener('pointermove', (ev) => {
+  if (!tmDrag) return;
+  const dx = Math.min(Math.max(ev.clientX - tmDrag.startX, tmDrag.minDx), tmDrag.maxDx);
+  const dy = Math.min(Math.max(ev.clientY - tmDrag.startY, tmDrag.minDy), tmDrag.maxDy);
+  setTmOffset(tmDrag.baseX + dx, tmDrag.baseY + dy);
+});
+['pointerup', 'pointercancel'].forEach(type => {
+  tmDialogHead.addEventListener(type, () => { tmDrag = null; });
+});
 
 
 detailBox.addEventListener('click', (ev) => {
@@ -1732,10 +1769,10 @@ detailBox.addEventListener('click', (ev) => {
     openTestMethod(opener.dataset.tm);
   }
 });
-tmModal.querySelector('.tm-backdrop').addEventListener('click', closeTestMethod);
+// 닫기 버튼(×)이나 Esc 로 닫힌다. 창 바깥을 눌러도 닫히지 않는다.
 document.getElementById('tmClose').addEventListener('click', closeTestMethod);
 document.addEventListener('keydown', (ev) => {
-  if (ev.key === 'Escape') closeTestMethod();
+  if (ev.key === 'Escape' && !tmModal.hidden) closeTestMethod();
 });
 </script>
 </body>
