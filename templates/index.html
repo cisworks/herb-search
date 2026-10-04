@@ -587,6 +587,10 @@
   .tm-body .orig-table, .tm-head .orig-table { max-width: 100%; display: block; overflow-x: auto; }
   /* 첫 행이 제목 행이 아닌 표(곰팡이독소의 기호 설명표) */
   .orig-table.no-head tr:first-child td { background: none; font-weight: 400; }
+  /* 기호(1열)는 오른쪽, 설명(3열)은 왼쪽 정렬하고 테두리는 흰색으로 한다. */
+  .orig-table.no-head td { border-color: #fff; }
+  .orig-table.no-head td:nth-child(1) { text-align: right; }
+  .orig-table.no-head td:nth-child(3) { text-align: left; }
   .tab-bar {
     display: flex;
     gap: 6px;
