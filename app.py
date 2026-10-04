@@ -26,9 +26,9 @@ from parse_test_methods import parse_test_methods, read_test_method_image
 
 BASE_DIR = Path(__file__).resolve().parent
 
-# 일반시험법 "35. 생약시험법"(생약시험법.hwpx). 생약 상세 화면의 이물/중금속/잔류농약/
+# 일반시험법 "35. 생약시험법"(3. 생약시험법.hwpx). 생약 상세 화면의 이물/중금속/잔류농약/
 # 이산화황/곰팡이독소/건조감량/회분/산불용성회분 항목이 이 문서의 해당 항목을 보여 준다.
-TEST_METHOD_FILE = "생약시험법.hwpx"
+TEST_METHOD_FILE = "3. 생약시험법.hwpx"
 
 app = Flask(__name__)
 
@@ -87,7 +87,7 @@ def _resolve_purity_references(entries):
 
 
 def load_entries():
-    # 생약시험법.hwpx 는 생약 품목이 아니라 시험법 본문이라(아래 TEST_METHODS) 제외한다.
+    # 3. 생약시험법.hwpx 는 생약 품목이 아니라 시험법 본문이라(아래 TEST_METHODS) 제외한다.
     hwpx_files = sorted(p for p in BASE_DIR.glob("*.hwpx") if p.name != TEST_METHOD_FILE)
     entries = []
     for f in hwpx_files:
@@ -537,7 +537,7 @@ def api_item(item_id):
 
 @app.route("/api/test_method/<key>")
 def api_test_method(key):
-    """생약시험법.hwpx 에서 뽑아 둔 항목 하나(제목과 계층 구조 HTML)."""
+    """3. 생약시험법.hwpx 에서 뽑아 둔 항목 하나(제목과 계층 구조 HTML)."""
     data = TEST_METHODS.get(key)
     if data is None:
         abort(404)
@@ -546,7 +546,7 @@ def api_test_method(key):
 
 @app.route("/api/test_method_image/<name>")
 def api_test_method_image(name):
-    """생약시험법.hwpx 안의 그림(이산화황 장치 그림 등)."""
+    """3. 생약시험법.hwpx 안의 그림(이산화황 장치 그림 등)."""
     if not re.fullmatch(r"\w+", name):
         abort(404)
     path = BASE_DIR / TEST_METHOD_FILE

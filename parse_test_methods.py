@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-생약시험법.hwpx(일반시험법 "35. 생약시험법")에서 생약 상세 화면이 연결하는 항목만
+3. 생약시험법.hwpx(일반시험법 "35. 생약시험법")에서 생약 상세 화면이 연결하는 항목만
 뽑아 계층 구조 HTML로 만드는 모듈.
 
 이 문서는 항목 구조를 문단 모양(들여쓰기)이 아니라 번호 기호로만 표시한다
@@ -418,6 +418,6 @@ def read_test_method_image(path, name):
 if __name__ == "__main__":
     import sys
 
-    result = parse_test_methods(sys.argv[1] if len(sys.argv) > 1 else "생약시험법.hwpx")
+    result = parse_test_methods(sys.argv[1] if len(sys.argv) > 1 else "3. 생약시험법.hwpx")
     for k, v in result.items():
         print(k, v["title"], len(v["html"]))
