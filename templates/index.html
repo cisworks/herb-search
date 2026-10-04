@@ -192,10 +192,10 @@
     white-space: nowrap;
   }
   .result-item:last-child { border-bottom: none; }
-  .result-item:hover { background: #f0f5ef; }
+  .result-item:hover,
+  .result-item.selected { background: #f0f5ef; }  /* selected: 지금 오른쪽 화면에 보이는 생약 */
   .result-item .rname { font-weight: 600; }
   .synonym { font-size: 90%; font-weight: 500; }
-  .result-item .rsub { font-size: 0.8rem; color: var(--sub); white-space: nowrap; }
   .source-badge {
     display: inline-block;
     border: 1.5px solid var(--main-dark);
@@ -213,6 +213,10 @@
     color: var(--sub);
     padding: 20px;
     font-size: 0.9rem;
+  }
+  .empty-msg.left {
+    text-align: left;
+    padding: 12px 16px;
   }
   .group-label {
     position: sticky;
@@ -311,6 +315,69 @@
     color: var(--main-dark);
     font-size: 1.4rem;
   }
+  .detail-title-row {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  /* 버튼들을 3개씩 한 줄로 배치한다. 없는 버튼은 건너뛰고 앞에서부터 채워진다. */
+  .detail-title-actions {
+    flex-shrink: 0;
+    display: grid;
+    grid-template-columns: repeat(3, 5rem);
+    justify-items: end;
+    gap: 5px;
+  }
+  /* 버튼이 2개 이하면 칸 수를 줄여, 버튼 묶음이 생약명 줄의 오른쪽 끝에 붙게 한다. */
+  .detail-title-actions:not(:has(> :nth-child(3))) { grid-template-columns: repeat(2, 5rem); }
+  .detail-title-actions:not(:has(> :nth-child(2))) { grid-template-columns: repeat(1, 5rem); }
+  /* "사진정보"와 "HPTLC" 버튼(▾ 붙은 목록 버튼 포함)은 항상 같은 크기로 보이도록
+     너비를 고정한다. */
+  .link-btn {
+    flex-shrink: 0;
+    display: inline-block;
+    width: 5rem;
+    padding: 4px 0;
+    text-align: center;
+    font-family: inherit;
+    font-size: 0.68rem;
+    line-height: 1.4;
+    color: #fff;
+    background: var(--main);
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    text-decoration: none;
+    white-space: nowrap;
+  }
+  .link-btn:hover { background: var(--main-dark); }
+  .link-menu { position: relative; flex-shrink: 0; width: 5rem; }
+  /* 감싸는 칸 안에서 줄 간격 여백이 생겨 높이가 1px 커지지 않도록 block 으로 둔다. */
+  .link-menu > .link-btn { display: block; }
+  .link-menu-list {
+    display: none;
+    position: absolute;
+    right: 0;
+    top: calc(100% + 4px);
+    z-index: 20;
+    min-width: 200px;
+    max-width: 320px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12);
+    padding: 4px 0;
+  }
+  .link-menu.open .link-menu-list { display: block; }
+  .link-menu-list a {
+    display: block;
+    padding: 8px 14px;
+    color: var(--text);
+    font-size: 0.9rem;
+    text-decoration: none;
+  }
+  .link-menu-list a:hover { background: #f0f5ef; }
   .detail-header .en {
     color: var(--sub);
     font-style: italic;
@@ -405,6 +472,20 @@
     margin: 4px 0;
     font-size: 95%;
   }
+  /* 수식: 위아래로 쌓은 분수, 윗 막대(평균), 제곱근 */
+  .eq-frac {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    vertical-align: middle;
+    margin: 0 0.25em;
+    line-height: 1.35;
+  }
+  .eq-num { padding: 0 0.35em 0.1em; border-bottom: 1px solid currentColor; }
+  .eq-den { padding: 0.1em 0.35em 0; }
+  .eq-bar { display: inline-block; border-top: 1px solid currentColor; line-height: 1.1; }
+  .eq-sqrt { white-space: nowrap; }
+  .eq-sqrt-in { display: inline-block; border-top: 1px solid currentColor; padding: 0 0.15em; }
   .item-list {
     list-style: none;
     margin: 0;
@@ -437,6 +518,75 @@
   .ref-link:hover {
     color: var(--main);
   }
+  /* 생약시험법(생약시험법.hwpx) 연결: "생약시험법" 버튼, 단어 링크, 이물 팝업, 항목 창 */
+  .tm-btn {
+    display: inline-block;
+    margin: 0 4px;
+    padding: 1px 8px;
+    font-family: inherit;
+    font-size: 0.68rem;
+    line-height: 1.5;
+    color: var(--main-dark);
+    background: #fff;
+    border: 1px solid var(--main);
+    border-radius: 5px;
+    cursor: pointer;
+    vertical-align: middle;
+    white-space: nowrap;
+  }
+  .tm-btn:hover { color: #fff; background: var(--main); }
+  .tm-link {
+    color: var(--main-dark);
+    text-decoration: underline;
+    text-decoration-style: dotted;
+    cursor: pointer;
+  }
+  .tm-link:hover { color: var(--main); }
+  .tm-modal[hidden] { display: none; }
+  .tm-modal { position: fixed; inset: 0; z-index: 1200; display: flex; align-items: center; justify-content: center; }
+  .tm-backdrop { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.45); }
+  .tm-dialog {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    width: min(900px, calc(100vw - 24px));
+    max-height: 88vh;
+    background: #fff;
+    border-radius: 10px;
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.3);
+  }
+  .tm-dialog-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 16px;
+    font-weight: 700;
+    color: #fff;
+    background: var(--main);
+    border-radius: 10px 10px 0 0;
+  }
+  .tm-dialog-head button {
+    font-size: 1.3rem;
+    line-height: 1;
+    color: #fff;
+    background: none;
+    border: none;
+    cursor: pointer;
+  }
+  .tm-dialog-body { padding: 14px 18px 20px; overflow-y: auto; font-size: 0.92rem; }
+  .tm-node { margin: 8px 0; }
+  .tm-node .tm-node { margin-left: 1.3rem; padding-left: 0.7rem; border-left: 2px solid #e3ebe1; }
+  .tm-head, .tm-body { line-height: 1.75; }
+  .tm-body { margin: 3px 0; }
+  .tm-mk { font-weight: 700; color: var(--main-dark); }
+  .tm-imgwrap { margin: 8px 0; text-align: center; }
+  .tm-img { max-width: 100%; max-height: 420px; height: auto; }
+  .tm-eq { margin: 8px 0; text-align: center; }
+  .tm-eq-inline { display: inline-block; vertical-align: middle; }
+  .tm-body .orig-table, .tm-head .orig-table { max-width: 100%; display: block; overflow-x: auto; }
+  /* 첫 행이 제목 행이 아닌 표(곰팡이독소의 기호 설명표) */
+  .orig-table.no-head tr:first-child td { background: none; font-weight: 400; }
   .tab-bar {
     display: flex;
     gap: 6px;
@@ -502,7 +652,7 @@
     <h1>생약 검색</h1>
     <div class="header-meta">
       <p>공정서 {{ total_count }}품목, 관능검사해설서 {{ sensory_count }}품목</p>
-      <p class="header-cite">대한민국약전 의약품 각조 제2부(제2026-44호, 2026. 6.29.) │ 대한민국약전외한약(생약)규격집 의약품 각조 제1부(제2026-68호, 2026.09.30.)</p>
+      <p class="header-cite">대한민국약전 의약품 각조 제2부(제2026-44호, 2026. 6. 29.) │ 대한민국약전외한약(생약)규격집 의약품 각조 제1부(제2026-68호, 2026. 9. 30.)</p>
     </div>
   </div>
 </header>
@@ -544,6 +694,13 @@
   </div>
 </div>
 
+<div id="tmModal" class="tm-modal" hidden>
+  <div class="tm-backdrop"></div>
+  <div class="tm-dialog" role="dialog" aria-modal="true" aria-labelledby="tmTitle">
+    <div class="tm-dialog-head"><span id="tmTitle"></span><button type="button" id="tmClose" aria-label="닫기">×</button></div>
+    <div class="tm-dialog-body" id="tmBody"></div>
+  </div>
+</div>
 <script>
 const searchInput = document.getElementById('searchInput');
 const comboToggle = document.getElementById('comboToggle');
@@ -746,6 +903,7 @@ function positionDetailResizer() {
 // "purity-toggle" 섹션은 접고 펼치는 대신 "해당 시험항목만" ↔ "순도시험
 // 전체"를 번갈아 보여준다(purityToggleSectionHtml 참조).
 detailBox.addEventListener('click', (e) => {
+  if (e.target.closest('.tm-btn')) return;  // "생약시험법" 버튼은 접기/펴기가 아니다
   const header = e.target.closest('.section > .section-header');
   if (!header) return;
   const section = header.parentElement;
@@ -895,6 +1053,8 @@ tabButtons.forEach(btn => {
 const TEST_ITEMS = [
   { label: '확인시험', keywords: ['확인시험'] },
   { label: '정량법', keywords: ['정량법'] },
+  { label: '엑스함량', keywords: ['엑스함량'] },
+  { label: '정유함량', keywords: ['정유함량'] },
   { label: '이물시험', keywords: ['이물', '줄기', '꽃대', '꽃받침', '가지', '열매꼭지', '포엽', '엽초', '아코니툼속 식물', '유삼', '유사동물'] },
   { label: '변패, 산패', keywords: ['변패', '산패'] },
   { label: '잔류농약', keywords: ['잔류농약'] },
@@ -972,6 +1132,7 @@ async function selectTestItem(testItem) {
   testResultsBox.querySelectorAll('.result-item').forEach(el => {
     el.addEventListener('click', () => showDetail(el.dataset.id, testItem));
   });
+  applyShownHighlight();
   fitTestResultsHeight();
 }
 
@@ -1095,6 +1256,25 @@ searchInput.addEventListener('keydown', async (ev) => {
   }
 });
 
+// 지금 오른쪽 화면에 보이는 항목의 검색 결과 행에 selected 표시를 한다. 공정서/
+// 관능검사해설서 행은 data-id, 관능검사 사례집 행은 파일+시작쪽으로 같은 항목인지
+// 판단한다. 검색을 다시 해서 결과 카드가 새로 그려져도 같은 항목이 있으면 다시 표시한다.
+let shownKey = '';
+function applyShownHighlight() {
+  [resultsBox, testResultsBox].forEach(box => {
+    box.querySelectorAll('.result-item').forEach(el => {
+      const key = el.classList.contains('case-item')
+        ? `case:${el.dataset.file}:${el.dataset.start}`
+        : (el.dataset.id !== undefined ? `id:${el.dataset.id}` : '');
+      el.classList.toggle('selected', !!shownKey && key === shownKey);
+    });
+  });
+}
+function setShownKey(key) {
+  shownKey = key;
+  applyShownHighlight();
+}
+
 async function doSearch(q) {
   const seq = ++requestSeq;
   const res = await fetch('/api/search?q=' + encodeURIComponent(q));
@@ -1103,11 +1283,12 @@ async function doSearch(q) {
   return data;
 }
 
+// 검색 결과 카드에는 이명, 영문명, 라틴 학명은 빼고 국문명만 보여준다.
 function resultRowHtml(it) {
+  const primary = it.name_primary || it.korean_name;
   return `
     <div class="result-item" data-id="${it.id}">
-      <span class="rname">${renderName(it)}${sourceBadge(it.source_tag)}</span>
-      <span class="rsub">${escapeHtml(it.english_name || '')}</span>
+      <span class="rname">${escapeHtml(primary)}${sourceBadge(it.source_tag)}</span>
     </div>
   `;
 }
@@ -1130,6 +1311,7 @@ function caseGroupHtml(group) {
 }
 
 function selectCaseItem(data) {
+  setShownKey(`case:${data.file}:${data.start}`);
   showSensoryDetail({
     source_file: data.file,
     page_start: Number(data.start),
@@ -1152,10 +1334,10 @@ function renderResults(data, q) {
     : `<div class="empty-msg">검색 결과가 없습니다.</div>`;
   const sensoryRows = sensory.length
     ? sensory.map(resultRowHtml).join('')
-    : `<div class="empty-msg">검색 결과가 없습니다.</div>`;
+    : `<div class="empty-msg left">검색 결과가 없습니다.</div>`;
   const caseRows = caseGroups.length
     ? caseGroups.map(caseGroupHtml).join('')
-    : `<div class="empty-msg">검색 결과가 없습니다.</div>`;
+    : `<div class="empty-msg left">검색 결과가 없습니다.</div>`;
   resultsBox.innerHTML = `
     <div class="result-group">
       <div class="group-label">공정서</div>
@@ -1180,6 +1362,7 @@ function renderResults(data, q) {
   if (official.length === 1 && sensory.length === 0) {
     showDetail(official[0].id);
   }
+  applyShownHighlight();
 }
 
 // 섹션 하나를 label(초록 배지) + 그 오른쪽에 분리된 네모 안의 +/- 표시로
@@ -1192,6 +1375,7 @@ function sectionHtml(label, bodyHtml, expanded) {
       <div class="section-header">
         <div class="label">${escapeHtml(label)}</div>
         <span class="toggle-icon">${expanded ? '−' : '+'}</span>
+        ${tmButton(TM_SECTION_KEYS[label])}
       </div>
       <div class="section-content">${bodyHtml}</div>
     </div>
@@ -1200,8 +1384,44 @@ function sectionHtml(label, bodyHtml, expanded) {
 
 // 섹션 하나를 항상 통째로(하위 항목 전부) 보여줄 때 쓰는 기본 렌더링.
 function fullSectionHtml(sec, expanded = true) {
-  const body = sec.items && sec.items.length ? renderItemList(sec.items) : `<div class="body">${renderSectionBody(sec)}</div>`;
+  const body = sec.items && sec.items.length ? renderItemListIn(sec.label, sec.items) : `<div class="body">${renderSectionBody(sec)}</div>`;
   return sectionHtml(sec.label, body, expanded);
+}
+
+// ---- 생약시험법(생약시험법.hwpx) 연결 ----
+// 순도시험의 이물(마우스를 올리면 팝업), 중금속/잔류농약/이산화황(옆의 "생약시험법"
+// 버튼), 곰팡이독소(단어 링크)와 건조감량/회분/산불용성회분(제목 옆 버튼)이
+// 생약시험법 문서의 해당 항목을 보여 준다. 서버에서 해당 항목을 뽑아 두지 못한
+// 경우(문서가 없을 때 등)에는 버튼/링크를 만들지 않는다.
+const TM_SECTION_KEYS = {
+  '건조감량': 'loss', '회분': 'ash', '산불용성회분': 'acid_ash', '엑스함량': 'extract', '정유함량': 'oil',
+};
+const TM_PARENT = {
+  ibmul: '순도시험', heavy: '순도시험', pesticide: '순도시험', so2: '순도시험', mycotoxin: '순도시험',
+};
+let tmAvailable = new Set();   // 지금 보이는 생약 응답의 test_methods
+let renderSectionLabel = '';   // renderItemText가 지금 어느 섹션을 그리는 중인지
+
+function tmButton(key) {
+  if (!key || !tmAvailable.has(key)) return '';
+  return `<button type="button" class="tm-btn" data-tm="${key}" title="생약시험법의 해당 시험법 보기">생약시험법</button>`;
+}
+
+function renderItemListIn(sectionLabel, items) {
+  renderSectionLabel = sectionLabel;
+  try {
+    return renderItemList(items);
+  } finally {
+    renderSectionLabel = '';
+  }
+}
+
+// 항목 맨 앞 이름 끝의 "이물"(그 밖의 이물 포함)을 링크로 바꾼다. 누르면 생약시험법의
+// 순도시험 가. 이물 항목이 창으로 열린다.
+const TM_IBMUL_RE = /^((?:[^<>:：]*?\s)?)이물(?=\s*[:：]|\s{2}|\s*$)/;
+function tmLinkIbmul(html) {
+  if (!tmAvailable.has('ibmul')) return html;
+  return html.replace(TM_IBMUL_RE, (m, pre) => `${pre}<a href="#" class="tm-link" data-tm="ibmul" title="생약시험법 이물 시험법 보기">이물</a>`);
 }
 
 // filterItem이 있으면(시험항목 검색에서 넘어온 경우) 성상/확인시험/순도시험/
@@ -1215,7 +1435,7 @@ function buildSectionsHtml(item, filterItem) {
   if (!filterItem) {
     return item.sections.map(sec => fullSectionHtml(sec, true)).join('');
   }
-  if (filterItem.keywords.length === 1 && ['확인시험', '정량법', '순도시험'].includes(filterItem.keywords[0])) {
+  if (filterItem.keywords.length === 1 && ['확인시험', '정량법', '순도시험', '엑스함량', '정유함량'].includes(filterItem.keywords[0])) {
     const targetLabel = filterItem.keywords[0];
     const found = item.sections.some(s => s.label === targetLabel);
     if (!found) return item.sections.map(sec => fullSectionHtml(sec, true)).join('');
@@ -1227,7 +1447,7 @@ function buildSectionsHtml(item, filterItem) {
     if (matched.length) {
       return item.sections.map(sec => {
         if (sec === puritySec) {
-          return purityToggleSectionHtml(sec.label, renderItemList(matched), renderItemList(sec.items));
+          return purityToggleSectionHtml(sec.label, renderItemListIn(sec.label, matched), renderItemListIn(sec.label, sec.items));
         }
         return fullSectionHtml(sec, false);
       }).join('');
@@ -1260,12 +1480,14 @@ async function showDetail(id, filterItem) {
   const res = await fetch('/api/item/' + id);
   if (!res.ok) return;
   const item = await res.json();
+  setShownKey(`id:${item.id}`);
 
   if (item.kind === 'sensory') {
     showSensoryDetail(item);
     return;
   }
 
+  tmAvailable = new Set(item.test_methods || []);
   const sectionsHtml = buildSectionsHtml(item, filterItem);
 
   const definitionHtml = (item.definition_parts && item.definition_parts.length)
@@ -1275,15 +1497,85 @@ async function showDetail(id, filterItem) {
   detailBox.classList.remove('sensory-mode');
   detailBox.innerHTML = `
     <div class="detail-header">
-      <h2>${renderName(item)}${sourceBadge(item.source_tag)}</h2>
+      <div class="detail-title-row">
+        <h2>${renderName(item)}${sourceBadge(item.source_tag)}</h2>
+        <div class="detail-title-actions">
+          ${linkButtonHtml('사진정보', item.nifds_links)}
+          ${linkButtonHtml('확인시험사례', item.exam_case_links)}
+          ${linkButtonHtml('HPTLC', item.hptlc_links)}
+          ${linkButtonHtml('HPLC', item.hplc_links)}
+          ${linkButtonHtml('성분정보', item.ingredient_links)}
+          ${item.gene_case ? '<button type="button" class="link-btn gene-case-btn" title="유전자 기원 감별 정보자료집의 해당 생약 사례 보기">유전자감별사례</button>' : ''}
+          ${linkButtonHtml('생약감별자료집', item.dscrm_links)}
+          ${linkButtonHtml('표본정보', item.specimen_links)}
+          ${linkButtonHtml('품질표준화연구', item.crshm_links)}
+        </div>
+      </div>
       <p class="en">${escapeHtml(item.english_name || '')}</p>
       <p class="latin">${escapeHtml(item.latin_name || '')}</p>
     </div>
     ${definitionHtml ? `<div class="definition">${definitionHtml}</div>` : ''}
     ${sectionsHtml}
   `;
+  detailBox.querySelectorAll('.link-menu > .link-btn').forEach(btn => {
+    btn.addEventListener('click', ev => {
+      ev.stopPropagation();
+      const menu = btn.parentElement;
+      const willOpen = !menu.classList.contains('open');
+      closeLinkMenus();
+      if (willOpen) {
+        menu.classList.add('open');
+        btn.setAttribute('aria-expanded', 'true');
+      }
+    });
+  });
+  // "유전자감별사례": 유전자 기원 감별 정보자료집 4장 품목별 감별사례 중 이 생약
+  // 구간만 오른쪽 화면에 PDF로 보여 준다(관능검사 사례집과 같은 방식).
+  const geneBtn = detailBox.querySelector('.gene-case-btn');
+  if (geneBtn) {
+    geneBtn.addEventListener('click', () => showSensoryDetail({
+      ...item.gene_case,
+      korean_name: `${item.name_only} - 유전자 기원 감별 사례`,
+    }));
+  }
   _showDetailBox();
 }
+
+// 국가생약정보(nifds.go.kr)의 해당 생약 페이지를 새 창으로 여는 버튼("사진정보",
+// "HPTLC"). 그 사이트는 다른 사이트 화면 안에 끼워 넣는 것(iframe)을 막고 있어
+// 새 창으로 연다. "사진정보"는 생약 상세 페이지이고, 그 안의 "사진정보" 탭은
+// 주소만으로는 바로 열리지 않아서(탭 전환이 페이지 안 클릭으로만 동작) 열린
+// 페이지에서 그 탭을 한 번 눌러야 한다. "HPTLC"는 해당 생약의 HPTLC 조회
+// 페이지가 바로 열린다. 기원종이 여러 개인 생약은 기원종마다 페이지가 따로 있어,
+// 버튼을 누르면 기원종을 고르는 목록을 보여준다.
+function linkButtonHtml(label, links) {
+  if (!links || !links.length) return '';
+  const attrs = 'target="_blank" rel="noopener noreferrer"';
+  if (links.length === 1) {
+    return `<a class="link-btn" href="${escapeHtml(links[0].url)}" ${attrs} title="국가생약정보 사이트에서 열기">${escapeHtml(label)}</a>`;
+  }
+  // 기원종 이름이 비었거나("-" 포함) 같은 이름이 여러 번 나오면 번호를 붙여 구분한다.
+  const names = links.map((l, i) => (l.origin && l.origin !== '-' ? l.origin : `기원종 ${i + 1}`));
+  const items = links.map((l, i) => {
+    const dup = names.filter(n => n === names[i]).length > 1;
+    return `<a href="${escapeHtml(l.url)}" ${attrs}>${escapeHtml(dup ? `${names[i]} (${i + 1})` : names[i])}</a>`;
+  }).join('');
+  return `
+    <div class="link-menu">
+      <button type="button" class="link-btn" aria-haspopup="true" aria-expanded="false" title="기원종을 고르면 국가생약정보 사이트가 열립니다">${escapeHtml(label)} ▾</button>
+      <div class="link-menu-list">${items}</div>
+    </div>
+  `;
+}
+
+function closeLinkMenus() {
+  document.querySelectorAll('.link-menu.open').forEach(m => {
+    m.classList.remove('open');
+    m.querySelector('.link-btn').setAttribute('aria-expanded', 'false');
+  });
+}
+
+document.addEventListener('click', closeLinkMenus);
 
 function showSensoryDetail(item) {
   // 끝에 붙인 "#page=1"은 PDF 뷰어 공통 오픈 파라미터로, 브라우저 내장
@@ -1330,15 +1622,33 @@ function renderSectionBody(sec) {
 
 function renderItemText(it) {
   const refId = (it.ref_id !== undefined && it.ref_id !== null) ? it.ref_id : null;
+  const purity = renderSectionLabel === '순도시험';
   if (it.bold !== undefined) {
     const boldHtml = it.bold_html !== undefined ? it.bold_html : escapeHtml(it.bold);
     const restHtml = it.rest_html !== undefined ? it.rest_html : escapeHtml(it.rest);
-    const boldInner = it.bold ? (refId ? linkifyRef(boldHtml, refId) : boldHtml) : '';
+    let boldInner = it.bold ? (refId ? linkifyRef(boldHtml, refId) : boldHtml) : '';
+    let afterBold = '';
+    let atEnd = '';
+    if (purity && it.bold) {
+      const name = it.bold.trim().replace(/\s*[:：]$/, '');
+      if (name === '곰팡이독소' && tmAvailable.has('mycotoxin')) {
+        boldInner = `<a href="#" class="tm-link" data-tm="mycotoxin" title="생약시험법 곰팡이독소 시험법 보기">${boldInner}</a>`;
+      } else if (name === '중금속') {
+        afterBold = tmButton('heavy');
+      } else if (name === '잔류농약') {
+        afterBold = tmButton('pesticide');
+      } else if (name === '이산화황') {
+        atEnd = tmButton('so2');
+      } else {
+        boldInner = tmLinkIbmul(boldInner);
+      }
+    }
     const boldPart = it.bold ? `<strong>${boldInner}</strong>` : '';
     const restPart = it.rest ? ` ${refId ? linkifyRef(restHtml, refId) : restHtml}` : '';
-    return `${boldPart}${restPart}`;
+    return `${boldPart}${afterBold}${restPart}${atEnd}`;
   }
-  const textHtml = it.text_html !== undefined ? it.text_html : escapeHtml(it.text);
+  let textHtml = it.text_html !== undefined ? it.text_html : escapeHtml(it.text);
+  if (purity) textHtml = tmLinkIbmul(textHtml);
   return refId ? linkifyRef(textHtml, refId) : textHtml;
 }
 
@@ -1369,6 +1679,60 @@ function escapeHtml(str) {
   div.textContent = str;
   return div.innerHTML;
 }
+
+// ---- 생약시험법 항목 보기 ----
+// "생약시험법" 버튼과 이물/곰팡이독소 링크를 누르면 해당 항목을 창으로 띄운다.
+// 항목 내용은 처음 쓸 때 서버에서 한 번만 받아 와 보관한다.
+const tmCache = new Map();
+const tmModal = document.getElementById('tmModal');
+const tmTitle = document.getElementById('tmTitle');
+const tmBody = document.getElementById('tmBody');
+
+async function loadTestMethod(key) {
+  if (!tmCache.has(key)) {
+    try {
+      const res = await fetch('/api/test_method/' + encodeURIComponent(key));
+      if (!res.ok) return null;
+      tmCache.set(key, await res.json());
+    } catch (err) {
+      return null;
+    }
+  }
+  return tmCache.get(key);
+}
+
+function tmFullTitle(key, data) {
+  const parent = TM_PARENT[key];
+  return ['생약시험법', parent, data.title].filter(Boolean).join(' › ');
+}
+
+async function openTestMethod(key) {
+  const data = await loadTestMethod(key);
+  if (!data) return;
+  tmTitle.textContent = tmFullTitle(key, data);
+  tmBody.innerHTML = data.html;
+  tmBody.scrollTop = 0;
+  tmModal.hidden = false;
+}
+
+function closeTestMethod() {
+  tmModal.hidden = true;
+  tmBody.innerHTML = '';
+}
+
+
+detailBox.addEventListener('click', (ev) => {
+  const opener = ev.target.closest('.tm-btn, .tm-link');
+  if (opener) {
+    ev.preventDefault();
+    openTestMethod(opener.dataset.tm);
+  }
+});
+tmModal.querySelector('.tm-backdrop').addEventListener('click', closeTestMethod);
+document.getElementById('tmClose').addEventListener('click', closeTestMethod);
+document.addEventListener('keydown', (ev) => {
+  if (ev.key === 'Escape') closeTestMethod();
+});
 </script>
 </body>
 </html>

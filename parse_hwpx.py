@@ -74,7 +74,21 @@ _ITALIC_L, _ITALIC_R = "\x04", "\x05"
 # 바꾼다.
 _CELL_LINE_BREAK = "\x06"
 
-_MARKUP_CHARS = _EQ_SUB_L + _EQ_SUB_R + _ITALIC_L + _ITALIC_R
+# 표의 병합 칸 표시: 위 칸에 합쳐진 칸(세로 병합), 왼쪽 칸에 합쳐진 칸(가로 병합).
+# 정규식의 \s 에 걸리지 않고 strip() 되지 않는 제어문자를 쓴다.
+_MERGED_UP, _MERGED_LEFT = "\x17", "\x18"
+
+# 수식의 분수/윗첨자/막대(bar)/제곱근을 나타내는 마커. 파이썬 정규식의 \s 에 걸리지 않는
+# 제어문자만 골랐다(\x1c~\x1f 와 \x0b, \x0c 는 공백으로 취급되므로 쓰지 않는다).
+#   분수  : \x0e 분자 \x0f 분모 \x10   (분자/분모 안에 다시 분수가 올 수 있다)
+#   윗첨자: \x11 ... \x12   막대: \x13 ... \x14   제곱근: \x15 ... \x16
+_FR_L, _FR_M, _FR_R = "\x0e", "\x0f", "\x10"
+_SUP_L, _SUP_R = "\x11", "\x12"
+_BAR_L, _BAR_R = "\x13", "\x14"
+_SQRT_L, _SQRT_R = "\x15", "\x16"
+_EQ_STRUCT_CHARS = _FR_L + _FR_M + _FR_R + _SUP_L + _SUP_R + _BAR_L + _BAR_R + _SQRT_L + _SQRT_R
+
+_MARKUP_CHARS = _EQ_SUB_L + _EQ_SUB_R + _ITALIC_L + _ITALIC_R + _EQ_STRUCT_CHARS
 
 
 def _strip_markup_with_map(s: str):
@@ -98,31 +112,214 @@ def _strip_markup_with_map(s: str):
     return "".join(stripped_chars), index_map
 
 
-def _convert_equation(script_text: str) -> str:
-    """hwpx 수식 스크립트를 아래첨자 마커가 포함된 텍스트로 변환한다.
-    예: "{A  _{rm Ta}} over {A  _{rm Sa}}" -> "A\\x02Ta\\x03 / A\\x02Sa\\x03"
+_EQ_FONT_WORDS = {"rm", "it", "bold", "sf", "tt"}  # 글꼴 지정 키워드(화면에 나오지 않음)
+_EQ_SYMBOLS = {  # 그리스 문자/기호 키워드
+    "alpha": "α", "beta": "β", "gamma": "γ", "delta": "δ", "epsilon": "ε", "zeta": "ζ",
+    "SUM": "∑", "sum": "∑", "times": "×", "TIMES": "×", "cdot": "·", "pm": "±",
+    "leq": "≤", "geq": "≥", "LEQ": "≤", "GEQ": "≥",
+    # "ALPHA"는 그리스 대문자 알파(Α)인데 이 서체에서는 라틴 "A"와 똑같이 보이므로
+    # 원문 의도대로 "A"로 쓴다(그대로 두면 "AT" 앞에 글자 그대로 "ALPHA"가 붙어 나온다).
+    "ALPHA": "A",
+}
+_EQ_WORD_RE = re.compile(r"[A-Za-z]+")
+_EQ_NUM_RE = re.compile(r"\d+(?:\.\d+)?")
+_EQ_HANGUL_RE = re.compile(r"[가-힣]+")
+
+
+class _EquationParser:
+    """한글(HWP) 수식 스크립트를 마커가 섞인 텍스트로 바꾸는 재귀 하강 파서.
+
+    지원: "{분자} over {분모}"(분수, 중첩 가능), 아래/윗첨자("_", "^"), TIMES/times,
+    LEFT/RIGHT 괄호, bar(위 막대), sqrt(제곱근), SUM, 그리스 문자, rm/it 같은 글꼴
+    키워드(무시), eqalign{... # ...}(줄바꿈 "#"은 공백), "~"/"`"(간격 -> 공백).
+    "itY"/"rmS"처럼 글꼴 키워드가 글자에 붙어 있는 것도 떼어 낸다.
     """
-    s = script_text or ""
 
-    # "ALPHA"는 그리스 대문자 알파(Α)를 가리키는 수식 키워드인데, 이 서체에서는
-    # 라틴 대문자 "A"와 구분 없이 똑같이 보인다. 원문 의도대로 "A"로 바꾼다
-    # (그대로 두면 "AT" 앞에 글자 그대로의 "ALPHA"가 붙어 나온다).
-    s = re.sub(r"\bALPHA\b", "A", s)
+    def __init__(self, text: str):
+        self.s = text
+        self.i = 0
+        self.n = len(text)
 
-    def _sub_repl(m):
-        inner = m.group(1)
-        inner = re.sub(r"^\s*rm", "", inner)  # "rm"(정체) 서식 키워드 제거
-        inner = re.sub(r"\bit\b", "", inner)  # "it"(이탤릭) 서식 키워드 제거
-        inner = re.sub(r"\s+", "", inner).strip()
-        return _EQ_SUB_L + inner + _EQ_SUB_R if inner else ""
+    # -- 도우미 --
+    def _skip_gap(self):
+        while self.i < self.n and self.s[self.i] in " \t\r\n~`#":
+            self.i += 1
 
-    # 밑변수와 "_{...}" 사이의 공백까지 함께 지워서, 렌더링됐을 때
-    # "A" 와 아래첨자 사이에 불필요한 틈이 생기지 않게 한다.
-    s = re.sub(r"[ \t]*_\{([^{}]*)\}", _sub_repl, s)
-    s = re.sub(r"\s+over\s+", " / ", s)
-    s = s.replace("{", "").replace("}", "")
-    s = s.replace("_", "")  # 위 패턴으로 잡히지 않은 잔여 "_" (빈 수식 등) 제거
-    s = re.sub(r"[ \t]+", " ", s).strip()
+    @staticmethod
+    def _collapse(pieces) -> str:
+        return re.sub(r" {2,}", " ", "".join(pieces)).strip()
+
+    def _attach_postfix(self, out):
+        """방금 만든 조각 뒤에 이어지는 "_x"/"^x" 를 그 조각에 붙인다."""
+        while True:
+            j = self.i
+            while j < self.n and self.s[j] in " \t\r\n":
+                j += 1
+            if j >= self.n or self.s[j] not in "_^":
+                return
+            kind = self.s[j]
+            self.i = j + 1
+            operand = re.sub(r"\s+", "", self.parse_operand())
+            while out and out[-1].strip() == "":
+                out.pop()
+            if not operand:
+                continue
+            if not out:
+                out.append("")
+            left, right = (_EQ_SUB_L, _EQ_SUB_R) if kind == "_" else (_SUP_L, _SUP_R)
+            out[-1] += left + operand + right
+
+    # -- 피연산자 --
+    def parse_operand(self) -> str:
+        """다음 피연산자 하나(묶음 {…}, 단어, 숫자, 공백 없는 덩어리)를 읽는다."""
+        self._skip_gap()
+        if self.i >= self.n:
+            return ""
+        c = self.s[self.i]
+        if c == "}":  # 닫는 중괄호는 바깥 묶음의 끝이므로 먹지 않는다
+            return ""
+        if c == "{":
+            self.i += 1
+            return self.parse_seq(True)
+        m = _EQ_WORD_RE.match(self.s, self.i)
+        if m:
+            word = m.group()
+            if word in _EQ_FONT_WORDS:
+                self.i = m.end()
+                return self.parse_operand()
+            if word in ("bar", "sqrt", "eqalign", "over", "LEFT", "RIGHT"):
+                # 단독 피연산자 자리에서도 같은 규칙으로 해석하도록 한 항목만 읽는다.
+                out = []
+                self._parse_one(out)
+                return "".join(out)
+            self.i = m.end()
+            return self._strip_font_prefix(word)
+        m = _EQ_NUM_RE.match(self.s, self.i)
+        if m:
+            self.i = m.end()
+            return m.group()
+        j = self.i
+        while j < self.n and self.s[j] not in " \t\r\n~`{}_^#":
+            j += 1
+        j = max(j, self.i + 1)
+        token = self.s[self.i : j]
+        self.i = j
+        return token
+
+    @staticmethod
+    def _strip_font_prefix(word: str) -> str:
+        while len(word) > 2 and word[:2] in ("rm", "it") and word not in _EQ_SYMBOLS:
+            word = word[2:]
+        return word
+
+    # -- 한 항목 --
+    def _parse_one(self, out):
+        """현재 위치의 항목 하나를 읽어 out 에 붙인다. 읽었으면 True."""
+        s, c = self.s, self.s[self.i]
+        if c in " \t\r\n~`#":
+            out.append(" ")
+            self.i += 1
+            return True
+        if c == "{":
+            self.i += 1
+            out.append(self.parse_seq(True))
+            return True
+        if c in "_^":
+            self._attach_postfix(out)
+            return True
+        m = _EQ_WORD_RE.match(s, self.i)
+        if m:
+            word = m.group()
+            self.i = m.end()
+            if word == "over":
+                while out and out[-1].strip() == "":
+                    out.pop()
+                numerator = out.pop() if out else ""
+                sub_out = []
+                den = self.parse_operand()
+                sub_out.append(den)
+                self._attach_postfix(sub_out)
+                out.append(_FR_L + numerator.strip() + _FR_M + "".join(sub_out).strip() + _FR_R)
+            elif word in ("LEFT", "RIGHT"):
+                self._skip_gap()
+                if self.i < self.n and s[self.i] in "([{|)]}":
+                    ch = s[self.i]
+                    self.i += 1
+                    out.append(ch)
+                elif self.i < self.n and s[self.i] == ".":
+                    self.i += 1
+            elif word in _EQ_FONT_WORDS:
+                pass
+            elif word == "bar":
+                out.append(_BAR_L + self.parse_operand() + _BAR_R)
+            elif word == "sqrt":
+                out.append(_SQRT_L + self.parse_operand() + _SQRT_R)
+            elif word == "eqalign":
+                out.append(self.parse_operand())
+            elif word in _EQ_SYMBOLS:
+                out.append(_EQ_SYMBOLS[word])
+            else:
+                out.append(self._strip_font_prefix(word))
+            return True
+        m = _EQ_NUM_RE.match(s, self.i) or _EQ_HANGUL_RE.match(s, self.i)
+        if m:
+            out.append(m.group())
+            self.i = m.end()
+            return True
+        out.append(c)
+        self.i += 1
+        return True
+
+    def parse_seq(self, in_group: bool) -> str:
+        out = []
+        while self.i < self.n:
+            if self.s[self.i] == "}":
+                self.i += 1
+                if in_group:
+                    break
+                continue
+            self._parse_one(out)
+        return self._collapse(out)
+
+
+def _convert_equation(script_text: str) -> str:
+    """hwpx 수식 스크립트를 마커(아래/윗첨자, 분수, 막대, 제곱근)가 포함된 텍스트로 변환한다.
+    예: "{A  _{rm Ta}} over {A  _{rm Sa}}" -> "\\x0eA\\x02Ta\\x03\\x0fA\\x02Sa\\x03\\x10"
+    (분수는 나중에 _apply_subscript_markup 이 위아래로 쌓은 분수 HTML 로 바꾼다.)
+    """
+    return _EquationParser(script_text or "").parse_seq(False)
+
+
+_FRAC_RE = re.compile(f"{_FR_L}([^{_FR_L}{_FR_M}{_FR_R}]*){_FR_M}([^{_FR_L}{_FR_M}{_FR_R}]*){_FR_R}")
+_SUP_RE = re.compile(f"{_SUP_L}([^{_SUP_L}{_SUP_R}]*){_SUP_R}")
+_BAR_RE = re.compile(f"{_BAR_L}([^{_BAR_L}{_BAR_R}]*){_BAR_R}")
+_SQRT_RE = re.compile(f"{_SQRT_L}([^{_SQRT_L}{_SQRT_R}]*){_SQRT_R}")
+
+
+def _apply_equation_markup(s: str) -> str:
+    """분수/윗첨자/막대/제곱근 마커를 HTML 로 바꾼다. 안쪽(가장 깊이 중첩된) 것부터 차례로
+    바꾸므로 분수 안의 분수도 처리된다."""
+    prev = None
+    while prev != s:
+        prev = s
+        s = _FRAC_RE.sub(
+            lambda m: f'<span class="eq-frac"><span class="eq-num">{m.group(1).strip()}</span>'
+            f'<span class="eq-den">{m.group(2).strip()}</span></span>',
+            s,
+        )
+        s = _SUP_RE.sub(r"<sup>\1</sup>", s)
+        s = _BAR_RE.sub(r'<span class="eq-bar">\1</span>', s)
+        s = _SQRT_RE.sub(r'<span class="eq-sqrt">√<span class="eq-sqrt-in">\1</span></span>', s)
+    for ch in _EQ_STRUCT_CHARS:  # 짝이 맞지 않아 남은 마커는 버린다
+        s = s.replace(ch, "")
+    return s
+
+
+def _plain_markup(s: str) -> str:
+    """검색/본문용 평문으로 돌린다: 수식 마커를 없애고 분수는 "분자/분모", 윗첨자는 "^"로 쓴다."""
+    s = s.replace(_FR_M, "/").replace(_SUP_L, "^")
+    for ch in _EQ_SUB_L + _EQ_SUB_R + _ITALIC_L + _ITALIC_R + _FR_L + _FR_R + _SUP_R + _BAR_L + _BAR_R + _SQRT_L + _SQRT_R:
+        s = s.replace(ch, "")
     return s
 
 
@@ -166,7 +363,8 @@ def _table_to_text(tbl_elem, subscript_charpr_ids=frozenset(), italic_charpr_ids
     """
     rows_cells = []
     max_cols = 0
-    for tr in tbl_elem.findall("hp:tr", NS):
+    spans = []  # [(행 번호, 열, rowSpan, colSpan)] - 병합 칸을 표시하려고 모아 둔다
+    for r_idx, tr in enumerate(tbl_elem.findall("hp:tr", NS)):
         row = []
         for tc in tr.findall("hp:tc", NS):
             addr = tc.find("hp:cellAddr", NS)
@@ -174,12 +372,30 @@ def _table_to_text(tbl_elem, subscript_charpr_ids=frozenset(), italic_charpr_ids
             while len(row) <= col:
                 row.append("")
             row[col] = _cell_text(tc, subscript_charpr_ids, italic_charpr_ids)
+            span = tc.find("hp:cellSpan", NS)
+            if span is not None:
+                row_span = int(span.get("rowSpan") or 1)
+                col_span = int(span.get("colSpan") or 1)
+                if row_span > 1 or col_span > 1:
+                    spans.append((r_idx, col, row_span, col_span))
         rows_cells.append(row)
         max_cols = max(max_cols, len(row))
 
+    # 병합으로 가려진 칸은 빈 칸이 아니라 "병합됨" 표시(_MERGED_UP/_MERGED_LEFT)로 채워서,
+    # 표를 그릴 때 위/왼쪽 칸을 실제로 합쳐 보여 줄 수 있게 한다.
+    for row in rows_cells:
+        row.extend([""] * (max_cols - len(row)))
+    for r_idx, col, row_span, col_span in spans:
+        for dr in range(row_span):
+            for dc in range(col_span):
+                if dr == 0 and dc == 0:
+                    continue
+                rr, cc = r_idx + dr, col + dc
+                if rr < len(rows_cells) and cc < max_cols:
+                    rows_cells[rr][cc] = _MERGED_UP if dc == 0 else _MERGED_LEFT
+
     rows = []
     for row in rows_cells:
-        row = row + [""] * (max_cols - len(row))
         if any(c.strip() for c in row):
             rows.append(" | ".join(row))
     return "\n".join(rows)
@@ -204,6 +420,7 @@ def _paragraph_segments(
     """
     segments = []
     has_subheader = False
+    pending_eq = ""  # 중괄호가 덜 닫힌 채 끝난 수식(문서에서 수식 개체 둘로 쪼개진 경우)
     for run in p_elem.findall("hp:run", NS):
         # 스타일(charStyleIDRef)이 아예 없이 charPrIDRef 직접 서식(굵게)만으로
         # 항목명을 표시하는 문서가 있다("확인시험  1)"처럼 번호가 같은 런에
@@ -251,11 +468,19 @@ def _paragraph_segments(
             elif tag == "equation":
                 script = child.find("hp:script", NS)
                 if script is not None and script.text:
-                    segments.append(("text", _convert_equation(script.text)))
+                    # 치자/현호색처럼 한 수식이 "…{A _{eqalign{rm S#" 와 "it}}}" 두 개체로
+                    # 쪼개져 있으면, 중괄호가 다 닫힐 때까지 이어 붙여서 하나로 변환한다.
+                    pending_eq += script.text
+                    if pending_eq.count("{") > pending_eq.count("}"):
+                        continue
+                    segments.append(("text", _convert_equation(pending_eq)))
+                    pending_eq = ""
             elif tag == "tbl":
                 table_text = _table_to_text(child, subscript_charpr_ids, italic_charpr_ids)
                 if table_text:
                     segments.append(("text", "\n" + table_text + "\n"))
+    if pending_eq:
+        segments.append(("text", _convert_equation(pending_eq)))
     return segments, has_subheader
 
 
@@ -1230,6 +1455,7 @@ def _paragraph_runs_with_italic(p_elem, italic_charpr_ids):
     보통 이 서식이 원본 문서에 이미 지정되어 있어, 이를 그대로 활용한다.
     """
     runs = []
+    pending_eq = ""
     for run in p_elem.findall("hp:run", NS):
         is_italic = run.get("charPrIDRef") in italic_charpr_ids
         for child in run:
@@ -1241,7 +1467,13 @@ def _paragraph_runs_with_italic(p_elem, italic_charpr_ids):
             elif tag == "equation":
                 script = child.find("hp:script", NS)
                 if script is not None and script.text:
-                    runs.append((_convert_equation(script.text), False))
+                    pending_eq += script.text
+                    if pending_eq.count("{") > pending_eq.count("}"):
+                        continue
+                    runs.append((_convert_equation(pending_eq), False))
+                    pending_eq = ""
+    if pending_eq:
+        runs.append((_convert_equation(pending_eq), False))
     return runs
 
 
@@ -1277,7 +1509,7 @@ def _apply_subscript_markup(escaped_text: str) -> str:
     s = _PEAK_LABEL_RE.sub(
         lambda m: f"{m.group(1)}<sub>{m.group(2)}{m.group(3) or ''}</sub>", s
     )
-    return s
+    return _apply_equation_markup(s)
 
 
 def _render_definition_html(runs) -> str:
@@ -1329,16 +1561,45 @@ _TABLE_CELL_SPLIT_RE = re.compile(r" ?\| ?")
 
 
 def _rows_to_table_html(table_lines) -> str:
-    rows_html = []
+    # 1단계: 줄마다 칸으로 나누고, 병합 표시(_MERGED_UP/_MERGED_LEFT)가 붙은 칸은 그 칸을
+    # 만들지 않는 대신 원래 칸의 rowspan/colspan 을 늘린다.
+    grid = []  # 행마다 [{"text":..., "rs":1, "cs":1, "skip":False}, ...]
     for ln in table_lines:
         # 병합된(rowSpan) 첫 칸이 빈 채로 남은 줄("| 252.0 | 226.0 | 24")은
         # 줄 정리 단계에서 앞의 구분용 공백이 strip() 되어 맨 앞이 "|"로
         # 시작하므로, 앞뒤 공백이 없어도 "|" 하나로 칸을 나눈다.
         cells = [c.strip() for c in _TABLE_CELL_SPLIT_RE.split(ln)]
-        cells_html = "".join(
-            f"<td>{_render_text_line_html(c).replace(_CELL_LINE_BREAK, '<br>')}</td>" for c in cells
-        )
-        rows_html.append(f"<tr>{cells_html}</tr>")
+        grid.append([{"text": c, "rs": 1, "cs": 1, "skip": False} for c in cells])
+    origin_by_col = {}  # 열 -> 지금까지 그 열에서 가장 최근의 병합 원본 칸
+    for row in grid:
+        left_origin = None
+        for col, cell in enumerate(row):
+            text = cell["text"]
+            if text == _MERGED_UP and col in origin_by_col:
+                origin_by_col[col]["rs"] += 1
+                cell["skip"] = True
+            elif text == _MERGED_LEFT and left_origin is not None:
+                left_origin["cs"] += 1
+                cell["skip"] = True
+            else:
+                if text in (_MERGED_UP, _MERGED_LEFT):
+                    cell["text"] = ""  # 합칠 원본이 없으면 빈 칸으로 둔다
+                origin_by_col[col] = cell
+                left_origin = cell
+    rows_html = []
+    for row in grid:
+        cells_html = []
+        for cell in row:
+            if cell["skip"]:
+                continue
+            attrs = ""
+            if cell["rs"] > 1:
+                attrs += f' rowspan="{cell["rs"]}"'
+            if cell["cs"] > 1:
+                attrs += f' colspan="{cell["cs"]}"'
+            inner = _render_text_line_html(cell["text"]).replace(_CELL_LINE_BREAK, "<br>")
+            cells_html.append(f"<td{attrs}>{inner}</td>")
+        rows_html.append(f"<tr>{''.join(cells_html)}</tr>")
     return f'<table class="orig-table">{"".join(rows_html)}</table>'
 
 
@@ -1420,13 +1681,7 @@ def _render_rich_html(text: str) -> str:
         if kind == "table":
             piece = _rows_to_table_html([lines[k] for k in idxs])
         elif kind == "formula":
-            raw_merged = (
-                " ".join(lines[k] for k in idxs)
-                .replace(_EQ_SUB_L, "")
-                .replace(_EQ_SUB_R, "")
-                .replace(_ITALIC_L, "")
-                .replace(_ITALIC_R, "")
-            )
+            raw_merged = _strip_markup_with_map(" ".join(lines[k] for k in idxs))[0]
             join_with = " " if len(raw_merged) <= _FORMULA_MERGE_MAX_LEN else "<br>"
             piece = f'<div class="formula-line">{join_with.join(_render_text_line_html(lines[k]) for k in idxs)}</div>'
         else:
@@ -1470,12 +1725,7 @@ def _enrich_item_html(items):
         marker_raw = it.get("marker", "")
         if any(c in marker_raw for c in _MARKUP_CHARS):
             it["marker_html"] = _render_rich_html(marker_raw)
-            it["marker"] = (
-                marker_raw.replace(_EQ_SUB_L, "")
-                .replace(_EQ_SUB_R, "")
-                .replace(_ITALIC_L, "")
-                .replace(_ITALIC_R, "")
-            )
+            it["marker"] = _plain_markup(marker_raw)
         if "bold" in it:
             it["bold_html"] = _render_rich_html(it.get("bold", ""))
             it["rest_html"] = _render_rich_html(it.get("rest", ""))
@@ -1888,7 +2138,26 @@ def parse_hwpx_bytes_sections(
             current_section["text"].append("\n")
 
     close_entry()
+    _clean_plain_fields(entries)
     return entries
+
+
+def _clean_plain_fields(obj):
+    """표시용 *_html 이 아닌 평문 필드(text, bold, rest, marker 등)에 남은 수식/서식 마커를
+    평문으로 바꾼다(HTML 은 이미 만들어졌고, 평문은 검색과 대체 표시에만 쓰인다)."""
+    if isinstance(obj, dict):
+        for key, value in obj.items():
+            if isinstance(value, str):
+                if not key.endswith("html"):
+                    obj[key] = _plain_markup(value)
+            else:
+                _clean_plain_fields(value)
+    elif isinstance(obj, list):
+        for i, value in enumerate(obj):
+            if isinstance(value, str):
+                obj[i] = _plain_markup(value)
+            else:
+                _clean_plain_fields(value)
 
 
 def parse_hwpx(path):

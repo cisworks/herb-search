@@ -12,16 +12,23 @@
  함께 넣어두면 그 내용이 자동으로 반영된다. 앱을 재시작하면 다시 읽어온다.)
 """
 
+import json
 import re
 from pathlib import Path
+from urllib.parse import quote
 
 from flask import Flask, Response, abort, jsonify, render_template, request
 
 from parse_hwpx import parse_hwpx
 from parse_sensory_pdf import build_sensory_entries
 from parse_case_pdf import parse_case_pdf
+from parse_test_methods import parse_test_methods, read_test_method_image
 
 BASE_DIR = Path(__file__).resolve().parent
+
+# 일반시험법 "35. 생약시험법"(생약시험법.hwpx). 생약 상세 화면의 이물/중금속/잔류농약/
+# 이산화황/곰팡이독소/건조감량/회분/산불용성회분 항목이 이 문서의 해당 항목을 보여 준다.
+TEST_METHOD_FILE = "생약시험법.hwpx"
 
 app = Flask(__name__)
 
@@ -80,7 +87,8 @@ def _resolve_purity_references(entries):
 
 
 def load_entries():
-    hwpx_files = sorted(BASE_DIR.glob("*.hwpx"))
+    # 생약시험법.hwpx 는 생약 품목이 아니라 시험법 본문이라(아래 TEST_METHODS) 제외한다.
+    hwpx_files = sorted(p for p in BASE_DIR.glob("*.hwpx") if p.name != TEST_METHOD_FILE)
     entries = []
     for f in hwpx_files:
         try:
@@ -157,10 +165,202 @@ def load_case_entries():
     return entries, [f.name for f in case_files]
 
 
+def load_test_methods():
+    path = BASE_DIR / TEST_METHOD_FILE
+    if not path.is_file():
+        return {}
+    try:
+        return parse_test_methods(path)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[경고] {path} 파싱 실패: {exc}")
+        return {}
+
+
+TEST_METHODS = load_test_methods()
 ENTRIES, LOADED_FILES = load_entries()
 SENSORY_ENTRIES, SENSORY_FILES = load_sensory_entries(start_id=len(ENTRIES))
 CASE_ENTRIES, CASE_FILES = load_case_entries()
 ENTRY_BY_ID = {e["id"]: e for e in ENTRIES + SENSORY_ENTRIES}
+
+
+# 국가생약정보(nifds.go.kr) 공정서 생약 상세 페이지 대응표.
+# nifds_herb_map.json 은 "생약명 -> [[기원종, selectedDmstcOfcmNo, selectedMdntfNo], ...]"
+# 형태다. 사이트가 스크립트 접속을 막고 있어(notAllowBrower) 프로그램으로 자동
+# 수집하지 않고, 사이트 목록 페이지(list.do)를 브라우저로 열어 확인한 값을 담았다.
+
+
+def _load_json_map(filename):
+    path = BASE_DIR / filename
+    if not path.is_file():
+        return {}
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+NIFDS_MAP = _load_json_map("nifds_herb_map.json")
+
+# 상세 페이지의 "사진정보 > 약재" 탭 사진. 탭이 불러오는 사진 조각 페이지는
+# 첫 사진이 두 번 나오고 꾸밀 수 없어서, 사진 목록만 가져와 /photos/<번호> 에서
+# 직접 보여 준다. nifds_photo_map.json ("선택번호_기원번호" -> 사진 번호)과
+# nifds_photo_list.json ("사진 번호" -> [사진묶음번호, 장수] 또는 [[묶음번호, 순번], ...])은
+# 상세 페이지를 브라우저로 열어 확인한 값이다. 사진 자체는 국가생약정보 서버의 것을
+# 그대로 불러온다.
+NIFDS_PHOTO_MAP = _load_json_map("nifds_photo_map.json")
+NIFDS_PHOTO_LIST = _load_json_map("nifds_photo_list.json")
+NIFDS_PREVIEW_URL = "https://nifds.go.kr/nhmi/preview.do?flgrpNo={flgrp}&sn={sn}"
+NIFDS_THUMB_URL = NIFDS_PREVIEW_URL + "&thumbnail=true&maxWidth=800&maxHeight=800"
+
+# 국가생약정보 HPTLC/HPLC 조회(analscase/hptlc, analscase/hplc) 대응표:
+# "생약명 -> [[기원종, 번호], ...]". 만든 방법은 위 nifds_herb_map.json 과 같다
+# (각 목록 페이지를 브라우저로 열어 확인).
+NIFDS_HPTLC_URL = "https://nifds.go.kr/nhmi/analscase/hptlc/view.do?selectedHptlcNo={no}"
+NIFDS_HPTLC_MAP = _load_json_map("nifds_hptlc_map.json")
+NIFDS_HPLC_URL = "https://nifds.go.kr/nhmi/analscase/hplc/view.do?selectedHplcNo={no}"
+NIFDS_HPLC_MAP = _load_json_map("nifds_hplc_map.json")
+
+# 국가생약정보 생약 상세 페이지의 "공정서 시험사례" 오른쪽 "미리보기"가 여는 PDF 뷰어
+# 주소. PDF 번호(flgrpNo)가 생약마다 규칙 없이 달라서 nifds_exam_case_map.json
+# ("생약명 -> flgrpNo")에 생약별로 모아 두었다. 기원종이 여러 개인 생약도 같은
+# 파일을 쓴다. 만든 방법은 위 대응표들과 같다(상세 페이지를 브라우저로 열어 확인).
+NIFDS_EXAM_CASE_URL = (
+    "https://nifds.go.kr/nhmi/js/pdfjs/web/viewer.jsp"
+    "?file=%2fnhmi%2fpreview.do%3fflgrpNo%3d{no}%26sn%3d1"
+)
+NIFDS_EXAM_CASE_MAP = _load_json_map("nifds_exam_case_map.json")
+
+# 국가생약정보 "한약재 품질표준화 연구사업단 자료"(srcbk/crshm) 목록의 "미리보기"가
+# 여는 PDF 뷰어 주소. 생약마다 PDF 번호(flgrpNo)가 달라 nifds_crshm_map.json
+# ("생약명 -> flgrpNo")에 모아 두었다(목록 페이지를 브라우저로 열어 확인, 84개).
+NIFDS_CRSHM_URL = (
+    "https://nifds.go.kr/nhmi/js/pdfjs/web/viewer.jsp"
+    "?file=%2fnhmi%2fdownload.do%3fflgrpNo%3d{no}%26sn%3d1"
+)
+NIFDS_CRSHM_MAP = _load_json_map("nifds_crshm_map.json")
+
+# 국가생약정보 "생약 감별자료집"(analscase/dscrm) 목록의 "미리보기" PDF 뷰어 주소.
+# nifds_dscrm_map.json ("생약명 -> flgrpNo", 50개)은 목록 페이지를 브라우저로 열어
+# 확인한 값이다. 방풍/식방풍/해방풍처럼 한 PDF를 같이 쓰는 생약은 번호가 같다.
+NIFDS_DSCRM_URL = (
+    "https://nifds.go.kr/nhmi/js/pdfjs/web/viewer.jsp"
+    "?file=%2fnhmi%2fdownload.do%3fflgrpNo%3d{no}%26sn%3d1"
+)
+NIFDS_DSCRM_MAP = _load_json_map("nifds_dscrm_map.json")
+
+# 국가생약정보 생약 상세 페이지의 "표본정보" 탭(증거표본 목록)에서 첫 번째 행
+# "증거표본번호" 링크가 여는 화면 주소. 탭 목록은 식물(기원종)별이라
+# nifds_specimen_map.json ("선택번호_기원번호" -> [식물 번호, 첫 증거표본번호 또는 null])에
+# 모아 두었다(상세 페이지와 그 탭 목록을 브라우저로 열어 확인).
+NIFDS_SPECIMEN_URL = (
+    "https://nifds.go.kr/nhmi/prslf/prslfspcmn/view.ajax"
+    "?selectedPrslfspcmnNo={no}&selectedTaxon={taxon}"
+)
+NIFDS_SPECIMEN_MAP = _load_json_map("nifds_specimen_map.json")
+
+# 국가생약정보 구성성분정보(analscase/hbdcirdntAnals)는 생약별 상세 페이지가 없고
+# 화합물을 한 줄씩 나열한 목록이라, 목록을 생약명으로 검색한 결과(searchText)를
+# 해당 생약의 페이지로 연다. 이 사이트 검색은 생약명 부분 일치라 "지황"으로 찾으면
+# "생지황"/"숙지황" 행도 같이 나온다. nifds_ingredient_herbs.json 은 이 목록에
+# 자료가 있는 생약명(한글 이름만)이다.
+NIFDS_INGREDIENT_URL = "https://nifds.go.kr/nhmi/analscase/hbdcirdntAnals/list.do?searchText={q}"
+NIFDS_INGREDIENT_HERBS = set(_load_json_map("nifds_ingredient_herbs.json"))
+
+
+# "한약(생약) 중 유전자 기원 감별 정보자료집"(유전자기원감별정보집.pdf)은 글자 정보가
+# 없는 그림 PDF라서, "4. 품목별 감별사례"의 품목별 시작/끝 쪽(0부터 세는 PDF 쪽
+# 번호)을 목차를 보고 gene_case_pages.json("생약명 -> [시작, 끝]")에 정리해 두었다.
+# 화면에서는 /api/sensory_pdf 로 이 구간만 잘라 보여 준다.
+GENE_CASE_FILE = "유전자기원감별정보집.pdf"
+GENE_CASE_PAGES = _load_json_map("gene_case_pages.json")
+
+
+def _lookup_key(table, name_only):
+    """"사프란 번홍화"처럼 이명이 같이 붙은 이름은 첫 단어("사프란")로 한 번 더 찾는다."""
+    return name_only if name_only in table else (name_only.split() or [""])[0]
+
+
+def nifds_links(name_only):
+    """생약명으로 국가생약정보 "사진정보" 주소들을 만든다. 상세 페이지의 사진정보
+    탭은 주소로 바로 열 수 없어서, 약재 사진만 모아 보여 주는 우리 쪽 페이지
+    (/photos/<번호>)를 연다. 약재 사진이 없는 생약은 빈 목록을 돌려줘서 버튼이
+    나오지 않는다. 기원종이 여러 개여도 사진정보는 같으므로 기원종 구분 없이
+    첫 번째 하나만 돌려준다."""
+    for origin, dmstc, mdntf in NIFDS_MAP.get(_lookup_key(NIFDS_MAP, name_only), []):
+        drgnm = NIFDS_PHOTO_MAP.get(f"{dmstc}_{mdntf}")
+        if str(drgnm) in NIFDS_PHOTO_LIST:
+            return [{"origin": "", "url": f"/photos/{drgnm}"}]
+    return []
+
+
+def _analscase_links(table, url_template, name_only):
+    return [
+        {"origin": origin, "url": url_template.format(no=no)}
+        for origin, no in table.get(_lookup_key(table, name_only), [])
+    ]
+
+
+def hptlc_links(name_only):
+    """생약명으로 국가생약정보 HPTLC 조회 페이지 주소들을 만든다(HPTLC 자료가
+    있는 생약만 나온다. 기원종이 여러 개면 여러 개)."""
+    return _analscase_links(NIFDS_HPTLC_MAP, NIFDS_HPTLC_URL, name_only)
+
+
+def hplc_links(name_only):
+    """생약명으로 국가생약정보 HPLC 조회 페이지 주소들을 만든다(HPLC 자료가
+    있는 생약만 나온다)."""
+    return _analscase_links(NIFDS_HPLC_MAP, NIFDS_HPLC_URL, name_only)
+
+
+def exam_case_links(name_only):
+    """생약명으로 국가생약정보 "공정서 시험사례" PDF 미리보기 주소를 만든다
+    (자료가 있는 생약만 나온다)."""
+    no = NIFDS_EXAM_CASE_MAP.get(_lookup_key(NIFDS_EXAM_CASE_MAP, name_only))
+    if no is None:
+        return []
+    return [{"origin": "", "url": NIFDS_EXAM_CASE_URL.format(no=no)}]
+
+
+def gene_case(name_only):
+    """유전자 기원 감별 자료집에서 해당 생약의 사례 구간(없으면 None)."""
+    pages = GENE_CASE_PAGES.get(_lookup_key(GENE_CASE_PAGES, name_only))
+    if pages is None or not (BASE_DIR / GENE_CASE_FILE).is_file():
+        return None
+    return {"source_file": GENE_CASE_FILE, "page_start": pages[0], "page_end": pages[1]}
+
+
+def crshm_links(name_only):
+    """생약명으로 "품질표준화 연구사업단 자료" PDF 미리보기 주소를 만든다(자료가
+    있는 생약만 나온다)."""
+    no = NIFDS_CRSHM_MAP.get(_lookup_key(NIFDS_CRSHM_MAP, name_only))
+    if no is None:
+        return []
+    return [{"origin": "", "url": NIFDS_CRSHM_URL.format(no=no)}]
+
+
+def dscrm_links(name_only):
+    """생약명으로 "생약 감별자료집" PDF 미리보기 주소를 만든다(자료가 있는 생약만
+    나온다)."""
+    no = NIFDS_DSCRM_MAP.get(_lookup_key(NIFDS_DSCRM_MAP, name_only))
+    if no is None:
+        return []
+    return [{"origin": "", "url": NIFDS_DSCRM_URL.format(no=no)}]
+
+
+def specimen_links(name_only):
+    """생약명으로 "표본정보" 탭 첫 증거표본 화면 주소를 만든다. 기원종이 여러 개면
+    표본이 있는 첫 번째 기원종의 것을 쓰고, 표본이 하나도 없는 생약은 빈 목록이다."""
+    for _origin, dmstc, mdntf in NIFDS_MAP.get(_lookup_key(NIFDS_MAP, name_only), []):
+        taxon, no = NIFDS_SPECIMEN_MAP.get(f"{dmstc}_{mdntf}") or (None, None)
+        if no:
+            return [{"origin": "", "url": NIFDS_SPECIMEN_URL.format(no=no, taxon=taxon)}]
+    return []
+
+
+def ingredient_links(name_only):
+    """생약명으로 국가생약정보 구성성분정보 페이지 주소를 만든다(자료가 있는
+    생약만 나온다. 기원종과 상관없이 생약명 검색 결과 하나로 열린다)."""
+    key = _lookup_key(NIFDS_INGREDIENT_HERBS, name_only)
+    if key not in NIFDS_INGREDIENT_HERBS:
+        return []
+    return [{"origin": "", "url": NIFDS_INGREDIENT_URL.format(q=quote(key))}]
 
 
 def summary(e):
@@ -248,11 +448,15 @@ def api_search():
     )
 
 
+# 이름이 같은 항목(section) 자체가 있는지로 찾는 시험항목
+SECTION_TEST_ITEMS = ("확인시험", "순도시험", "정량법", "엑스함량", "정유함량")
+
+
 @app.route("/api/test_item_search")
 def api_test_item_search():
-    """시험항목(확인시험/순도시험/정량법 및 순도시험의 하위 항목인 이물·
-    변패·잔류농약·납·비소·수은·카드뮴·이산화황·벤조피렌·곰팡이독소 등)으로
-    공정서 품목을 찾는다. "확인시험"/"순도시험"/"정량법"은 그 이름의
+    """시험항목(확인시험/순도시험/정량법/엑스함량/정유함량 및 순도시험의 하위
+    항목인 이물·변패·잔류농약·납·비소·수은·카드뮴·이산화황·벤조피렌·곰팡이독소
+    등)으로 공정서 품목을 찾는다. SECTION_TEST_ITEMS 는 그 이름의
     항목(section)이 있는지로, 그 외에는 순도시험 항목의 본문에 그 낱말들
     중 하나라도 나오는지로 찾는다("이물시험"처럼 "이물" 뿐 아니라 "줄기"/
     "꽃대" 등 여러 낱말 중 하나만 있어도 해당하는 경우가 있어, item 파라미터는
@@ -265,7 +469,7 @@ def api_test_item_search():
         return jsonify([])
 
     matches = []
-    if len(needles_raw) == 1 and needles_raw[0] in ("확인시험", "순도시험", "정량법"):
+    if len(needles_raw) == 1 and needles_raw[0] in SECTION_TEST_ITEMS:
         item = needles_raw[0]
         for e in ENTRIES:
             if any(s["label"] == item for s in e["sections"]):
@@ -317,8 +521,75 @@ def api_item(item_id):
             "definition_parts": e.get("definition_parts", []),
             "sections": e["sections"],
             "source_tag": e.get("source_tag", ""),
+            "nifds_links": nifds_links(e["name_only"]),
+            "hptlc_links": hptlc_links(e["name_only"]),
+            "hplc_links": hplc_links(e["name_only"]),
+            "ingredient_links": ingredient_links(e["name_only"]),
+            "exam_case_links": exam_case_links(e["name_only"]),
+            "crshm_links": crshm_links(e["name_only"]),
+            "dscrm_links": dscrm_links(e["name_only"]),
+            "specimen_links": specimen_links(e["name_only"]),
+            "gene_case": gene_case(e["name_only"]),
+            "test_methods": sorted(TEST_METHODS),
         }
     )
+
+
+@app.route("/api/test_method/<key>")
+def api_test_method(key):
+    """생약시험법.hwpx 에서 뽑아 둔 항목 하나(제목과 계층 구조 HTML)."""
+    data = TEST_METHODS.get(key)
+    if data is None:
+        abort(404)
+    return jsonify({"key": key, **data})
+
+
+@app.route("/api/test_method_image/<name>")
+def api_test_method_image(name):
+    """생약시험법.hwpx 안의 그림(이산화황 장치 그림 등)."""
+    if not re.fullmatch(r"\w+", name):
+        abort(404)
+    path = BASE_DIR / TEST_METHOD_FILE
+    found = read_test_method_image(path, name) if path.is_file() else None
+    if found is None:
+        abort(404)
+    data, mime = found
+    return Response(data, mimetype=mime, headers={"Cache-Control": "public, max-age=86400"})
+
+
+PHOTO_PAGE = """<!doctype html>
+<html lang="ko"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{title}</title>
+<style>
+  body {{ margin: 0; padding: 24px 12px; background: #f4f6f4; font-family: "Malgun Gothic", sans-serif; text-align: center; color: #555; }}
+  .count {{ font-size: 0.8rem; margin-bottom: 8px; }}
+  .photo {{ margin: 0 auto 36px; }}
+  .photo img {{ max-width: 100%; height: auto; border-radius: 6px; box-shadow: 0 1px 6px rgba(0,0,0,.2); }}
+</style></head><body>
+<div class="count">※ Total : {total}</div>
+{photos}
+</body></html>"""
+
+
+@app.route("/photos/<int:no>")
+def photos(no):
+    """국가생약정보 "사진정보 > 약재" 사진을 가운데 정렬하고 사진마다 위아래 간격을
+    둔 한 페이지로 보여 준다(사진에 링크는 걸지 않는다)."""
+    spec = NIFDS_PHOTO_LIST.get(str(no))
+    if spec is None:
+        abort(404)
+    if spec and isinstance(spec[0], list):
+        pairs = spec
+    else:
+        pairs = [[spec[0], sn] for sn in range(1, spec[1] + 1)]
+    items = "".join(
+        '<div class="photo"><img src="{}" loading="lazy" alt="약재 사진 {}"></div>'.format(
+            NIFDS_THUMB_URL.format(flgrp=f, sn=s), i
+        )
+        for i, (f, s) in enumerate(pairs, 1)
+    )
+    return PHOTO_PAGE.format(title="사진정보", total=len(pairs), photos=items)
 
 
 @app.route("/api/sensory_pdf")
