@@ -1835,6 +1835,67 @@ def _split_known_header(text: str):
     return None, None
 
 
+def _apply_tracked_changes(root):
+    """한글의 "변경 추적" 기록을 반영해, 삭제된 글을 지운 "최종본" 상태로 만든다.
+
+    변경 추적이 켜진 채 고친 문서(생규집 등)는 고치기 전 글과 고친 글이 둘 다 XML 에 남아
+    있다. 지운 글은 <hp:deleteBegin/> ~ <hp:deleteEnd/> 사이에, 새로 쓴 글은
+    <hp:insertBegin/> ~ <hp:insertEnd/> 사이에 들어 있는데, 글자를 단순히 이어 붙이면
+    "이민옥타딘" + "이미녹타딘" 이 "이민옥타딘이미녹타딘" 처럼 붙어 나온다. 그래서 문서 순서대로
+    훑으면서 삭제 구간 안에 있는 글자는 비우고(표/수식/그림도 제거), 삽입된 글은 그대로 둔다.
+    삭제 구간은 여러 <hp:t>/<hp:run> 에 걸칠 수 있어서(서식이 바뀌는 곳) 문서 전체에서 상태를
+    이어 가며 처리한다."""
+    state = {"deleting": False}
+
+    def walk(el):
+        tag = _local(el.tag)
+        if tag == "deleteBegin":
+            state["deleting"] = True
+        elif tag == "deleteEnd":
+            state["deleting"] = False
+        entered_deleting = state["deleting"] and tag not in ("deleteBegin", "deleteEnd")
+        if state["deleting"] and el.text:
+            el.text = ""
+        for child in list(el):
+            if walk(child):
+                el.remove(child)
+            elif state["deleting"] and child.tail:
+                child.tail = ""
+        # 삭제 구간에 통째로 들어 있던 표/수식/그림은 아예 없앤다
+        return entered_deleting and tag in ("tbl", "equation", "pic")
+
+    walk(root)
+    return root
+
+
+# 원문 hwpx 에 그대로 들어 있는 오타 교정표(잘못 쓴 글 -> 바른 글). 변경 추적과는 별개로 원문
+# 자체가 틀린 것들이라 읽을 때 바로잡는다. 다른 낱말 안에서 우연히 일치하지 않도록 오타가 길고
+# 특이한 것만 넣는다.
+_SOURCE_TYPOS = {
+    "Dieldrld": "Dieldrin",  # 상엽 잔류농약: 디엘드린(Dieldrin)
+    "Aldrld": "Aldrin",  # 상엽 잔류농약: 알드린(Aldrin)
+    "엔토설판": "엔도설판",  # 사삼/상지/석창포 잔류농약: 엔도설판(Endosulfan)
+}
+
+
+def _fix_source_typos(root):
+    """문서의 모든 글(<hp:t> 본문과 그 사이사이 꼬리 글)에서 _SOURCE_TYPOS 의 오타를 바로잡는다."""
+    for el in root.iter():
+        for attr in ("text", "tail"):
+            value = getattr(el, attr)
+            if value:
+                for wrong, right in _SOURCE_TYPOS.items():
+                    if wrong in value:
+                        value = value.replace(wrong, right)
+                setattr(el, attr, value)
+    return root
+
+
+def _clean_section_xml(root):
+    """섹션 XML 을 읽기 전에 정리한다: 변경 추적의 삭제된 글 제거 + 원문 오타 교정."""
+    return _fix_source_typos(_apply_tracked_changes(root))
+
+
 def _detect_header_style_ids_by_content(section_xml_bytes_list, min_distinct_labels=3):
     """
     header.xml 의 스타일 이름 표기가 문서마다 제각각이라("항목명" 대신
@@ -1845,7 +1906,7 @@ def _detect_header_style_ids_by_content(section_xml_bytes_list, min_distinct_lab
     style_labels = {}  # charStyleIDRef -> set(matched label text)
     for xml_bytes in section_xml_bytes_list:
         try:
-            root = ET.fromstring(xml_bytes)
+            root = _clean_section_xml(ET.fromstring(xml_bytes))
         except ET.ParseError:
             continue
         for t in root.iter(f"{{{NS['hp']}}}t"):
@@ -1954,7 +2015,7 @@ def parse_hwpx_bytes_sections(
     # --- 1단계: 빈 문단을 걸러내고, 각 문단을 미리 분석해 둔다. ---------------
     flat = []
     for xml_bytes in section_xml_bytes_list:
-        root = ET.fromstring(xml_bytes)
+        root = _clean_section_xml(ET.fromstring(xml_bytes))  # 변경 추적의 삭제된 글 제거 + 원문 오타 교정
         # 최상위(hs:sec)의 직계 문단만 순회한다. `.//hp:p` 로 전체를 훑으면
         # 각주/텍스트상자 등에 중첩된 <hp:p> 까지 끼어들어 본문 중간에
         # 엉뚱한 줄바꿈이 섞여 들어가므로, 문서 흐름과 동일한 직계 자식만 사용한다.
