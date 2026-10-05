@@ -60,6 +60,9 @@ def _source_tag(filename: str) -> str:
     return ""
 
 
+_REF_BRACKET_RE = re.compile(r"[「｢]([^」｣]+)[」｣]")
+
+
 def _resolve_purity_references(entries):
     """
     "대한민국약전 「두충」의 순도시험 ~에 따른다." 처럼 items에 심어둔
@@ -77,6 +80,25 @@ def _resolve_purity_references(entries):
                 it["ref_id"] = name_to_id[ref_name]
             walk(it.get("children") or [])
 
+    # 확인시험/정량법에도 "「인삼」의 정량법에 따라 시험한다." 처럼 다른 생약을 「 」로 가리키는
+    # 곳이 있다. 순도시험의 ref_id(문장 속 첫 「 」 하나)와 달리, 이 두 항목은 문장 안의
+    # 「생약명」 중 실제 품목 이름과 일치하는 것을 모두 모아 refs({이름: id})로 달아 두면
+    # 화면에서 그 이름마다 링크를 건다. 자기 자신을 가리키는 이름은 링크하지 않는다.
+    def collect_refs(text, own_name):
+        refs = {}
+        for m in _REF_BRACKET_RE.finditer(text or ""):
+            name = m.group(1).strip()
+            if name != own_name and name in name_to_id:
+                refs[name] = name_to_id[name]
+        return refs
+
+    def walk_refs(items, own_name):
+        for it in items:
+            refs = collect_refs(it.get("text", ""), own_name)
+            if refs:
+                it["refs"] = refs
+            walk_refs(it.get("children") or [], own_name)
+
     for e in entries:
         for s in e["sections"]:
             if s.get("items"):
@@ -84,6 +106,12 @@ def _resolve_purity_references(entries):
             ref_name = s.get("ref_name")
             if ref_name and ref_name in name_to_id:
                 s["ref_id"] = name_to_id[ref_name]
+            if s.get("label") in ("확인시험", "정량법"):
+                refs = collect_refs(s.get("text", ""), e.get("name_only"))
+                if refs:
+                    s["refs"] = refs
+                if s.get("items"):
+                    walk_refs(s["items"], e.get("name_only"))
 
 
 def load_entries():

@@ -522,7 +522,8 @@
   .tm-btn {
     display: inline-block;
     margin: 0 4px;
-    padding: 1px 8px;
+    padding: 1px 3px;  /* 가로 여백을 줄여 버튼 폭을 글자 길이에 맞춘다 */
+    width: fit-content;
     font-family: inherit;
     font-size: 0.68rem;
     line-height: 1.5;
@@ -1058,8 +1059,6 @@ tabButtons.forEach(btn => {
 const TEST_ITEMS = [
   { label: '확인시험', keywords: ['확인시험'] },
   { label: '정량법', keywords: ['정량법'] },
-  { label: '엑스함량', keywords: ['엑스함량'] },
-  { label: '정유함량', keywords: ['정유함량'] },
   { label: '이물시험', keywords: ['이물', '줄기', '꽃대', '꽃받침', '가지', '열매꼭지', '포엽', '엽초', '아코니툼속 식물', '유삼', '유사동물'] },
   { label: '변패, 산패', keywords: ['변패', '산패'] },
   { label: '잔류농약', keywords: ['잔류농약'] },
@@ -1071,6 +1070,8 @@ const TEST_ITEMS = [
   { label: '벤조피렌', keywords: ['벤조피렌'] },
   { label: '곰팡이독소', keywords: ['곰팡이독소'] },
   { label: '유전자검사', keywords: ['유전자'] },
+  { label: '정유함량', keywords: ['정유함량'] },
+  { label: '엑스함량', keywords: ['엑스함량'] },
 ];
 
 const testItemInput = document.getElementById('testItemInput');
@@ -1620,8 +1621,19 @@ function linkifyRef(html, refId) {
   return `${before}${openBracket}<a href="#" class="ref-link" data-id="${refId}">${name}</a>${closeBracket}${after}`;
 }
 
+// 확인시험/정량법의 「생약명」: 서버가 문장 안의 「 」 중 실제 품목 이름과 일치하는 것을
+// refs({이름: id})로 내려 주면, 그 이름마다 링크를 걸어 누르면 그 생약을 보여 준다.
+function linkifyRefs(html, refs) {
+  if (!refs) return html;
+  return html.replace(/([「｢])([^」｣<]+)([」｣])/g, (m, open, name, close) => {
+    const id = refs[name.trim()];
+    return id === undefined ? m : `${open}<a href="#" class="ref-link" data-id="${id}">${name}</a>${close}`;
+  });
+}
+
 function renderSectionBody(sec) {
-  const html = sec.html !== undefined ? sec.html : escapeHtml(sec.text);
+  let html = sec.html !== undefined ? sec.html : escapeHtml(sec.text);
+  html = linkifyRefs(html, sec.refs);
   return (sec.ref_id !== undefined && sec.ref_id !== null) ? linkifyRef(html, sec.ref_id) : html;
 }
 
@@ -1629,21 +1641,21 @@ function renderItemText(it) {
   const refId = (it.ref_id !== undefined && it.ref_id !== null) ? it.ref_id : null;
   const purity = renderSectionLabel === '순도시험';
   if (it.bold !== undefined) {
-    const boldHtml = it.bold_html !== undefined ? it.bold_html : escapeHtml(it.bold);
-    const restHtml = it.rest_html !== undefined ? it.rest_html : escapeHtml(it.rest);
+    const boldHtml = linkifyRefs(it.bold_html !== undefined ? it.bold_html : escapeHtml(it.bold), it.refs);
+    const restHtml = linkifyRefs(it.rest_html !== undefined ? it.rest_html : escapeHtml(it.rest), it.refs);
     let boldInner = it.bold ? (refId ? linkifyRef(boldHtml, refId) : boldHtml) : '';
     let afterBold = '';
     let atEnd = '';
     if (purity && it.bold) {
       const name = it.bold.trim().replace(/\s*[:：]$/, '');
-      if (name === '곰팡이독소' && tmAvailable.has('mycotoxin')) {
-        boldInner = `<a href="#" class="tm-link" data-tm="mycotoxin" title="생약시험법 곰팡이독소 시험법 보기">${boldInner}</a>`;
+      if (name === '곰팡이독소') {
+        afterBold = tmButton('mycotoxin');
       } else if (name === '중금속') {
         afterBold = tmButton('heavy');
       } else if (name === '잔류농약') {
         afterBold = tmButton('pesticide');
       } else if (name === '이산화황') {
-        atEnd = tmButton('so2');
+        afterBold = tmButton('so2');
       } else {
         boldInner = tmLinkIbmul(boldInner);
       }
@@ -1652,7 +1664,7 @@ function renderItemText(it) {
     const restPart = it.rest ? ` ${refId ? linkifyRef(restHtml, refId) : restHtml}` : '';
     return `${boldPart}${afterBold}${restPart}${atEnd}`;
   }
-  let textHtml = it.text_html !== undefined ? it.text_html : escapeHtml(it.text);
+  let textHtml = linkifyRefs(it.text_html !== undefined ? it.text_html : escapeHtml(it.text), it.refs);
   if (purity) textHtml = tmLinkIbmul(textHtml);
   return refId ? linkifyRef(textHtml, refId) : textHtml;
 }
