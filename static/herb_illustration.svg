@@ -6,7 +6,7 @@
   <g fill="none" stroke="#2f6f4f" stroke-linecap="round" stroke-linejoin="round" opacity="0.38">
 
     <!-- ============ ① 감수: 우산모양으로 갈라지는 줄기, 배상꽃차례, 뒤틀린 뿌리 ============ -->
-    <g transform="translate(30,10)">
+    <g transform="translate(94.5,-11.7)">
       <path d="M58 320 C62 280 56 240 66 205 C74 178 84 160 90 132" stroke-width="3.4"/>
 
       <!-- 잎(피침형, 잎맥 포함) -->
@@ -57,7 +57,7 @@
     </g>
 
     <!-- ============ ② 청상자: 좁고 긴 잎, 원통형 꽃이삭(비늘무늬), 씨앗 ============ -->
-    <g transform="translate(380,0)">
+    <g transform="translate(458.8,17.3)">
       <path d="M46 320 C48 250 44 180 50 108" stroke-width="3.2"/>
       <path d="M50 108 C46 78 52 48 46 16" stroke-width="2.6"/>
       <path d="M50 108 C68 84 74 58 88 26" stroke-width="2.4"/>
@@ -103,7 +103,7 @@
     </g>
 
     <!-- ============ ③ 상륙: 뾰족한 타원잎(잎맥) + 늘어진 열매송이(꽃자루 포함) ============ -->
-    <g transform="translate(60,420)">
+    <g transform="translate(69.3,367.2)">
       <path d="M20 320 C56 284 64 254 100 226 C126 206 138 190 160 162" stroke-width="4"/>
       <path d="M100 226 C122 204 140 196 156 172" stroke-width="3"/>
       <circle cx="100" cy="226" r="3" fill="#2f6f4f"/>
@@ -148,7 +148,7 @@
     </g>
 
     <!-- ============ ④ 서봄화: 피침형 잎, 여러 송이 두상화, 수염뿌리 ============ -->
-    <g transform="translate(360,420)">
+    <g transform="translate(417.7,418.1)">
       <path d="M44 320 C48 260 42 200 50 140 C54 108 64 84 62 46" stroke-width="3.4"/>
 
       <!-- 피침형 잎(잎맥 포함) -->
