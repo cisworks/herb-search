@@ -133,7 +133,7 @@
     border: none;
     background: none;
     color: var(--sub);
-    font-size: 0.9rem;
+    font-size: 1.5444rem;  /* 화살표(▾) 글자 크기: 원래 0.9rem 의 172% (130% -> 120% -> 110% 로 차례로 키움) */
     cursor: pointer;
     border-radius: 6px;
   }
@@ -620,10 +620,10 @@
 
   .collapse-btn {
     flex: 0 0 auto;
-    width: 19px;
+    width: 15.2px;  /* 가로 폭: 원래 19px 의 80% */
     height: 45px;
     padding: 0;
-    font-size: 0.85rem;
+    font-size: 0.5508rem;  /* 화살표(◀ ▶) 글자 크기: 원래 0.85rem 의 65% (90% -> 80% -> 90% 로 차례로 줄임) */
     border: 2px solid var(--border);
     background: #fff;
     color: var(--sub);
@@ -635,7 +635,7 @@
 
   /* 접힌 상태: 탭 버튼/본문은 숨기고 접기 버튼만 남겨 좁은 세로 띠로
      만든다(너비는 JS에서 원래 접힘 너비(44px)의 30%로 계산해서 넣는다).
-     그 너비가 접기 버튼(19px)보다 좁아 버튼이 살짝 삐져나오므로
+     그 너비가 접기 버튼(15.2px)보다 좁아 버튼이 살짝 삐져나오므로
      overflow는 visible로 둔다. 오른쪽 패널은 flex: 1 1 0이라 자동으로
      남은 폭을 채운다. */
   .left-panel.collapsed { min-width: 0; overflow: visible; }
