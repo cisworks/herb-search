@@ -70,7 +70,13 @@
     min-width: 150px;
     position: sticky;
     top: 24px;
+    /* 내용이 창 높이보다 길면 패널 안에서 세로로 스크롤된다(높이 상한은
+       fitLeftPanelHeight가 창 크기/스크롤에 맞춰 계속 계산해 넣는다). */
+    overflow-y: auto;
+    overflow-x: hidden;
+    scrollbar-width: thin;
   }
+  .left-panel.has-scroll { padding-right: 5px; }
   .right-panel {
     flex: 1 1 0;
     min-width: 0;
@@ -80,6 +86,9 @@
   .panel-resizer {
     flex: 0 0 auto;
     width: 6px;
+    /* 왼쪽 패널(스크롤바)과 이 바 사이 간격(.wrap gap 20px)만 10%(2px) 줄이고,
+       오른쪽 화면 위치는 그대로 두려고 오른쪽 여백을 같은 만큼 늘린다. */
+    margin: 0 2px 0 -2px;
     align-self: stretch;
     position: sticky;
     top: 24px;
@@ -104,7 +113,7 @@
   }
   @media (max-width: 860px) {
     .wrap { flex-direction: column; }
-    .left-panel { position: static; width: 100% !important; }
+    .left-panel { position: static; width: 100% !important; overflow: visible; max-height: none !important; }
     .right-panel { width: 100%; }
     .panel-resizer { display: none; }
   }
@@ -639,7 +648,7 @@
      그 너비가 접기 버튼(15.2px)보다 좁아 버튼이 살짝 삐져나오므로
      overflow는 visible로 둔다. 오른쪽 패널은 flex: 1 1 0이라 자동으로
      남은 폭을 채운다. */
-  .left-panel.collapsed { min-width: 0; overflow: visible; }
+  .left-panel.collapsed { min-width: 0; overflow: visible; max-height: none !important; }
   .left-panel.collapsed .tab-bar { margin-bottom: 0; justify-content: center; }
   .left-panel.collapsed .tab-bar .tab-btn { display: none; }
   .left-panel.collapsed .tab-panel { display: none; }
@@ -825,6 +834,7 @@ function computeInitialLeftWidth(leftPanel) {
     fitComboDropdownHeight();
     fitTestItemDropdownHeight();
     fitTestResultsHeight();
+    fitLeftPanelHeight();
     positionDetailResizer();
   });
 })();
@@ -928,6 +938,35 @@ detailBox.addEventListener('click', (e) => {
   section.classList.toggle('collapsed');
   if (icon) icon.textContent = section.classList.contains('collapsed') ? '+' : '−';
 });
+
+// 왼쪽 패널은 화면에 붙어 따라다니는(sticky) 상태라, 내용이 길면 창 아래로 넘쳐
+// 보이지 않게 된다. 패널의 현재 위치(top)에서 창 아래끝(24px 여백)까지만 높이를
+// 허용하고 넘치는 내용은 패널 안에서 세로 스크롤되게 한다. 페이지를 스크롤하면
+// 패널의 top이 바뀌므로(위쪽 24px에서 붙을 때까지) 스크롤/창 크기 변경마다 다시 계산한다.
+const leftPanelEl = document.querySelector('.left-panel');
+function fitLeftPanelHeight() {
+  if (!leftPanelEl) return;
+  if (window.matchMedia('(max-width: 860px)').matches || leftPanelEl.classList.contains('collapsed')) {
+    leftPanelEl.style.maxHeight = '';
+    return;
+  }
+  const top = Math.max(leftPanelEl.getBoundingClientRect().top, 24);
+  leftPanelEl.style.maxHeight = Math.max(200, window.innerHeight - top - 24) + 'px';
+  updateLeftPanelScrollGap();
+}
+// 스크롤바가 생겼을 때만 검색창/카드 오른쪽 끝과 스크롤바 사이에 5px 간격을 둔다
+// (스크롤바가 없을 땐 원래 폭 그대로 쓴다).
+function updateLeftPanelScrollGap() {
+  const scrollable = leftPanelEl.scrollHeight > leftPanelEl.clientHeight + 1;
+  leftPanelEl.classList.toggle('has-scroll', scrollable);
+}
+window.addEventListener('resize', fitLeftPanelHeight);
+window.addEventListener('scroll', fitLeftPanelHeight, { passive: true });
+if (leftPanelEl && window.ResizeObserver) {
+  const ro = new ResizeObserver(updateLeftPanelScrollGap);
+  leftPanelEl.querySelectorAll('.tab-panel, .tab-bar').forEach(el => ro.observe(el));
+}
+fitLeftPanelHeight();
 
 // 시작화면 오른쪽 배경 영역은 창 높이에 맞춰 아래끝까지 채운다(고정
 // calc(100vh - Npx) 값은 헤더 줄 수가 바뀌면 실제 높이와 어긋나 아래에
@@ -1037,16 +1076,89 @@ comboToggle.addEventListener('click', () => {
 
 // ---- 탭 전환 ----------------------------------------------------------
 const tabButtons = document.querySelectorAll('.tab-btn');
+function activateTab(tabId) {
+  tabButtons.forEach(b => b.classList.toggle('active', b.dataset.tab === tabId));
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === tabId));
+  closeComboDropdown();
+  closeTestItemDropdown();
+  if (tabId === 'testTab') fitTestResultsHeight();
+}
 tabButtons.forEach(btn => {
   btn.addEventListener('click', () => {
-    tabButtons.forEach(b => b.classList.remove('active'));
-    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
-    btn.classList.add('active');
-    document.getElementById(btn.dataset.tab).classList.add('active');
-    closeComboDropdown();
-    closeTestItemDropdown();
-    if (btn.dataset.tab === 'testTab') fitTestResultsHeight();
+    activateTab(btn.dataset.tab);
+    navSet({ tab: btn.dataset.tab });
   });
+});
+
+// ---- 브라우저 뒤로/앞으로(Alt+←/→ 포함) ------------------------------------
+// 화면은 한 페이지(SPA)라 그대로 두면 뒤로가기가 사이트를 벗어나 버린다. 탭, 검색어,
+// 시험항목, 오른쪽에 보이는 내용(상세/PDF)을 navState 하나로 모아 두고, 사용자가 고른
+// 동작(탭 전환, 시험항목 선택, 상세 열기)마다 history에 쌓는다. 검색어는 글자를 칠
+// 때마다 바뀌므로 쌓지 않고 현재 항목만 갱신(replace)한다. 뒤로/앞으로를 누르면
+// popstate에서 그 시점의 상태를 화면에 다시 그린다(복원 중에는 새로 쌓지 않는다).
+let navState = { tab: 'nameTab', q: '', testIdx: -1, view: null };
+let navLast = JSON.stringify(navState);
+let navRestoring = false;
+history.replaceState(JSON.parse(navLast), '');
+
+function navSet(patch, mode = 'push') {
+  Object.assign(navState, patch);
+  if (navRestoring) return;
+  const s = JSON.stringify(navState);
+  if (s === navLast) return;
+  navLast = s;
+  if (mode === 'replace') history.replaceState(JSON.parse(s), '');
+  else history.pushState(JSON.parse(s), '');
+}
+
+function hideDetail() {
+  detailBox.classList.remove('show', 'sensory-mode');
+  detailBox.innerHTML = '';
+  detailPlaceholder.classList.remove('hide');
+  fitDetailPlaceholderHeight();
+  setShownKey('');
+  positionDetailResizer();
+}
+
+async function applyNav(st) {
+  navRestoring = true;
+  try {
+    activateTab(st.tab);
+    if (searchInput.value.trim() !== st.q) {
+      searchInput.value = st.q;
+      if (st.q) {
+        await doSearch(st.q);
+      } else {
+        resultsBox.style.display = 'none';
+        resultsBox.innerHTML = '';
+      }
+    }
+    if (st.testIdx !== navState.testIdx) {
+      if (st.testIdx >= 0) {
+        await selectTestItem(TEST_ITEMS[st.testIdx]);
+      } else {
+        testItemInput.value = '';
+        testResultsBox.style.display = 'none';
+        testResultsBox.innerHTML = '';
+      }
+    }
+    if (!st.view) {
+      hideDetail();
+    } else if (st.view.type === 'item') {
+      await showDetail(st.view.id, st.view.filterIdx >= 0 ? TEST_ITEMS[st.view.filterIdx] : undefined);
+    } else if (st.view.type === 'pdf') {
+      setShownKey(st.view.key || '');
+      showSensoryDetail(st.view.item);
+    }
+  } finally {
+    navState = JSON.parse(JSON.stringify(st));
+    navLast = JSON.stringify(navState);
+    navRestoring = false;
+  }
+}
+
+window.addEventListener('popstate', (ev) => {
+  if (ev.state && ev.state.tab) applyNav(ev.state);
 });
 
 // ---- 시험항목 검색 탭 ---------------------------------------------------
@@ -1123,6 +1235,7 @@ window.addEventListener('resize', fitTestItemDropdownHeight);
 async function selectTestItem(testItem) {
   closeTestItemDropdown();
   testItemInput.value = testItem.label;
+  navSet({ testIdx: TEST_ITEMS.indexOf(testItem) });
   const res = await fetch('/api/test_item_search?item=' + encodeURIComponent(testItem.keywords.join(',')));
   const items = await res.json();
   testResultsBox.style.display = 'flex';
@@ -1244,6 +1357,7 @@ searchInput.addEventListener('input', () => {
   if (!q) {
     resultsBox.style.display = 'none';
     resultsBox.innerHTML = '';
+    navSet({ q: '' }, 'replace');
     return;
   }
   debounceTimer = setTimeout(() => doSearch(q), 200);
@@ -1285,7 +1399,10 @@ async function doSearch(q) {
   const seq = ++requestSeq;
   const res = await fetch('/api/search?q=' + encodeURIComponent(q));
   const data = await res.json();
-  if (seq === requestSeq) renderResults(data, q);
+  if (seq === requestSeq) {
+    renderResults(data, q);
+    navSet({ q }, 'replace');
+  }
   return data;
 }
 
@@ -1365,8 +1482,8 @@ function renderResults(data, q) {
     el.addEventListener('click', () => selectCaseItem(el.dataset));
   });
 
-  if (official.length === 1 && sensory.length === 0) {
-    showDetail(official[0].id);
+  if (official.length === 1 && sensory.length === 0 && !navRestoring) {
+    showDetail(official[0].id, undefined, { replace: true });
   }
   applyShownHighlight();
 }
@@ -1482,16 +1599,20 @@ function purityToggleSectionHtml(label, narrowedBody, fullBody) {
   `;
 }
 
-async function showDetail(id, filterItem) {
+async function showDetail(id, filterItem, opts = {}) {
   const res = await fetch('/api/item/' + id);
   if (!res.ok) return;
   const item = await res.json();
   setShownKey(`id:${item.id}`);
 
   if (item.kind === 'sensory') {
-    showSensoryDetail(item);
+    showSensoryDetail(item, opts);
     return;
   }
+  navSet(
+    { view: { type: 'item', id: item.id, filterIdx: filterItem ? TEST_ITEMS.indexOf(filterItem) : -1 } },
+    opts.replace ? 'replace' : 'push',
+  );
 
   tmAvailable = new Set(item.test_methods || []);
   const sectionsHtml = buildSectionsHtml(item, filterItem);
@@ -1583,7 +1704,22 @@ function closeLinkMenus() {
 
 document.addEventListener('click', closeLinkMenus);
 
-function showSensoryDetail(item) {
+function showSensoryDetail(item, opts = {}) {
+  navSet(
+    {
+      view: {
+        type: 'pdf',
+        key: shownKey,
+        item: {
+          source_file: item.source_file,
+          page_start: item.page_start,
+          page_end: item.page_end,
+          korean_name: item.korean_name,
+        },
+      },
+    },
+    opts.replace ? 'replace' : 'push',
+  );
   // 끝에 붙인 "#page=1"은 PDF 뷰어 공통 오픈 파라미터로, 브라우저 내장
   // 뷰어가 같은 PDF를 이전에 열었을 때의 스크롤 위치를 기억해뒀다가
   // 복원하는 것을 막고 항상 문서 맨 위(1쪽)부터 보이게 한다.
