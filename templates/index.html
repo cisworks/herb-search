@@ -77,6 +77,7 @@
     scrollbar-width: thin;
   }
   .left-panel.has-scroll { padding-right: 5px; }
+  .left-panel.dropdown-open { overflow: visible; }
   .right-panel {
     flex: 1 1 0;
     min-width: 0;
@@ -1031,11 +1032,22 @@ async function showAllOfficial() {
 function openComboDropdown() {
   showAllOfficial();
   comboDropdown.style.display = 'block';
+  syncDropdownOpenClass();
   fitComboDropdownHeight();
 }
 
 function closeComboDropdown() {
   comboDropdown.style.display = 'none';
+  syncDropdownOpenClass();
+}
+
+// 왼쪽 패널은 세로 스크롤(overflow:auto)이라, 검색창 아래로 펼쳐지는 목록 팝업(절대
+// 위치)이 패널 자기 높이보다 크면 패널 안에서 잘려 안 보인다(초기 화면처럼 패널이
+// 짧을 때). 팝업이 열려 있는 동안만 패널의 overflow를 풀어 팝업이 패널 밖으로
+// 그대로 펼쳐지게 한다.
+function syncDropdownOpenClass() {
+  const open = comboDropdown.style.display === 'block' || testItemDropdown.style.display === 'block';
+  document.querySelector('.left-panel').classList.toggle('dropdown-open', open);
 }
 
 // 배경 그림(detailPlaceholder)의 아래끝은 항상 "창 아래끝 - 24px"에
@@ -1211,11 +1223,13 @@ function openTestItemDropdown() {
     el.addEventListener('click', () => selectTestItem(TEST_ITEMS[Number(el.dataset.idx)]));
   });
   testItemDropdown.style.display = 'block';
+  syncDropdownOpenClass();
   fitTestItemDropdownHeight();
 }
 
 function closeTestItemDropdown() {
   testItemDropdown.style.display = 'none';
+  syncDropdownOpenClass();
 }
 
 // 시험항목 목록(13개)은 css의 기본 max-height(60vh)만 쓰면 창이 넓어도
