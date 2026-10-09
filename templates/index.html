@@ -1833,7 +1833,9 @@ function renderItemList(items) {
 function renderName(it) {
   const primary = it.name_primary || it.korean_name;
   const synonym = it.synonym_name || '';
-  return `${escapeHtml(primary)}${synonym ? ` <span class="synonym">${escapeHtml(synonym)}</span>` : ''}`;
+  // 이명에 화학식("Na2SO4․10H2O")이 있으면 서버가 아래첨자를 적용해 둔 synonym_html 을 쓴다.
+  const synonymHtml = it.synonym_html || escapeHtml(synonym);
+  return `${escapeHtml(primary)}${synonym ? ` <span class="synonym">${synonymHtml}</span>` : ''}`;
 }
 
 function sourceBadge(tag) {

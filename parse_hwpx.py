@@ -49,8 +49,10 @@ _HANJA_RANGE = r"一-鿿㐀-䶿豈-﫿\U00020000-\U0002fa1f"
 _NUM_PREFIX_RE = re.compile(r"^\d+\.\s*")
 _HANJA_ONLY_RE = re.compile(rf"^\([{_HANJA_RANGE}]{{1,20}}\)[,]?$")
 _KOREAN_TITLE_RE = re.compile(
-    rf"^[가-힣][가-힣{_HANJA_RANGE}A-Za-z0-9·‧․,/()\-\s]{{0,49}}$"
+    rf"^[가-힣][가-힣{_HANJA_RANGE}A-Za-z0-9·‧․,/()\-\s'’]{{0,49}}$"
 )
+# 망초처럼 이명 줄 다음에 "Na2SO4․10H2O : 322.19" 같은 화학식 + 분자량 줄이 이명으로 이어지는 경우.
+_FORMULA_TITLE_RE = re.compile(r"^[A-Z][A-Za-z0-9․‧·().\-\s]{0,40}\s:\s\d+(?:\.\d+)?$")
 _LATIN_TITLE_RE = re.compile(r"^[A-Z][A-Za-z .\-]{1,79}$")
 
 
@@ -443,6 +445,10 @@ def _paragraph_segments(
                 known_label, known_rest = (None, None)
                 if is_header_styled or run_is_bold:
                     known_label, known_rest = _split_known_header(text)
+                    if known_label in _HEADER_ONLY_AT_PARA_START and any(
+                        k == "text" and t.strip() for k, t in segments
+                    ):
+                        known_label, known_rest = None, None  # "2) 지방" 처럼 번호 항목의 이름
                 if known_label is not None:
                     segments.append(("header", known_label))
                     if known_rest.strip():
@@ -526,6 +532,11 @@ def _looks_like_korean_title(text: str) -> bool:
         # 이름(이명) 줄이 아니라 본문 중간이 잘못 잘려 나온 것이다.
         return False
     return True
+
+
+def _looks_like_formula_title(text: str) -> bool:
+    t = _strip_markup_with_map(text)[0].strip()
+    return bool(t) and len(t) <= 50 and bool(_FORMULA_TITLE_RE.match(t))
 
 
 def _looks_like_latin_title(text: str) -> bool:
@@ -733,7 +744,7 @@ def _parse_numbered_hierarchy(text: str, bold_labels: bool = False):
             starts_footnote = m.group("juprefix") is not None
             if starts_footnote or num_val == footnote_next:
                 footnote_next = num_val + 1
-                node = make_footnote_node(f"{m.group('num')})", content)
+                node = make_footnote_node(f"주 {m.group('num')})", content)  # "주"를 반드시 표시
                 parent = current_l2 or current_l1
                 if parent is not None:
                     parent["children"].append(node)
@@ -756,7 +767,21 @@ def _parse_numbered_hierarchy(text: str, bold_labels: bool = False):
 
     lead = text[: matches[0].start()].strip()
     if lead:
-        items.insert(0, make_node("", lead))
+        # 생로얄젤리의 "잔류농약  가) 총 디디티 ~ 나) 디엘드린 ~"처럼 번호(1)) 없이 짧은 항목명 뒤에
+        # 바로 가나다 항목이 이어지면, 그 항목명이 상위 항목이고 가나다 항목은 그 하위 항목이다.
+        label_like = len(lead) <= 20 and "\n" not in lead and not lead.endswith((".", "다"))
+        if bold_labels and label_like and matches[0].group("kor"):
+            parent = make_node("", lead, bold=True)
+            n_lead_kor = 0
+            for it in items:
+                if re.fullmatch(r"[가나다라마바사아자차카타파하]\)", it.get("marker", "")):
+                    n_lead_kor += 1
+                else:
+                    break
+            parent["children"] = items[:n_lead_kor]
+            items = [parent] + items[n_lead_kor:]
+        else:
+            items.insert(0, make_node("", lead))
     return items
 
 
@@ -779,7 +804,7 @@ def _split_colon_line(line: str):
             depth += 1
         elif ch in ")]":
             depth = max(0, depth - 1)
-        elif ch == ":" and depth == 0:
+        elif ch in ":：" and depth == 0:  # 전각 콜론("검출기：~")도 같은 라벨 구분자
             idx = i
             break
     if idx == -1:
@@ -806,6 +831,9 @@ def _build_opcond_children(body_lines):
             (current["children"] if current is not None else children).append(node)
             table_buf.clear()
 
+    group = None  # "모니터이온 :" 같은 묶음 제목 항목 (그 하위 항목을 받는다)
+    group_key = None  # 묶음의 첫 하위 항목 설명이 시작하는 낱말(예: "정량이온")
+
     for ln in body_lines:
         if not ln.strip():
             continue
@@ -814,6 +842,22 @@ def _build_opcond_children(body_lines):
             continue
         flush_table()
         label, rest = _split_colon_line(ln)
+        if group is not None:
+            # 묶음 안: 첫 하위 항목과 같은 낱말로 설명이 시작하는 "라벨 : ~" 줄이 계속되는 동안
+            if label and rest.split() and (group_key is None or rest.split()[0] == group_key):
+                group_key = group_key or rest.split()[0]
+                group["children"].append(
+                    {"marker": "", "text": ln, "children": [], "bold": label, "rest": rest}
+                )
+                continue
+            group = None
+        stripped_ln = ln.strip()
+        if not label and stripped_ln.endswith(":") and ":" not in stripped_ln[:-1] and len(stripped_ln) <= 20:
+            node = {"marker": "", "text": ln, "children": [], "bold": stripped_ln, "rest": ""}
+            children.append(node)
+            current = node
+            group, group_key = node, None
+            continue
         if label:
             node = {"marker": "", "text": ln, "children": [], "bold": label, "rest": rest}
             children.append(node)
@@ -1219,7 +1263,58 @@ def _split_before_microscope(line: str):
     return pieces
 
 
-def _parse_seongsang_blocks(text: str):
+def _origin_names(definition: str):
+    """기원문("... 필징가(蓽澄茄) Piper cubeba ... 또는 산계초(山鷄椒) Litsea cubeba ...")에서
+    "이름(한자)" 꼴로 적힌 기원 식물/생약 이름들을 나온 순서대로 뽑는다."""
+    names = []
+    for m in re.finditer(rf"([가-힣]{{2,12}})\s*\([{_HANJA_RANGE}]{{1,12}}\)", definition or ""):
+        if m.group(1) not in names:
+            names.append(m.group(1))
+    return names
+
+
+def _origin_label_re(origin_names):
+    """줄 맨 앞이 기원 이름(+공백)으로 시작하는지 보는 정규식. 이름이 없으면 None."""
+    names = sorted((n for n in origin_names if n), key=len, reverse=True)
+    if not names:
+        return None
+    return re.compile(r"^(?P<name>" + "|".join(re.escape(n) for n in names) + r")\s+(?=\S)")
+
+
+def _origin_labels_in_lines(lines, origin_re):
+    """줄들 중 기원 이름으로 시작하는 줄에서 나온 서로 다른 이름의 집합."""
+    found = set()
+    if origin_re is None:
+        return found
+    for ln in lines:
+        m = origin_re.match(_strip_markup_with_map(ln.strip())[0])
+        if m:
+            found.add(m.group("name"))
+    return found
+
+
+def _parse_origin_blocks(text: str, origin_names):
+    """"필징가 이 약의 가루 ~ / 산계초 이 약의 가루 ~" 처럼 기원 이름 둘 이상이 각각 줄 맨 앞에
+    붙어 있으면, 그 이름을 표시로 삼는 항목으로 나눈다(이름으로 시작하지 않는 줄은 표시 없는 항목).
+    이름이 하나뿐이거나 번호 없이 이름 줄이 없으면 빈 리스트를 돌려준다."""
+    origin_re = _origin_label_re(origin_names)
+    lines = [ln for ln in text.split("\n") if ln.strip()]
+    if len(_origin_labels_in_lines(lines, origin_re)) < 2:
+        return []
+    items = []
+    for ln in lines:
+        line = ln.strip()
+        stripped, idx_map = _strip_markup_with_map(line)
+        m = origin_re.match(stripped)
+        if m:
+            rest_start = idx_map[m.end()]
+            items.append({"marker": m.group("name"), "text": line[rest_start:].strip(), "children": []})
+        else:
+            items.append({"marker": "", "text": line, "children": []})
+    return items
+
+
+def _parse_seongsang_blocks(text: str, origin_names=()):
     """
     성상 본문을 "이 약은/이것은/이 약의" 문장 단위로 쪼갠다. 그 문장 앞에
     생약명·식물명(이명/변종명)이 붙어 있으면 그 이름을 표시로 삼아
@@ -1232,6 +1327,11 @@ def _parse_seongsang_blocks(text: str):
     raw_lines = []
     for raw_line in text.split("\n"):
         raw_lines.extend(_split_before_microscope(raw_line))
+
+    # 필징가 성상의 "산계초  지름은 ~"처럼 "이 약은" 없이 기원 이름만 줄 앞에 붙은 줄은, 기원 이름이
+    # 둘 이상 그렇게 나올 때만 새 항목의 표시로 인정한다(안 그러면 앞 항목에 이어 붙는다).
+    origin_re = _origin_label_re(origin_names)
+    use_origin_labels = len(_origin_labels_in_lines([ln for ln, _ in raw_lines], origin_re)) >= 2
 
     blocks = []
     for raw_line, force_new_block in raw_lines:
@@ -1255,6 +1355,12 @@ def _parse_seongsang_blocks(text: str):
             # 이를 보고 marker_html을 만들고 marker 자체는 평문으로 정리한다.
             blocks.append({"marker": line[:rest_start].strip(), "text": line[rest_start:].strip(), "children": []})
             continue
+        if use_origin_labels:
+            om = origin_re.match(stripped)
+            if om:
+                rest_start = idx_map[om.end()]
+                blocks.append({"marker": om.group("name"), "text": line[rest_start:].strip(), "children": []})
+                continue
         if _ORIGIN_SENTENCE_RE.match(stripped) or stripped.startswith(_MICROSCOPE_TRIGGERS):
             blocks.append({"marker": "", "text": line, "children": []})
             continue
@@ -1328,6 +1434,7 @@ def _finalize_title(entry, title_lines):
     entry["korean_name"] = korean_name
     entry["name_primary"] = name_primary
     entry["synonym_name"] = synonym_name
+    entry["synonym_html"] = _render_text_line_html(synonym_name) if synonym_name else ""
     entry["name_only"] = name_only
     entry["hanja"] = hanja
     entry["english_name"] = english_name
@@ -1339,6 +1446,7 @@ def _new_blank_entry():
         "korean_name": "",
         "name_primary": "",
         "synonym_name": "",
+        "synonym_html": "",
         "name_only": "",
         "hanja": "",
         "english_name": "",
@@ -1402,6 +1510,8 @@ _ELEMENT_DIGIT_RE = re.compile(r"([A-Z][a-z]?)(\d{1,4})")
 # 않고 서술하는 경우). 화학식 토큰이 없어도 이 형태로 끝나면 바로 아래 "="
 # 계산식 줄과 한 덩어리로 묶일 라벨로 인정한다.
 _QUANT_LABEL_RE = re.compile(r"양\s*\([^()]*\)\s*$")
+# "조단백(%)" 처럼 단위 표시 "(%)"로 끝나는 짧은 줄도 바로 아래 "= ..." 수식줄의 라벨이다.
+_PERCENT_LABEL_RE = re.compile(r"\(%\)\s*$")
 
 # C, H, O, N 뒤에 바로 숫자가 오면 그 자체로 화학식의 원자 개수 표시이므로,
 # "FeSO4"나 "7H2O"처럼 원소기호+숫자 쌍이 한 번만 나와 위 규칙(2번 이상)에
@@ -1553,6 +1663,16 @@ def _is_formula_line(line: str) -> bool:
 _FORMULA_MERGE_MAX_LEN = 70
 
 
+def _collapse_fractions_for_width(s: str) -> str:
+    """위아래로 쌓인 분수(\x0e분자\x0f분모\x10)는 가로로 분자와 분모 중 긴 쪽만큼만 차지하므로,
+    한 줄에 들어가는지 길이를 셀 때는 분수를 그 긴 쪽 글자로 바꿔서 센다(안쪽 분수부터)."""
+    prev = None
+    while prev != s:
+        prev = s
+        s = _FRAC_RE.sub(lambda m: max(m.group(1), m.group(2), key=len), s)
+    return s
+
+
 def _render_text_line_html(line: str) -> str:
     return _apply_subscript_markup(html.escape(line, quote=False))
 
@@ -1648,7 +1768,9 @@ def _render_rich_html(text: str) -> str:
                     # 라벨로 잘못 끌려 들어와 그 문단 전체가 가운데 정렬되어
                     # 버린다.
                     if len(candidate) > 80 or not (
-                        _FORMULA_TOKEN_RE.search(candidate) or _QUANT_LABEL_RE.search(candidate)
+                        _FORMULA_TOKEN_RE.search(candidate)
+                        or _QUANT_LABEL_RE.search(candidate)
+                        or _PERCENT_LABEL_RE.search(candidate)
                     ):
                         break
                     pulled.append(text_idxs[k])
@@ -1662,6 +1784,16 @@ def _render_rich_html(text: str) -> str:
                         blocks.pop()
             blocks.append(("formula", pulled + [i]))
             i += 1
+            # "= 0.05 mol/L 황산의 소비 mL ×" 처럼 곱셈 기호로 끝난 줄은 수식이 다음 줄(분수 등)
+            # 로 이어지는 것이므로, 그 줄들도 같은 수식 구간에 넣어 한 줄로 보여 준다.
+            while (
+                i < n
+                and lines[i].strip()
+                and not _TABLE_LINE_RE.match(lines[i])
+                and _strip_markup_with_map(lines[blocks[-1][1][-1]])[0].rstrip().endswith("×")
+            ):
+                blocks[-1][1].append(i)
+                i += 1
             continue
         if blocks and blocks[-1][0] == "text":
             blocks[-1][1].append(i)
@@ -1681,7 +1813,7 @@ def _render_rich_html(text: str) -> str:
         if kind == "table":
             piece = _rows_to_table_html([lines[k] for k in idxs])
         elif kind == "formula":
-            raw_merged = _strip_markup_with_map(" ".join(lines[k] for k in idxs))[0]
+            raw_merged = _strip_markup_with_map(_collapse_fractions_for_width(" ".join(lines[k] for k in idxs)))[0]
             join_with = " " if len(raw_merged) <= _FORMULA_MERGE_MAX_LEN else "<br>"
             piece = f'<div class="formula-line">{join_with.join(_render_text_line_html(lines[k]) for k in idxs)}</div>'
         else:
@@ -1735,13 +1867,161 @@ def _enrich_item_html(items):
             _enrich_item_html(it["children"])
 
 
-def _build_section_items(label, text):
+# 로얄젤리 정량법처럼 "(제 1 법) 또는 (제 2 법)을 실시한다. / (제 1 법) 액체크로마토그래프법  ~ /
+# 조작조건 / ~ / (제 2 법) 기체크로마토그래프법  ~" 구조에서, 번호(1)) 없이 "(제 N 법)"이 줄
+# 맨 앞에 오는 정량법을 계층화한다. 각 (제 N 법) 아래에 시험 절차(본문), "조작조건"(그 아래
+# "칼럼 : ~" 같은 줄), "○ 내부표준액" 같은 글머리 항목이 같은 층의 하위 항목이 된다.
+_BEOPN_LINE_RE = re.compile(r"(?m)^\(제\s*(\d{1,2})\s*법\)[ \t]*")
+
+
+def _split_procedure_block(lines):
+    """시험 절차 한 덩어리(줄 목록)를 (본문, 하위 항목들)로 나눈다. 본문은 첫 "조작조건"/"○" 앞까지의
+    줄이고, 하위 항목은 "조작조건"(그 아래 "검출기 : ~" 같은 줄들, "시스템적합성"은 그 바로 아래)과
+    "○ 내부표준액 ~" 같은 글머리 항목이 줄에 나온 순서대로 같은 층에 놓인다."""
+    bullet_pos = [i for i, ln in enumerate(lines) if _BULLET_MARK_RE.match(ln.strip())]
+    head_pos = [i for i, ln in enumerate(lines) if ln.strip() in _QUANT_SUBHEAD_LABELS]
+    marks = sorted(bullet_pos + head_pos)  # 구분하는 줄들의 위치(나온 순서대로)
+    cut = marks[0] if marks else len(lines)
+    lead = "\n".join(lines[:cut]).strip("\n")
+    children = []
+    current_opcond = None
+    for k, pos in enumerate(marks):
+        end = marks[k + 1] if k + 1 < len(marks) else len(lines)  # 각 항목은 다음 구분 줄 앞까지
+        if pos in head_pos:
+            hlabel = lines[pos].strip()
+            node = {
+                "marker": "",
+                "text": hlabel,
+                "children": _build_opcond_children(lines[pos + 1 : end]),
+                "bold": hlabel,
+                "rest": "",
+            }
+            if hlabel == "조작조건" or current_opcond is None:
+                children.append(node)
+                current_opcond = node
+            else:  # "시스템적합성"은 조작조건 바로 아래
+                current_opcond["children"].append(node)
+        else:
+            label, rest = _split_bullet_label(_BULLET_MARK_RE.sub("", lines[pos].strip()))
+            extra = "\n".join(lines[pos + 1 : end]).strip()
+            if extra:
+                rest = f"{rest}\n{extra}".strip() if rest else extra
+            children.append(
+                {"marker": "", "text": f"{label} {rest}".strip(), "children": [], "bold": label, "rest": rest}
+            )
+    return lead, children
+
+
+def _restructure_opcond_items(items):
+    """확인시험 항목(번호/가나다) 본문 끝에 "○ 내부표준액 ~", "조작조건 / 검출기 : ~ ..." 줄이 붙어
+    있으면(사향 확인시험 5) 나)) 그 줄들을 그 항목의 하위 항목으로 분리한다."""
+    for it in items or []:
+        if "bold" not in it:
+            lines = it.get("text", "").split("\n")
+            if any(ln.strip() in _QUANT_SUBHEAD_LABELS for ln in lines):
+                lead, kids = _split_procedure_block(lines)
+                if kids:
+                    it["text"] = lead
+                    it["children"] = (it.get("children") or []) + kids
+        _restructure_opcond_items(it.get("children"))
+    return items
+
+
+def _parse_beopn_quantitation(text: str):
+    matches = []
+    for m in _BEOPN_LINE_RE.finditer(text):
+        line_end = text.find("\n", m.end())
+        if line_end == -1:
+            line_end = len(text)
+        if _BEOPN_RE.search(text[m.end() : line_end]):
+            continue  # "(제 1 법) 또는 (제 2 법)을 실시한다." 같은 안내 문장
+        matches.append(m)
+    if not matches:
+        return []
+
+    items = []
+    intro = text[: matches[0].start()].strip()
+    if intro:
+        items.append({"marker": "", "text": intro, "children": []})
+    for idx, m in enumerate(matches):
+        end = matches[idx + 1].start() if idx + 1 < len(matches) else len(text)
+        content = text[m.end() : end].strip("\n")
+        first_line, _, remainder = content.partition("\n")
+        mm = _DOUBLE_SPACE_RE.search(first_line)
+        if mm and mm.start() <= 30:
+            method = first_line[: mm.start()].strip()
+            body = (first_line[mm.end() :] + ("\n" + remainder if remainder else "")).strip("\n")
+        else:
+            method, body = "", content.strip("\n")
+        lead, children = _split_procedure_block(body.split("\n"))
+        items.append(
+            {
+                "marker": f"(제 {m.group(1)} 법)",
+                "text": f"{method}  {lead}".strip(),
+                "children": children,
+                "bold": method,
+                "rest": lead,
+            }
+        )
+    return items
+
+
+_CIRCLED_LINE_RE = re.compile(r"^([①-⑩])\s*")
+_KOR_MARKER_FULL_RE = re.compile(r"[가나다라마바사아자차카타파하]\)")
+_NUM_MARKER_FULL_RE = re.compile(r"\d{1,2}\)")
+
+
+def _short_heading_line(line: str) -> bool:
+    plain = _strip_markup_with_map(line)[0].strip()
+    return bool(plain) and len(plain) <= 50 and not plain.endswith((".", "다", "다)"))
+
+
+def _refine_purity_procedure(items):
+    """녹용절편 순도시험처럼 "2) 순록의 뿔 -> 가) 유전자 분리 / 나) ~ / 다) ~ ① 전기영동 ② 겔의 염색 /
+    라) ~ 주 1) ~" 로 이어지는 시험 절차를 다듬는다.
+      - "순록의 뿔 아래와 같이 ~"처럼 번호 항목 첫 문장이 "이름 + 아래와 같이/다음과 같이"이면 이름을 굵은 라벨로
+      - 가나다 항목은 첫 줄이 짧은 소제목이면 굵은 라벨로(나머지 줄은 본문)
+      - 본문 줄 맨 앞의 ①②③ 은 그 항목의 하위 항목으로 분리(마찬가지로 첫 줄이 소제목)
+    """
+    for it in items or []:
+        marker = it.get("marker", "")
+        text = it.get("text", "")
+        if _NUM_MARKER_FULL_RE.fullmatch(marker) and not it.get("bold"):
+            first, _, tail = text.partition("\n")
+            m = re.match(r"^(\S+(?:\s\S+)?)\s+(?=아래와 같이|다음과 같이)", first)
+            if m and len(m.group(1)) <= 12:
+                it["bold"] = m.group(1)
+                it["rest"] = (first[m.end():] + ("\n" + tail if tail else "")).strip()
+        if _KOR_MARKER_FULL_RE.fullmatch(marker) or _CIRCLED_LINE_RE.fullmatch(marker + " "):
+            lines = text.split("\n")
+            circled_pos = [i for i, ln in enumerate(lines) if _CIRCLED_LINE_RE.match(_strip_markup_with_map(ln.strip())[0])]
+            if circled_pos:
+                kids = []
+                for k, pos in enumerate(circled_pos):
+                    end = circled_pos[k + 1] if k + 1 < len(circled_pos) else len(lines)
+                    cm = _CIRCLED_LINE_RE.match(lines[pos].strip())
+                    first_line = lines[pos].strip()[cm.end():]
+                    body = "\n".join([first_line] + lines[pos + 1 : end]).strip("\n")
+                    kids.append({"marker": cm.group(1), "text": body, "children": []})
+                it["text"] = "\n".join(lines[: circled_pos[0]]).strip("\n")
+                it["children"] = kids + (it.get("children") or [])
+                text = it["text"]
+            first, _, tail = text.partition("\n")
+            if tail.strip() and _short_heading_line(first) and not it.get("bold"):
+                it["bold"] = first.strip()
+                it["rest"] = tail.strip()
+        _refine_purity_procedure(it.get("children"))
+    return items
+
+
+def _build_section_items(label, text, origin_names=()):
     """라벨(순도시험/정량법/확인시험/성상)에 맞는 계층 파서로 items를
     만든다. 못 찾으면 빈 리스트."""
     if label in ("순도시험", "정량법"):
         items = _parse_deep_numbered_hierarchy(text) if _has_deep_markers(text) else []
+        deep_parsed = bool(items)
         if not items and label == "정량법":
-            items = _parse_quantitation_hierarchy(text)
+            items = _parse_beopn_quantitation(text) or _parse_quantitation_hierarchy(text)
         if not items:
             items = _parse_numbered_hierarchy(text, bold_labels=True)
         if not items:
@@ -1755,18 +2035,42 @@ def _build_section_items(label, text):
                 if ref_name:
                     node["ref_name"] = ref_name
                 items = [node]
+        if label == "순도시험" and items and not deep_parsed:
+            _refine_purity_procedure(items)
         return items
     if label == "확인시험":
-        return _parse_numbered_hierarchy(text)
+        items = _parse_numbered_hierarchy(text)
+        if items:
+            return _restructure_opcond_items(items)
+        return _parse_origin_blocks(text, origin_names)
     if label == "성상":
-        items = _parse_seongsang_blocks(text)
+        items = _parse_seongsang_blocks(text, origin_names)
         return items if len(items) >= 2 else []
     if label == "제법":
         return _parse_process_blocks(text)
     return []
 
 
-def _finalize_sections(sections):
+# 정량법의 피크면적 기호 "A"(검액/표준액의 피크면적 A_T, A_S 등)는 원문 서식이 이탤릭이지만, 화면에서는
+# 이탤릭 없이 보통 글자로 보여 준다. 이탤릭 마커(\x04..\x05)가 "A" 하나(앞에 공백/쉼표/"및"이 같이 묶인
+# 경우 포함)만 감싸거나 "A" 와 그 아래첨자를 함께 감싸면 마커를 지우고, "A" 바로 뒤 아래첨자만
+# 따로 이탤릭으로 감싼 경우도 마찬가지로 지운다. 학명이나 l-, d-, n- 같은 접두 기호의 이탤릭은 그대로 둔다.
+_PEAK_A_ITALIC_RES = [
+    re.compile(f"{_ITALIC_L}([\\s,]*(?:및\\s*)?A(?:{_EQ_SUB_L}[^{_EQ_SUB_R}]*{_EQ_SUB_R})?){_ITALIC_R}"),
+    re.compile(f"(A){_ITALIC_L}({_EQ_SUB_L}[^{_EQ_SUB_R}]*{_EQ_SUB_R}){_ITALIC_R}"),
+]
+
+
+def _plain_peak_area_a(text: str) -> str:
+    prev = None
+    while prev != text:
+        prev = text
+        text = _PEAK_A_ITALIC_RES[0].sub(r"\1", text)
+        text = _PEAK_A_ITALIC_RES[1].sub(r"\1\2", text)
+    return text
+
+
+def _finalize_sections(sections, origin_names=()):
     """항목(entry)의 섹션 리스트를 마무리한다.
 
     사향처럼 정량법 안에서 시약의 순도 규격을 설명하려고 "순도시험"이라는
@@ -1793,8 +2097,10 @@ def _finalize_sections(sections):
     for section in merged:
         label = section["label"]
         text = section["text"]
+        if label == "정량법":
+            text = section["text"] = _plain_peak_area_a(text)
         section["html"] = _render_rich_html(text)
-        items = _build_section_items(label, text)
+        items = _build_section_items(label, text, origin_names)
         if items:
             _enrich_item_html(items)
             section["items"] = items
@@ -1814,7 +2120,16 @@ _KNOWN_HEADER_LABELS = {
     "비고", "비중", "무균시험", "산가", "불용성이물시험", "미생물한도",
     "엔도톡신", "정유함량", "요오드가", "융점", "수분", "비누화가", "점도",
     "굴절률", "비선광도", "pH", "포제",
+    "조단백", "지방", "산도",  # 로얄젤리/생로얄젤리: 건조감량/회분처럼 항목명이 문단 맨 앞에 온다
+    "사용상주의", "사용상의주의",  # 주사 등: 저장법 다음에 나오는 최상위 항목
 }
+
+# 항목명(공백 제거 형태)을 화면에 보일 이름으로 바꾼다.
+_HEADER_DISPLAY_NAME = {"사용상주의": "사용상의 주의", "사용상의주의": "사용상의 주의"}
+
+# 위 항목명 중 "지방" 같은 낱말은 반묘의 순도시험 "2) 지방  이 약을 종이 사이에 ~" 처럼
+# 번호 항목의 이름으로도 쓰인다. 그래서 이 항목명들은 문단 맨 앞에 올 때만 새 항목으로 인정한다.
+_HEADER_ONLY_AT_PARA_START = {"조단백", "지방", "산도", "사용상주의", "사용상의주의"}
 
 # "확인시험  1)" 처럼 항목명 바로 뒤에 "1)" 등이 같은 런(run)에 붙어 나오는
 # 문서가 있다. 이런 경우 전체 텍스트가 표준 어휘와 정확히 일치하지 않아
@@ -2035,6 +2350,9 @@ def parse_hwpx_bytes_sections(
                 and (_looks_like_korean_title(plain_text) or _looks_like_latin_title(plain_text))
             )
             is_hanja_only = not has_header and plain_text and _looks_like_hanja_only(plain_text)
+            is_formula_title = bool(
+                not has_header and not has_subheader and plain_text and _looks_like_formula_title(plain_text)
+            )
             flat.append(
                 {
                     "elem": p,
@@ -2043,6 +2361,7 @@ def parse_hwpx_bytes_sections(
                     "has_header": has_header,
                     "is_candidate": is_candidate,
                     "is_hanja_only": is_hanja_only,
+                    "is_formula_title": is_formula_title,
                 }
             )
 
@@ -2104,7 +2423,7 @@ def parse_hwpx_bytes_sections(
         if entry is not None:
             _finalize_title(entry, title_lines)
             entry["definition"] = entry["definition"].strip()
-            entry["sections"] = _finalize_sections(entry["sections"])
+            entry["sections"] = _finalize_sections(entry["sections"], _origin_names(entry["definition"]))
             if entry["korean_name"] or entry["sections"]:
                 entries.append(entry)
         entry = None
@@ -2130,7 +2449,7 @@ def parse_hwpx_bytes_sections(
             title_lines.append(_strip_number_prefix(plain_text))
             continue
 
-        if in_title_block and item["is_candidate"]:
+        if in_title_block and (item["is_candidate"] or item["is_formula_title"]):
             title_lines.append(_strip_number_prefix(plain_text))
             continue
 
@@ -2192,6 +2511,7 @@ def parse_hwpx_bytes_sections(
             if kind == "header":
                 flush_section()
                 label = re.sub(r"\s+", "", text)  # "성    상" -> "성상"
+                label = _HEADER_DISPLAY_NAME.get(label, label)
                 current_section = {"label": label, "text": []}
             elif current_section is not None:
                 current_section["text"].append(text)

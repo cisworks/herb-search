@@ -305,13 +305,71 @@ def _lookup_key(table, name_only):
     return name_only if name_only in table else (name_only.split() or [""])[0]
 
 
-def nifds_links(name_only):
+# ---- 동음 생약(이름은 같고 한자/기원이 다른 생약) -------------------------------------
+# 국가생약정보 연결 정보는 거의 모두 "생약명"으로 찾기 때문에, 이름이 같은 생약이 둘 있으면
+# 서로의 정보가 섞인다. 지금은 "진피"가 유일하다: 대한민국약전(KP)의 진피(陳皮, 귤나무 열매껍질)와
+# 대한민국약전외한약(생약)규격집(KHP)의 진피(秦皮, 물푸레나무 껍질). 이런 생약은 한자(와 기원)로
+# 구분해 아래 표에 항목별 연결 정보를 직접 적어 둔다(국가생약정보 사이트에서 각 상세 페이지,
+# HPTLC/HPLC 조회, 성분정보 목록의 기원종 열을 열어 확인한 값).
+#   origins   : nifds_herb_map.json 의 기원종(국명) - 사진정보/표본정보 연결에 쓸 기원종
+#   hptlc/hplc: [[목록에 보일 이름(학명), 번호], ...] (없으면 빈 목록)
+#   exam_case : 공정서 시험사례 PDF 번호      crshm: 품질표준화연구 PDF 번호(없으면 None)
+#   ingredient: 성분정보 목록 검색어. 성분정보 목록은 생약명으로만 찾으면 두 진피가 한꺼번에
+#               나오므로, 기원종 학명으로 검색해 해당 기원의 성분만 나오게 한다.
+# 표에 없는 항목(생약감별자료집, 유전자감별사례 등)은 이 생약들에게는 연결하지 않는다.
+HOMONYM_OVERRIDES = {
+    ("진피", "陳皮"): {
+        "origins": ["귤나무"],
+        "hptlc": [["Citrus reticulata Blanco", 191], ["Citrus unshiu Markovich", 192]],
+        "hplc": [["Citrus unshiu Markovich, Citrus reticulata Blanco", 21]],
+        "exam_case": 1048,
+        "crshm": 1297,
+        "ingredient": "Citrus unshiu",
+    },
+    ("진피", "秦皮"): {
+        "origins": ["물푸레나무"],
+        "hptlc": [],
+        "hplc": [],
+        "exam_case": 1049,
+        "crshm": None,
+        "ingredient": "Fraxinus rhynchophylla",
+    },
+}
+
+
+def _find_homonym_names():
+    hanjas = {}
+    for e in ENTRIES:
+        hanjas.setdefault(e["name_only"], set()).add(e["hanja"])
+    return {name for name, hs in hanjas.items() if len(hs) > 1}
+
+
+HOMONYM_NAMES = _find_homonym_names()
+
+
+def _homonym(name_only, hanja):
+    """동음 생약이면 연결 정보 표(없으면 빈 표 - 아무 것도 연결하지 않음)를, 아니면 None 을 돌려준다."""
+    if name_only not in HOMONYM_NAMES:
+        return None
+    return HOMONYM_OVERRIDES.get((name_only, hanja), {})
+
+
+def _nifds_origins(name_only, hanja):
+    """국가생약정보 상세 페이지 번호 목록 [(기원종, dmstc, mdntf), ...]. 동음 생약은 자기 기원만."""
+    origins = NIFDS_MAP.get(_lookup_key(NIFDS_MAP, name_only), [])
+    ov = _homonym(name_only, hanja)
+    if ov is None:
+        return origins
+    return [o for o in origins if o[0] in ov.get("origins", [])]
+
+
+def nifds_links(name_only, hanja=""):
     """생약명으로 국가생약정보 "사진정보" 주소들을 만든다. 상세 페이지의 사진정보
     탭은 주소로 바로 열 수 없어서, 약재 사진만 모아 보여 주는 우리 쪽 페이지
     (/photos/<번호>)를 연다. 약재 사진이 없는 생약은 빈 목록을 돌려줘서 버튼이
     나오지 않는다. 기원종이 여러 개여도 사진정보는 같으므로 기원종 구분 없이
     첫 번째 하나만 돌려준다."""
-    for origin, dmstc, mdntf in NIFDS_MAP.get(_lookup_key(NIFDS_MAP, name_only), []):
+    for origin, dmstc, mdntf in _nifds_origins(name_only, hanja):
         drgnm = NIFDS_PHOTO_MAP.get(f"{dmstc}_{mdntf}")
         if str(drgnm) in NIFDS_PHOTO_LIST:
             return [{"origin": "", "url": f"/photos/{drgnm}"}]
@@ -325,66 +383,91 @@ def _analscase_links(table, url_template, name_only):
     ]
 
 
-def hptlc_links(name_only):
+def hptlc_links(name_only, hanja=""):
     """생약명으로 국가생약정보 HPTLC 조회 페이지 주소들을 만든다(HPTLC 자료가
     있는 생약만 나온다. 기원종이 여러 개면 여러 개)."""
+    ov = _homonym(name_only, hanja)
+    if ov is not None:
+        return [{"origin": o, "url": NIFDS_HPTLC_URL.format(no=n)} for o, n in ov.get("hptlc", [])]
     return _analscase_links(NIFDS_HPTLC_MAP, NIFDS_HPTLC_URL, name_only)
 
 
-def hplc_links(name_only):
+def hplc_links(name_only, hanja=""):
     """생약명으로 국가생약정보 HPLC 조회 페이지 주소들을 만든다(HPLC 자료가
     있는 생약만 나온다)."""
+    ov = _homonym(name_only, hanja)
+    if ov is not None:
+        return [{"origin": o, "url": NIFDS_HPLC_URL.format(no=n)} for o, n in ov.get("hplc", [])]
     return _analscase_links(NIFDS_HPLC_MAP, NIFDS_HPLC_URL, name_only)
 
 
-def exam_case_links(name_only):
+def exam_case_links(name_only, hanja=""):
     """생약명으로 국가생약정보 "공정서 시험사례" PDF 미리보기 주소를 만든다
     (자료가 있는 생약만 나온다)."""
-    no = NIFDS_EXAM_CASE_MAP.get(_lookup_key(NIFDS_EXAM_CASE_MAP, name_only))
+    ov = _homonym(name_only, hanja)
+    if ov is not None:
+        no = ov.get("exam_case")
+    else:
+        no = NIFDS_EXAM_CASE_MAP.get(_lookup_key(NIFDS_EXAM_CASE_MAP, name_only))
     if no is None:
         return []
     return [{"origin": "", "url": NIFDS_EXAM_CASE_URL.format(no=no)}]
 
 
-def gene_case(name_only):
+def gene_case(name_only, hanja=""):
     """유전자 기원 감별 자료집에서 해당 생약의 사례 구간(없으면 None)."""
+    if _homonym(name_only, hanja) is not None:
+        return None  # 동음 생약은 자료집의 어느 쪽인지 구분할 수 없어 연결하지 않는다
     pages = GENE_CASE_PAGES.get(_lookup_key(GENE_CASE_PAGES, name_only))
     if pages is None or not (BASE_DIR / GENE_CASE_FILE).is_file():
         return None
     return {"source_file": GENE_CASE_FILE, "page_start": pages[0], "page_end": pages[1]}
 
 
-def crshm_links(name_only):
+def crshm_links(name_only, hanja=""):
     """생약명으로 "품질표준화 연구사업단 자료" PDF 미리보기 주소를 만든다(자료가
     있는 생약만 나온다)."""
-    no = NIFDS_CRSHM_MAP.get(_lookup_key(NIFDS_CRSHM_MAP, name_only))
+    ov = _homonym(name_only, hanja)
+    if ov is not None:
+        no = ov.get("crshm")
+    else:
+        no = NIFDS_CRSHM_MAP.get(_lookup_key(NIFDS_CRSHM_MAP, name_only))
     if no is None:
         return []
     return [{"origin": "", "url": NIFDS_CRSHM_URL.format(no=no)}]
 
 
-def dscrm_links(name_only):
+def dscrm_links(name_only, hanja=""):
     """생약명으로 "생약 감별자료집" PDF 미리보기 주소를 만든다(자료가 있는 생약만
     나온다)."""
+    if _homonym(name_only, hanja) is not None:
+        return []  # 동음 생약은 자료집의 어느 쪽인지 구분할 수 없어 연결하지 않는다
     no = NIFDS_DSCRM_MAP.get(_lookup_key(NIFDS_DSCRM_MAP, name_only))
     if no is None:
         return []
     return [{"origin": "", "url": NIFDS_DSCRM_URL.format(no=no)}]
 
 
-def specimen_links(name_only):
+def specimen_links(name_only, hanja=""):
     """생약명으로 "표본정보" 탭 첫 증거표본 화면 주소를 만든다. 기원종이 여러 개면
     표본이 있는 첫 번째 기원종의 것을 쓰고, 표본이 하나도 없는 생약은 빈 목록이다."""
-    for _origin, dmstc, mdntf in NIFDS_MAP.get(_lookup_key(NIFDS_MAP, name_only), []):
+    for _origin, dmstc, mdntf in _nifds_origins(name_only, hanja):
         taxon, no = NIFDS_SPECIMEN_MAP.get(f"{dmstc}_{mdntf}") or (None, None)
         if no:
             return [{"origin": "", "url": NIFDS_SPECIMEN_URL.format(no=no, taxon=taxon)}]
     return []
 
 
-def ingredient_links(name_only):
+def ingredient_links(name_only, hanja=""):
     """생약명으로 국가생약정보 구성성분정보 페이지 주소를 만든다(자료가 있는
-    생약만 나온다. 기원종과 상관없이 생약명 검색 결과 하나로 열린다)."""
+    생약만 나온다. 기원종과 상관없이 생약명 검색 결과 하나로 열린다). 동음 생약은
+    생약명으로 찾으면 서로의 성분이 섞이므로 기원종 학명으로 검색한다."""
+    ov = _homonym(name_only, hanja)
+    if ov is not None:
+        query = ov.get("ingredient")
+        if not query:
+            return []
+        return [{"origin": "", "url": NIFDS_INGREDIENT_URL.format(q=quote(query))}]
     key = _lookup_key(NIFDS_INGREDIENT_HERBS, name_only)
     if key not in NIFDS_INGREDIENT_HERBS:
         return []
@@ -541,6 +624,7 @@ def api_item(item_id):
             "korean_name": e["korean_name"],
             "name_primary": e.get("name_primary", ""),
             "synonym_name": e.get("synonym_name", ""),
+            "synonym_html": e.get("synonym_html", ""),
             "name_only": e["name_only"],
             "hanja": e["hanja"],
             "english_name": e["english_name"],
@@ -549,15 +633,15 @@ def api_item(item_id):
             "definition_parts": e.get("definition_parts", []),
             "sections": e["sections"],
             "source_tag": e.get("source_tag", ""),
-            "nifds_links": nifds_links(e["name_only"]),
-            "hptlc_links": hptlc_links(e["name_only"]),
-            "hplc_links": hplc_links(e["name_only"]),
-            "ingredient_links": ingredient_links(e["name_only"]),
-            "exam_case_links": exam_case_links(e["name_only"]),
-            "crshm_links": crshm_links(e["name_only"]),
-            "dscrm_links": dscrm_links(e["name_only"]),
-            "specimen_links": specimen_links(e["name_only"]),
-            "gene_case": gene_case(e["name_only"]),
+            "nifds_links": nifds_links(e["name_only"], e["hanja"]),
+            "hptlc_links": hptlc_links(e["name_only"], e["hanja"]),
+            "hplc_links": hplc_links(e["name_only"], e["hanja"]),
+            "ingredient_links": ingredient_links(e["name_only"], e["hanja"]),
+            "exam_case_links": exam_case_links(e["name_only"], e["hanja"]),
+            "crshm_links": crshm_links(e["name_only"], e["hanja"]),
+            "dscrm_links": dscrm_links(e["name_only"], e["hanja"]),
+            "specimen_links": specimen_links(e["name_only"], e["hanja"]),
+            "gene_case": gene_case(e["name_only"], e["hanja"]),
             "test_methods": sorted(TEST_METHODS),
         }
     )
@@ -620,6 +704,15 @@ def photos(no):
     return PHOTO_PAGE.format(title="사진정보", total=len(pairs), photos=items)
 
 
+_CASE_PAGE_NOISE_RE = re.compile(r"한약\(생약\)\s*관능검사\s*사례집|Ministry of Food and Drug Safety|\d+")
+
+
+def _is_blank_case_page(page):
+    """사례집 페이지에 머리글("한약(생약) 관능검사 사례집"), 바닥글(Ministry of Food and Drug
+    Safety), 쪽번호 외에 아무 글자가 없으면 빈 페이지다."""
+    return not _CASE_PAGE_NOISE_RE.sub("", page.get_text()).strip()
+
+
 @app.route("/api/sensory_pdf")
 def api_sensory_pdf():
     """관능검사해설서 pdf에서 해당 품목의 페이지 구간만 잘라 그대로(벡터 그대로)
@@ -640,9 +733,16 @@ def api_sensory_pdf():
     try:
         if start < 0 or end >= len(src) or start > end:
             abort(404)
+        pages = list(range(start, end + 1))
+        if "사례집" in filename:
+            # 관능검사 사례집은 한 사례가 앞쪽 페이지 한 장이고 다음 장이 머리글/바닥글만 있는 빈 연결
+            # 페이지(후박, 황련 등)인 경우가 있다. 그런 빈 페이지는 빼고 보낸다(전부 빈 경우만 그대로 둔다).
+            content_pages = [p for p in pages if not _is_blank_case_page(src[p])]
+            pages = content_pages or pages
         out = fitz.open()
         try:
-            out.insert_pdf(src, from_page=start, to_page=end)
+            for p in pages:
+                out.insert_pdf(src, from_page=p, to_page=p)
             pdf_bytes = out.tobytes()
         finally:
             out.close()
