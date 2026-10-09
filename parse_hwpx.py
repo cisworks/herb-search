@@ -2193,8 +2193,24 @@ _SOURCE_TYPOS = {
 }
 
 
+# 한글 문서의 글꼴이 없는 한자는 사용자 영역(private use) 글자 하나로 저장된 것이 있다. 화면/검색/이름
+# 판별에서 한자로 인식되도록 원래 한자로 되돌린다. 피마자의 "蓖"(U+84D6)가 대표적이다 - 이 글자가
+# 한자로 인식되지 않으면 "(󰜋麻子)" 줄이 제목의 한자 줄로 인정되지 않아 피마자 품목 제목이 앞 품목(포황)의
+# 저장법에 딸려 들어간다.
+PRIVATE_USE_HANJA = {"\U000f070b": "蓖"}
+_PRIVATE_USE_DOT_RE = re.compile(r"[ \t]*\uf09e[ \t]*")
+
+
+def fix_private_use_chars(value: str) -> str:
+    for wrong, right in PRIVATE_USE_HANJA.items():
+        if wrong in value:
+            value = value.replace(wrong, right)
+    return value
+
+
 def _fix_source_typos(root):
-    """문서의 모든 글(<hp:t> 본문과 그 사이사이 꼬리 글)에서 _SOURCE_TYPOS 의 오타를 바로잡는다."""
+    """문서의 모든 글(<hp:t> 본문과 그 사이사이 꼬리 글)에서 _SOURCE_TYPOS 의 오타와 사용자 영역
+    한자(PRIVATE_USE_HANJA)를 바로잡는다."""
     for el in root.iter():
         for attr in ("text", "tail"):
             value = getattr(el, attr)
@@ -2202,6 +2218,7 @@ def _fix_source_typos(root):
                 for wrong, right in _SOURCE_TYPOS.items():
                     if wrong in value:
                         value = value.replace(wrong, right)
+                value = fix_private_use_chars(value)
                 setattr(el, attr, value)
     return root
 
@@ -2400,6 +2417,9 @@ def parse_hwpx_bytes_sections(
             # 같은 문단 안의 조각들은 구분자 없이 그대로 이어붙이고,
             # 문단이 바뀔 때만("\n" 마커) 줄바꿈을 준다.
             raw = "".join(current_section["text"])
+            # 권삼 확인시험의 "디클로로메탄 󰂞 아세톤 󰂞 포름산혼합액"처럼 혼합액 이름의 가운뎃점(·)이
+            # 글꼴 없는 기호(U+F09E, 사용자 영역)로 저장되어 있다. 앞뒤 공백 없이 "·"로 바꾼다.
+            raw = _PRIVATE_USE_DOT_RE.sub("·", raw)
             lines = [ln.strip() for ln in raw.split("\n")]
             cleaned = []
             for ln in lines:

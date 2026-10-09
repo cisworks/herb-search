@@ -22,6 +22,7 @@ from flask import Flask, Response, abort, jsonify, render_template, request
 from parse_hwpx import parse_hwpx
 from parse_sensory_pdf import build_sensory_entries
 from parse_case_pdf import parse_case_pdf
+from parse_hwpx import fix_private_use_chars
 from parse_test_methods import parse_test_methods, read_test_method_image
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -208,6 +209,21 @@ TEST_METHODS = load_test_methods()
 ENTRIES, LOADED_FILES = load_entries()
 SENSORY_ENTRIES, SENSORY_FILES = load_sensory_entries(start_id=len(ENTRIES))
 CASE_ENTRIES, CASE_FILES = load_case_entries()
+
+
+def _fix_private_use(obj):
+    """PDF 에서 읽은 글에 섞인 사용자 영역 한자(피마자의 蓖 등)를 원래 한자로 되돌린다."""
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            obj[k] = fix_private_use_chars(v) if isinstance(v, str) else _fix_private_use(v)
+    elif isinstance(obj, list):
+        for i, v in enumerate(obj):
+            obj[i] = fix_private_use_chars(v) if isinstance(v, str) else _fix_private_use(v)
+    return obj
+
+
+_fix_private_use(SENSORY_ENTRIES)
+_fix_private_use(CASE_ENTRIES)
 ENTRY_BY_ID = {e["id"]: e for e in ENTRIES + SENSORY_ENTRIES}
 
 
