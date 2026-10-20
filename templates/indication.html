@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>적응증 {{ title }}</title>
+<style>
+  body { margin: 0; padding: 20px 12px 40px; background: #f4f6f4; font-family: "Malgun Gothic", sans-serif; color: #333; line-height: 1.65; }
+  .wrap { max-width: 820px; margin: 0 auto; }
+  h1 { font-size: 1.15rem; margin: 0 0 4px; color: #2f5a3b; }
+  .src { font-size: 0.78rem; color: #777; margin-bottom: 16px; }
+  .card { background: #fff; border-radius: 8px; box-shadow: 0 1px 6px rgba(0,0,0,.12); padding: 14px 18px 8px; margin-bottom: 18px; }
+  .card h2 { font-size: 1rem; margin: 0 0 8px; padding-bottom: 6px; border-bottom: 2px solid #2f5a3b; color: #2f5a3b; }
+  .sec { margin: 0 0 14px; }
+  .sec h3 { display: inline-block; margin: 0 0 4px; padding: 1px 10px; font-size: 0.85rem; color: #fff; background: #2f5a3b; border-radius: 10px; }
+  .sec ul { margin: 0; padding-left: 1.2em; }
+  .sec li { margin: 2px 0; font-size: 0.93rem; }
+  .ref { font-size: 0.75rem; color: #888; margin-left: 4px; white-space: nowrap; cursor: help; }
+  .none { color: #999; font-size: 0.9rem; }
+</style></head><body>
+<div class="wrap">
+  <h1>적응증 · {{ title }}</h1>
+  <div class="src">출처: 국가생약정보(nifds.go.kr) 공정서 생약 &gt; 채취 및 가공 · 적응증(효능/효과) · 용법용량 · 저장</div>
+  {% for g in groups %}
+  <div class="card">
+    {% if groups|length > 1 or g.origins %}<h2>{{ g.origins|join(', ') }}</h2>{% endif %}
+    {% for sec in g.sections %}
+    <div class="sec">
+      <h3>{{ sec.label }}</h3>
+      {% if sec.entries %}
+      <ul>
+        {% for it in sec.entries %}<li>{{ it.t }}{% if it.r %}<span class="ref" title="{{ it.rt }}">{{ it.r }}</span>{% endif %}</li>{% endfor %}
+      </ul>
+      {% else %}<div class="none">자료 없음</div>{% endif %}
+    </div>
+    {% endfor %}
+  </div>
+  {% endfor %}
+</div>
+</body></html>

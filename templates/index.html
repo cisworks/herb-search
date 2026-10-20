@@ -1641,7 +1641,8 @@ async function showDetail(id, filterItem, opts = {}) {
       <div class="detail-title-row">
         <h2>${renderName(item)}${sourceBadge(item.source_tag)}</h2>
         <div class="detail-title-actions">
-          ${linkButtonHtml('사진정보', item.nifds_links)}
+          ${linkButtonHtml('사진정보', item.photo_links, '국가생약정보 사진(왼쪽)과 관능검사해설서 사진(오른쪽) 보기')}
+          ${linkButtonHtml('적응증', item.indication_links, '국가생약정보의 채취 및 가공, 적응증(효능/효과), 용법용량, 저장 보기')}
           ${linkButtonHtml('확인시험사례', item.exam_case_links)}
           ${linkButtonHtml('HPTLC', item.hptlc_links)}
           ${linkButtonHtml('HPLC', item.hplc_links)}
@@ -1689,11 +1690,11 @@ async function showDetail(id, filterItem, opts = {}) {
 // 페이지에서 그 탭을 한 번 눌러야 한다. "HPTLC"는 해당 생약의 HPTLC 조회
 // 페이지가 바로 열린다. 기원종이 여러 개인 생약은 기원종마다 페이지가 따로 있어,
 // 버튼을 누르면 기원종을 고르는 목록을 보여준다.
-function linkButtonHtml(label, links) {
+function linkButtonHtml(label, links, title = '국가생약정보 사이트에서 열기') {
   if (!links || !links.length) return '';
   const attrs = 'target="_blank" rel="noopener noreferrer"';
   if (links.length === 1) {
-    return `<a class="link-btn" href="${escapeHtml(links[0].url)}" ${attrs} title="국가생약정보 사이트에서 열기">${escapeHtml(label)}</a>`;
+    return `<a class="link-btn" href="${escapeHtml(links[0].url)}" ${attrs} title="${escapeHtml(title)}">${escapeHtml(label)}</a>`;
   }
   // 기원종 이름이 비었거나("-" 포함) 같은 이름이 여러 번 나오면 번호를 붙여 구분한다.
   const names = links.map((l, i) => (l.origin && l.origin !== '-' ? l.origin : `기원종 ${i + 1}`));

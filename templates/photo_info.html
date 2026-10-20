@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>사진정보</title>
+<style>
+  html, body { height: 100%; }
+  body { margin: 0; background: #f4f6f4; font-family: "Malgun Gothic", sans-serif; color: #555; }
+  .cols { display: flex; height: 100%; }
+  .col { flex: 1 1 0; min-width: 0; height: 100%; overflow-y: auto; padding: 0 12px 24px; box-sizing: border-box; text-align: center; }
+  .col + .col { border-left: 1px solid #d5dcd5; }
+  .col h2 { position: sticky; top: 0; z-index: 2; margin: 0 -12px 16px; padding: 10px 12px; background: #e6ece6; font-size: 0.9rem; color: #2f5a3b; }
+  .col h2 small { font-weight: normal; color: #777; margin-left: 6px; }
+  .photo { margin: 0 auto 36px; }
+  .photo img { max-width: 100%; height: auto; border-radius: 6px; box-shadow: 0 1px 6px rgba(0,0,0,.2); background: #fff; cursor: zoom-in; }
+  @media (max-width: 760px) {
+    html, body { height: auto; }
+    .cols { display: block; height: auto; }
+    .col { height: auto; overflow: visible; }
+    .col + .col { border-left: 0; border-top: 1px solid #d5dcd5; }
+  }
+  #zoom { position: fixed; inset: 0; background: rgba(0,0,0,.88); display: none; overflow: hidden; z-index: 10; touch-action: none; user-select: none; }
+  #zoom.on { display: block; }
+  #zoom img { position: absolute; left: 0; top: 0; transform-origin: 0 0; max-width: none; background: #fff; cursor: grab; will-change: transform; }
+  #zoom img.drag { cursor: grabbing; }
+  #zoom .bar { position: fixed; top: 10px; right: 12px; display: flex; gap: 6px; z-index: 11; }
+  #zoom .bar button { min-width: 36px; height: 36px; border: 0; border-radius: 6px; background: rgba(255,255,255,.9); font-size: 1.1rem; cursor: pointer; }
+  #zoom .hint { position: fixed; bottom: 10px; left: 0; right: 0; text-align: center; color: #ccc; font-size: 0.75rem; pointer-events: none; }
+</style></head><body>
+<div class="cols">
+{% for col in columns %}
+  <section class="col">
+    <h2>{{ col.title }}<small>Total : {{ col.photos|length }} · 사진을 누르면 확대</small></h2>
+    {% for p in col.photos %}
+    <div class="photo"><img src="{{ p.src }}" data-hi="{{ p.hi }}" loading="lazy" alt="{{ col.title }} {{ loop.index }}"></div>
+    {% endfor %}
+  </section>
+{% endfor %}
+</div>
+<div id="zoom">
+  <div class="bar"><button id="zin" title="확대">+</button><button id="zout" title="축소">−</button><button id="zfit" title="맞춤">↺</button><button id="zclose" title="닫기 (Esc)">✕</button></div>
+  <img id="zimg" alt="">
+  <div class="hint">휠/두 손가락: 확대·축소 · 끌어서 이동 · 더블클릭: 맞춤/확대 · Esc: 닫기</div>
+</div>
+<script>
+(function () {
+  var zoom = document.getElementById('zoom'), zimg = document.getElementById('zimg');
+  var scale = 1, fit = 1, tx = 0, ty = 0, MAXZ = 6;
+  var ptrs = {}, moved = false, pinch = 0;
+  function apply() { zimg.style.transform = 'translate(' + tx + 'px,' + ty + 'px) scale(' + scale + ')'; }
+  function clamp() {
+    var w = zimg.naturalWidth * scale, h = zimg.naturalHeight * scale, vw = innerWidth, vh = innerHeight;
+    tx = w <= vw ? (vw - w) / 2 : Math.min(0, Math.max(vw - w, tx));
+    ty = h <= vh ? (vh - h) / 2 : Math.min(0, Math.max(vh - h, ty));
+  }
+  function fitView() {
+    fit = Math.min(innerWidth / zimg.naturalWidth, innerHeight / zimg.naturalHeight, 1.6) * 0.96;
+    scale = fit; tx = ty = 0; clamp(); apply();
+  }
+  function zoomAt(f, cx, cy) {
+    var ns = Math.min(fit * MAXZ, Math.max(fit, scale * f)), r = ns / scale;
+    tx = cx - (cx - tx) * r; ty = cy - (cy - ty) * r; scale = ns; clamp(); apply();
+  }
+  function open(hi, lo) {
+    // 작은 그림을 바로 보여 주고, 고화질 그림이 도착하면 같은 크기로 바꿔 끼운다(보이는 크기는 그대로)
+    zoom.classList.add('on');
+    zimg.onload = function () { fitView(); };
+    zimg.src = lo;
+    zimg.dataset.cur = hi;
+    if (!hi || hi === lo) return;
+    var big = new Image();
+    big.onload = function () {
+      if (!zoom.classList.contains('on') || zimg.dataset.cur !== hi) return;
+      var r = zimg.naturalWidth / big.naturalWidth;
+      if (!(big.naturalWidth > zimg.naturalWidth)) return;
+      zimg.onload = function () { zimg.onload = null; scale *= r; fit *= r; clamp(); apply(); };
+      zimg.src = hi;
+    };
+    big.src = hi;
+  }
+  function close() { zoom.classList.remove('on'); zimg.dataset.cur = ''; }
+  document.querySelectorAll('.photo img').forEach(function (im) {
+    im.addEventListener('click', function () { open(im.dataset.hi, im.src); });
+  });
+  zoom.addEventListener('wheel', function (e) { e.preventDefault(); zoomAt(e.deltaY < 0 ? 1.2 : 1 / 1.2, e.clientX, e.clientY); }, { passive: false });
+  zimg.addEventListener('dblclick', function (e) { if (scale > fit * 1.05) { fitView(); } else { zoomAt(3, e.clientX, e.clientY); } });
+  zoom.addEventListener('pointerdown', function (e) {
+    if (e.target.closest('.bar')) return;
+    zoom.setPointerCapture(e.pointerId); ptrs[e.pointerId] = [e.clientX, e.clientY]; moved = false; zimg.classList.add('drag');
+    if (Object.keys(ptrs).length === 2) { var p = Object.values(ptrs); pinch = Math.hypot(p[0][0] - p[1][0], p[0][1] - p[1][1]); }
+  });
+  zoom.addEventListener('pointermove', function (e) {
+    var p = ptrs[e.pointerId]; if (!p) return;
+    if (Object.keys(ptrs).length === 2) {
+      ptrs[e.pointerId] = [e.clientX, e.clientY];
+      var q = Object.values(ptrs), d = Math.hypot(q[0][0] - q[1][0], q[0][1] - q[1][1]);
+      if (pinch) zoomAt(d / pinch, (q[0][0] + q[1][0]) / 2, (q[0][1] + q[1][1]) / 2);
+      pinch = d; moved = true; return;
+    }
+    var dx = e.clientX - p[0], dy = e.clientY - p[1];
+    if (Math.abs(dx) + Math.abs(dy) > 2) moved = true;
+    tx += dx; ty += dy; ptrs[e.pointerId] = [e.clientX, e.clientY]; clamp(); apply();
+  });
+  function up(e) {
+    delete ptrs[e.pointerId]; pinch = 0;
+    if (!Object.keys(ptrs).length) zimg.classList.remove('drag');
+  }
+  zoom.addEventListener('pointerup', function (e) {
+    var wasMoved = moved; up(e);
+    if (!wasMoved && e.target === zoom) close();
+  });
+  zoom.addEventListener('pointercancel', up);
+  document.getElementById('zin').onclick = function () { zoomAt(1.4, innerWidth / 2, innerHeight / 2); };
+  document.getElementById('zout').onclick = function () { zoomAt(1 / 1.4, innerWidth / 2, innerHeight / 2); };
+  document.getElementById('zfit').onclick = fitView;
+  document.getElementById('zclose').onclick = close;
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape') close(); });
+  addEventListener('resize', function () { if (zoom.classList.contains('on')) fitView(); });
+})();
+</script>
+</body></html>

@@ -12,13 +12,15 @@
  함께 넣어두면 그 내용이 자동으로 반영된다. 앱을 재시작하면 다시 읽어온다.)
 """
 
+import functools
 import json
 import re
 from pathlib import Path
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
 
 from flask import Flask, Response, abort, jsonify, render_template, request
 
+import sensory_photos
 from parse_hwpx import parse_hwpx
 from parse_sensory_pdf import build_sensory_entries
 from parse_case_pdf import parse_case_pdf
@@ -243,7 +245,7 @@ def _load_json_map(filename):
 NIFDS_MAP = _load_json_map("nifds_herb_map.json")
 
 # 상세 페이지의 "사진정보 > 약재" 탭 사진. 탭이 불러오는 사진 조각 페이지는
-# 첫 사진이 두 번 나오고 꾸밀 수 없어서, 사진 목록만 가져와 /photos/<번호> 에서
+# 첫 사진이 두 번 나오고 꾸밀 수 없어서, 사진 목록만 가져와 /photos/<번호>, /photo_info 에서
 # 직접 보여 준다. nifds_photo_map.json ("선택번호_기원번호" -> 사진 번호)과
 # nifds_photo_list.json ("사진 번호" -> [사진묶음번호, 장수] 또는 [[묶음번호, 순번], ...])은
 # 상세 페이지를 브라우저로 열어 확인한 값이다. 사진 자체는 국가생약정보 서버의 것을
@@ -377,19 +379,6 @@ def _nifds_origins(name_only, hanja):
     if ov is None:
         return origins
     return [o for o in origins if o[0] in ov.get("origins", [])]
-
-
-def nifds_links(name_only, hanja=""):
-    """생약명으로 국가생약정보 "사진정보" 주소들을 만든다. 상세 페이지의 사진정보
-    탭은 주소로 바로 열 수 없어서, 약재 사진만 모아 보여 주는 우리 쪽 페이지
-    (/photos/<번호>)를 연다. 약재 사진이 없는 생약은 빈 목록을 돌려줘서 버튼이
-    나오지 않는다. 기원종이 여러 개여도 사진정보는 같으므로 기원종 구분 없이
-    첫 번째 하나만 돌려준다."""
-    for origin, dmstc, mdntf in _nifds_origins(name_only, hanja):
-        drgnm = NIFDS_PHOTO_MAP.get(f"{dmstc}_{mdntf}")
-        if str(drgnm) in NIFDS_PHOTO_LIST:
-            return [{"origin": "", "url": f"/photos/{drgnm}"}]
-    return []
 
 
 def _analscase_links(table, url_template, name_only):
@@ -649,7 +638,8 @@ def api_item(item_id):
             "definition_parts": e.get("definition_parts", []),
             "sections": e["sections"],
             "source_tag": e.get("source_tag", ""),
-            "nifds_links": nifds_links(e["name_only"], e["hanja"]),
+            "photo_links": photo_info_links(e["name_only"], e["hanja"]),
+            "indication_links": indication_links(e["name_only"], e["hanja"]),
             "hptlc_links": hptlc_links(e["name_only"], e["hanja"]),
             "hplc_links": hplc_links(e["name_only"], e["hanja"]),
             "ingredient_links": ingredient_links(e["name_only"], e["hanja"]),
@@ -718,6 +708,180 @@ def photos(no):
         for i, (f, s) in enumerate(pairs, 1)
     )
     return PHOTO_PAGE.format(title="사진정보", total=len(pairs), photos=items)
+
+
+# ---- 사진(해설서) -------------------------------------------------------------------
+# 관능검사해설서(2022).pdf 의 품목 페이지에 실린 사진을, 사진 아래 설명과 함께 한 페이지에 모아 보여 준다.
+# 사진/설명 위치 찾기와 그리기는 sensory_photos.py 참고(설명은 글자가 아니라 PDF 에서 잘라낸 그림).
+SENSORY_PHOTO_FILE = "관능검사해설서(2022).pdf"
+
+def _sensory_entry_for(name_only, hanja):
+    """공정서 품목에 해당하는 관능검사해설서 품목. 한자까지 같으면 그것을, 한자 표기만 다른 경우
+    (猪/豬 등)는 이름이 같은 품목이 하나뿐일 때 그것을 쓴다(동음 생약은 한자가 같을 때만)."""
+    sensory = [e for e in SENSORY_ENTRIES if e.get("source_file") == SENSORY_PHOTO_FILE]
+    for e in sensory:
+        if e["name_only"] == name_only and e["hanja"] == hanja:
+            return e
+    if name_only in HOMONYM_NAMES:
+        return None
+    key = (name_only.split() or [""])[0]
+    same = [e for e in sensory if e["name_only"] == key]
+    return same[0] if len(same) == 1 else None
+
+
+@functools.lru_cache(maxsize=None)
+def _sensory_photo_regions(entry_id):
+    """품목의 [(쪽, 묶음 번호)] 목록(캐시)."""
+    import pymupdf as fitz
+
+    e = ENTRY_BY_ID[entry_id]
+    doc = fitz.open(str(BASE_DIR / SENSORY_PHOTO_FILE))
+    try:
+        return tuple(sensory_photos.entry_regions(doc, int(e["page_start"]), int(e["page_end"])))
+    finally:
+        doc.close()
+
+
+def _sensory_photo_entry_id(name_only, hanja):
+    """사진이 있는 관능검사해설서 품목의 id (없으면 None)."""
+    if not (BASE_DIR / SENSORY_PHOTO_FILE).is_file():
+        return None
+    e = _sensory_entry_for(name_only, hanja)
+    return e["id"] if e is not None and _sensory_photo_regions(e["id"]) else None
+
+
+def _nifds_photo_no(name_only, hanja):
+    """국가생약정보 "사진정보" 사진 번호(/photos/<번호>). 사진이 없으면 None."""
+    for origin, dmstc, mdntf in _nifds_origins(name_only, hanja):
+        drgnm = NIFDS_PHOTO_MAP.get(f"{dmstc}_{mdntf}")
+        if str(drgnm) in NIFDS_PHOTO_LIST:
+            return drgnm
+    return None
+
+
+def photo_info_links(name_only, hanja=""):
+    """"사진정보" 버튼: 국가생약정보 사진(왼쪽)과 관능검사해설서 사진(오른쪽)을 한 화면에 보여 주는
+    /photo_info 주소. 둘 다 없으면 빈 목록(버튼이 나오지 않는다)."""
+    nifds = _nifds_photo_no(name_only, hanja)
+    sensory = _sensory_photo_entry_id(name_only, hanja)
+    if nifds is None and sensory is None:
+        return []
+    params = {}
+    if nifds is not None:
+        params["n"] = nifds
+    if sensory is not None:
+        params["s"] = sensory
+    return [{"origin": "", "url": "/photo_info?" + urlencode(params)}]
+
+
+@app.route("/photo_info")
+def photo_info():
+    """왼쪽: 국가생약정보 사진정보(약재 사진), 오른쪽: 관능검사해설서(2022) 사진과 설명. 한쪽만
+    있으면 그쪽만 보여 준다. 사진을 누르면 화질을 유지한 채 확대해서 볼 수 있다."""
+    columns = []
+    nifds = request.args.get("n", type=int)
+    if nifds is not None:
+        spec = NIFDS_PHOTO_LIST.get(str(nifds))
+        if spec is None:
+            abort(404)
+        pairs = spec if spec and isinstance(spec[0], list) else [[spec[0], sn] for sn in range(1, spec[1] + 1)]
+        columns.append(
+            {
+                "title": "국가생약정보 사진정보",
+                "photos": [
+                    {"src": NIFDS_THUMB_URL.format(flgrp=f, sn=s), "hi": NIFDS_PREVIEW_URL.format(flgrp=f, sn=s)}
+                    for f, s in pairs
+                ],
+            }
+        )
+    sensory = request.args.get("s", type=int)
+    if sensory is not None:
+        e = ENTRY_BY_ID.get(sensory)
+        if e is None or e.get("source_file") != SENSORY_PHOTO_FILE:
+            abort(404)
+        columns.append(
+            {
+                "title": "관능검사해설서 사진정보",
+                "photos": [
+                    {
+                        "src": f"/sensory_photos/{sensory}/{p}/{i}.png",
+                        "hi": f"/sensory_photos/{sensory}/{p}/{i}.png?dpi=400",
+                    }
+                    for p, i in _sensory_photo_regions(sensory)
+                ],
+            }
+        )
+    if not columns:
+        abort(404)
+    return render_template("photo_info.html", columns=columns)
+
+
+# ---- 적응증 -------------------------------------------------------------------------
+# 국가생약정보 공정서 생약 상세 페이지(hbdc/ofcmhbdc/view.do)의 "채취 및 가공 / 적응증(효능/효과) /
+# 용법용량 / 저장" 항목. 같은 생약이라도 기원종마다 내용이 달라서 기원종("선택번호_기원번호")별로
+# nifds_indication.json 에 [{t: 내용, r: "Ref. ChP 2015.", rt: 문헌 이름}, ...] 목록으로 정리해 두었다
+# (브라우저로 사이트를 열어 읽은 값).
+NIFDS_INDICATION = _load_json_map("nifds_indication.json")
+INDICATION_SECTIONS = [("h", "채취 및 가공"), ("i", "적응증(효능/효과)"), ("d", "용법용량"), ("s", "저장")]
+
+
+def _indication_keys(name_only, hanja):
+    """생약의 기원종별 자료 키 [(기원종, "선택번호_기원번호")] (자료가 있는 것만)."""
+    return [
+        (origin, f"{dmstc}_{mdntf}")
+        for origin, dmstc, mdntf in _nifds_origins(name_only, hanja)
+        if NIFDS_INDICATION.get(f"{dmstc}_{mdntf}")
+    ]
+
+
+def indication_links(name_only, hanja=""):
+    keys = _indication_keys(name_only, hanja)
+    if not keys:
+        return []
+    return [{"origin": "", "url": "/indication?" + urlencode({"k": ",".join(k for _, k in keys), "t": name_only})}]
+
+
+@app.route("/indication")
+def indication():
+    """기원종별 채취 및 가공 / 적응증 / 용법용량 / 저장. 내용이 같은 기원종은 한 묶음으로 보여 준다."""
+    keys = [k for k in request.args.get("k", "").split(",") if k in NIFDS_INDICATION]
+    if not keys:
+        abort(404)
+    names = {}
+    for origin, dmstc, mdntf in sum(NIFDS_MAP.values(), []):
+        names[f"{dmstc}_{mdntf}"] = origin
+    groups = []
+    for k in keys:
+        data = NIFDS_INDICATION[k]
+        for g in groups:
+            if g["data"] == data:
+                g["origins"].append(names.get(k, ""))
+                break
+        else:
+            groups.append({"data": data, "origins": [names.get(k, "")]})
+    for g in groups:
+        g["origins"] = [o for o in g["origins"] if o]
+        g["sections"] = [{"label": label, "entries": g["data"].get(key, [])} for key, label in INDICATION_SECTIONS]
+    return render_template("indication.html", groups=groups, title=request.args.get("t", "")[:40])
+
+
+@app.route("/sensory_photos/<int:entry_id>/<int:page_no>/<int:index>.png")
+def sensory_photo_image(entry_id, page_no, index):
+    import pymupdf as fitz
+
+    e = ENTRY_BY_ID.get(entry_id)
+    if e is None or e.get("source_file") != SENSORY_PHOTO_FILE or (page_no, index) not in _sensory_photo_regions(entry_id):
+        abort(404)
+    doc = fitz.open(str(BASE_DIR / SENSORY_PHOTO_FILE))
+    try:
+        # 확대해서 볼 때는 ?dpi=400 (해설서 사진 원본 해상도가 대체로 300~430dpi)
+        dpi = min(max(request.args.get("dpi", sensory_photos.CLIP_DPI, type=int), 72), 450)
+        png = sensory_photos.render_region(doc, page_no, index, dpi=dpi)
+    finally:
+        doc.close()
+    if png is None:
+        abort(404)
+    return Response(png, mimetype="image/png", headers={"Cache-Control": "public, max-age=86400"})
 
 
 _CASE_PAGE_NOISE_RE = re.compile(r"한약\(생약\)\s*관능검사\s*사례집|Ministry of Food and Drug Safety|\d+")
