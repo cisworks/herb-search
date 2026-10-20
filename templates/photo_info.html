@@ -20,7 +20,7 @@
   }
   #zoom { position: fixed; inset: 0; background: rgba(0,0,0,.88); display: none; overflow: hidden; z-index: 10; touch-action: none; user-select: none; }
   #zoom.on { display: block; }
-  #zoom img { position: absolute; left: 0; top: 0; transform-origin: 0 0; max-width: none; background: #fff; cursor: grab; will-change: transform; }
+  #zoom img { position: absolute; left: 0; top: 0; transform-origin: 0 0; max-width: none; background: #fff; cursor: grab; will-change: transform; -webkit-user-drag: none; user-select: none; }
   #zoom img.drag { cursor: grabbing; }
   #zoom .bar { position: fixed; top: 10px; right: 12px; display: flex; gap: 6px; z-index: 11; }
   #zoom .bar button { min-width: 36px; height: 36px; border: 0; border-radius: 6px; background: rgba(255,255,255,.9); font-size: 1.1rem; cursor: pointer; }
@@ -78,6 +78,9 @@
     big.src = hi;
   }
   function close() { zoom.classList.remove('on'); zimg.dataset.cur = ''; }
+  // 그림을 끌 때 브라우저의 기본 "그림 끌어놓기"가 끼어들면 드래그가 끊기므로 막는다
+  zimg.draggable = false;
+  zimg.addEventListener('dragstart', function (e) { e.preventDefault(); });
   document.querySelectorAll('.photo img').forEach(function (im) {
     im.addEventListener('click', function () { open(im.dataset.hi, im.src); });
   });
