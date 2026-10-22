@@ -32,6 +32,9 @@ CROP_PAD = 4  # 흰 여백을 자른 뒤 남기는 여백(pt)
 WHITE = 248   # 이 값 이상이면 흰색으로 본다(회색조 0~255)
 
 _NOT_CAPTION = re.compile(r"[㉠-㉻❍※]")  # 쪽 아래 각주(㉠)나 본문 글머리는 사진 설명이 아니다
+SIDE_MARKS = "◀◁◄"  # 사진 오른쪽에 "◀ 설명"으로 놓인 설명의 머리표
+SIDE_NEAR = 50 # 머리표가 사진 이미지(흰 여백 포함) 오른쪽 끝에서 이만큼까지 겹쳐 있어도 그 사진의 설명으로 본다
+SIDE_GAP = 6  # 사진(과 아래 설명) 아래에 옮겨 붙이는 오른쪽 설명 사이의 간격(pt)
 
 
 def _tiles(page):
@@ -59,6 +62,56 @@ def _group_tiles(tiles):
     return groups
 
 
+def _has_mark(text):
+    return any(ch in text for ch in SIDE_MARKS)
+
+
+def _find_side_captions(page, blocks, groups, footer_y):
+    """사진 오른쪽에 "◀ 설명"으로 놓인 설명을 찾아 그 사진 묶음(g["side"])에 붙인다. 이어지는 설명 줄(같은
+    칸에서 줄 간격 CAPTION_GAP 이내)도 함께 모으고, 쓰인 글 블록 영역의 집합을 돌려준다.
+    g["side"] = {"rect": 설명 전체 영역, "blocks": [글 블록 영역], "marks": [머리표(◀) 글자 영역]}"""
+    used = set()
+    for m in blocks:
+        # PDF 글자 순서가 뒤섞여("편강황 ◀ 위품") 머리표가 글 블록 맨 앞에 안 나올 수 있어 블록 안에 있는지로 본다
+        if not _has_mark(m[4]) or tuple(m[:4]) in used:
+            continue
+        mx0, my0, mx1, my1 = m[:4]
+        best = None
+        for g in groups:
+            gx0, gy0, gx1, gy1 = g["rect"]
+            vo = min(my1, gy1) - max(my0, gy0)
+            if g.get("side") or vo <= 0 or gx0 >= mx0 or gx1 - mx0 > SIDE_NEAR:
+                continue
+            key = (-vo, abs(mx0 - gx1))
+            if best is None or key < best[0]:
+                best = (key, g)
+        if best is None:
+            continue
+        rects = [tuple(m[:4])]
+        bottom = my1
+        for b in sorted(blocks, key=lambda b: b[1]):
+            bx0, by0, bx1, by1 = b[:4]
+            if (
+                tuple(b[:4]) in used or tuple(b[:4]) == rects[0] or by0 < bottom - 3 or by0 - bottom > CAPTION_GAP
+                or by1 > footer_y or not (mx0 - 6 <= bx0 <= mx0 + 40) or _has_mark(b[4])
+                or _NOT_CAPTION.match(b[4].strip())
+            ):
+                continue
+            rects.append((bx0, by0, bx1, by1))
+            bottom = max(bottom, by1)
+        used.update(rects)
+        union = (min(r[0] for r in rects), min(r[1] for r in rects), max(r[2] for r in rects), max(r[3] for r in rects))
+        marks = [(r.x0, r.y0, r.x1, r.y1) for ch in SIDE_MARKS for r in page.search_for(ch, clip=fitz_rect(m[:4]))]
+        best[1]["side"] = {"rect": union, "blocks": rects, "marks": marks}
+    return used
+
+
+def fitz_rect(t):
+    import pymupdf as fitz
+
+    return fitz.Rect(*t)
+
+
 def photo_regions(page):
     """페이지 하나의 사진 묶음 목록. 각 항목은 {"rect": (x0, y0, x1, y1) 사진+아래 설명 영역,
     "photo": 사진 영역, "xrefs": 사진 이미지 번호들, "texts": 이 묶음에 딸린 글 블록 영역들}.
@@ -75,10 +128,13 @@ def photo_regions(page):
             if o is not g and r[1] >= gy1 - 1 and min(r[2], gr[2]) - max(r[0], gr[0]) > 0.5 * (gr[2] - gr[0]):
                 g["limit"] = min(g["limit"], r[1])
         g["cands"] = []
+    side_used = _find_side_captions(page, blocks, groups, footer_y)
     # 사진 이미지 여백이 옆 사진과 겹치는 쪽이 있어서, 글 블록 하나는 묶음 하나에만 준다.
     # 바로 위(세로로 가장 가까운) 사진 중에서 가로 중심이 가장 가까운 묶음을 고른다
     # (가운데나 오른쪽 아래에 엇갈려 놓인 사진의 설명이 윗줄 사진에 잘못 붙지 않게)
     for b in blocks:
+        if tuple(b[:4]) in side_used:
+            continue
         bx0, by0, bx1, by1 = b[:4]
         fits = []
         for g in groups:
@@ -90,7 +146,7 @@ def photo_regions(page):
             near = min(f[0] for f in fits)
             best = min((f for f in fits if f[0] <= near + CAPTION_GAP), key=lambda f: f[1])
             best[2]["cands"].append((by0, by1, bx0, bx1, _NOT_CAPTION.match(b[4].strip()) is not None))
-    assigned = {c[:4] for g in groups for c in g["cands"]}
+    assigned = {c[:4] for g in groups for c in g["cands"]} | side_used
     regions = []
     for g in groups:
         gx0, gy0, gx1, gy1 = g["rect"]
@@ -119,6 +175,7 @@ def photo_regions(page):
                 "photo": (gx0, gy0, gx1, gy1),
                 "xrefs": g["xrefs"],
                 "texts": texts,
+                "side": g.get("side"),
             }
         )
     # 읽는 순서: 위쪽 시작이 비슷한(30pt 이내) 사진끼리 한 줄로 보고 왼쪽부터
@@ -161,6 +218,74 @@ def _content_rect(page, rect):
         rect[0] + (cols[-1] + 1) * sx + CROP_PAD,
         rect[1] + (rows[-1] + 1) * sy + CROP_PAD,
     ) & fitz.Rect(*rect)
+
+
+def _redact_side(tp, side):
+    """임시 쪽에서 오른쪽 설명(◀ 머리표 포함)의 글자를 지운다(사진 본체를 그릴 때 쓴다)."""
+    import pymupdf as fitz
+
+    for t in side["blocks"]:
+        tp.add_redact_annot(fitz.Rect(*t) + (-1, -1, 1, 1), fill=False)
+
+
+def _side_image(doc, page_no, index, scale, k=1):
+    """사진 오른쪽에 있던 "◀ 설명"을 ◀ 없이 그려서(배율 scale*k 픽셀/pt) 흰 여백을 자른 RGBA 그림으로 돌려준다.
+    사진은 모두 지우고 글자/선만 그리며 배경은 투명하다. 자르는 위치는 k의 배수 픽셀에 맞춰서, 이 그림을
+    k로 나누면 배율 scale 그림이 크기가 딱 맞게 나온다. 없으면 None."""
+    import io
+
+    import pymupdf as fitz
+    from PIL import Image
+
+    me = photo_regions(doc[page_no])[index]
+    side = me.get("side")
+    if not side:
+        return None
+    tmp = fitz.open()
+    try:
+        tmp.insert_pdf(doc, from_page=page_no, to_page=page_no)
+        tp = tmp[0]
+        for xref in {im[0] for im in tp.get_images(full=True)}:
+            tp.delete_image(xref)
+        for mk in side["marks"]:
+            tp.add_redact_annot(fitz.Rect(*mk) + (-0.5, -0.5, 0.5, 0.5), fill=False)
+        tp.apply_redactions(images=fitz.PDF_REDACT_IMAGE_NONE, graphics=fitz.PDF_REDACT_LINE_ART_NONE)
+        rect = fitz.Rect(*side["rect"]) + (-2, -2, 2, 2)
+        pm = tp.get_pixmap(matrix=fitz.Matrix(scale * k, scale * k), clip=rect, alpha=True)
+        img = Image.open(io.BytesIO(pm.tobytes("png"))).convert("RGBA")
+    finally:
+        tmp.close()
+    box = img.getchannel("A").point(lambda v: 255 if v > 40 else 0).getbbox()
+    if not box:
+        return None
+    pad = round(CROP_PAD * scale) * k
+    x0, y0 = max(0, box[0] - pad) // k * k, max(0, box[1] - pad) // k * k
+    x1, y1 = -(-min(img.width, box[2] + pad) // k) * k, -(-min(img.height, box[3] + pad) // k) * k
+    out = Image.new("RGBA", (x1 - x0, y1 - y0), (255, 255, 255, 0))
+    out.paste(img.crop((x0, y0, min(x1, img.width), min(y1, img.height))), (0, 0))
+    return out
+
+
+def _stack_side(main, side, scale, mode, k=1):
+    """main 그림 아래에 side(_side_image 가 돌려준 RGBA, 배율 scale*k)를 붙인다. 간격은 SIDE_GAP.
+    mode: "all"(main 은 RGB, 흰 배경에 겹침, 배율 scale) / "photo"(main 은 RGB, side 자리를 흰색으로 비움,
+    배율 scale) / "text"(main 은 투명 배경 RGBA, 배율 scale*k, 투명 배경에 겹침)."""
+    from PIL import Image
+
+    gap = round(SIDE_GAP * scale) * (k if mode == "text" else 1)
+    if mode != "text":
+        side = side.resize((side.width // k, side.height // k), Image.LANCZOS)
+    w, h = max(main.width, side.width), main.height + gap + side.height
+    if mode == "text":
+        out = Image.new("RGBA", (w, h), (255, 255, 255, 0))
+        out.paste(main, (0, 0))
+        out.paste(side, (0, main.height + gap))
+        return out
+    out = Image.new("RGB", (w, h), (255, 255, 255))
+    out.paste(main, (0, 0))
+    if mode == "all":
+        out.paste(side, (0, main.height + gap), side)
+    return out
 
 
 def native_dpi(doc, page_no, index):
@@ -252,6 +377,8 @@ def render_region_original(doc, page_no, index, layer="all", k=1):
         for o in others:
             for t in o["texts"]:
                 tp.add_redact_annot(fitz.Rect(*t) + (-1, -1, 1, 1), fill=False)
+        if tme.get("side"):
+            _redact_side(tp, tme["side"])
         tp.apply_redactions(images=fitz.PDF_REDACT_IMAGE_NONE, graphics=fitz.PDF_REDACT_LINE_ART_NONE)
         m = fitz.Matrix(z, 0, 0, z, -rect.x0 * z, -rect.y0 * z)
         pm = tp.get_pixmap(matrix=m, clip=rect, alpha=True)
@@ -292,15 +419,24 @@ def render_region_original(doc, page_no, index, layer="all", k=1):
         canvas = canvas.crop(box)
     else:
         box = (0, 0, canvas.width, canvas.height)
+    # 사진 오른쪽에 "◀ 설명"으로 있던 설명은 ◀ 없이 사진(과 아래 설명) 아래에 붙인다
+    side = _side_image(doc, page_no, index, z, k) if me.get("side") else None
     out = io.BytesIO()
     if layer == "photo":
-        photo_only.crop(box).save(out, "PNG")
+        img = photo_only.crop(box)
+        if side:
+            img = _stack_side(img, side, z, "photo", k)
+        img.save(out, "PNG")
     elif layer == "text":
         w, h = box[2] - box[0], box[3] - box[1]
         text = Image.new("RGBA", (w * k, h * k), (255, 255, 255, 0))
         text.paste(overlay_k.crop((box[0] * k, box[1] * k, box[2] * k, box[3] * k)), (0, 0))
+        if side:
+            text = _stack_side(text, side, z, "text", k)
         text.save(out, "PNG")
     else:
+        if side:
+            canvas = _stack_side(canvas, side, z, "all", k)
         canvas.save(out, "PNG")
     return out.getvalue()
 
@@ -317,7 +453,7 @@ def render_region(doc, page_no, index, dpi=CLIP_DPI):
     page = doc[page_no]
     tmp = None
     try:
-        if others:
+        if others or me.get("side"):
             # 겹치는 다른 묶음의 사진과 글자를 지운 임시 쪽에 그린다
             tmp = fitz.open()
             tmp.insert_pdf(doc, from_page=page_no, to_page=page_no)
@@ -332,10 +468,25 @@ def render_region(doc, page_no, index, dpi=CLIP_DPI):
                         tp.delete_image(xref)
                 for t in o["texts"]:
                     tp.add_redact_annot(fitz.Rect(*t) + (-1, -1, 1, 1), fill=False)
+            if tme.get("side"):
+                _redact_side(tp, tme["side"])
             tp.apply_redactions(images=fitz.PDF_REDACT_IMAGE_NONE, graphics=fitz.PDF_REDACT_LINE_ART_NONE)
             page = tp
         clip = _content_rect(page, me["rect"])
-        return page.get_pixmap(clip=clip, dpi=dpi).tobytes("png")
+        png = page.get_pixmap(clip=clip, dpi=dpi).tobytes("png")
+        if me.get("side"):
+            # 사진 오른쪽에 "◀ 설명"으로 있던 설명은 ◀ 없이 사진(과 아래 설명) 아래에 붙인다
+            import io
+
+            from PIL import Image
+
+            side = _side_image(doc, page_no, index, dpi / 72)
+            if side:
+                main = Image.open(io.BytesIO(png)).convert("RGB")
+                buf = io.BytesIO()
+                _stack_side(main, side, dpi / 72, "all").save(buf, "PNG")
+                png = buf.getvalue()
+        return png
     finally:
         if tmp is not None:
             tmp.close()
