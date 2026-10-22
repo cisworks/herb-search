@@ -15,11 +15,14 @@
     지운 임시 쪽에 그린 뒤 흰 여백을 잘라 낸다.
 """
 
+import re
+
 MIN_PHOTO_W = 80
 MIN_PHOTO_H = 25
 TILE_X_TOL = 8
 TILE_GAP = 3
 CAPTION_GAP = 12
+FIRST_CAPTION_GAP = 40  # 사진 이미지 아래 흰 여백 때문에, 설명 첫 줄은 사진 아래끝에서 이만큼까지 떨어져 있을 수 있다
 FOOTER_MARGIN = 60  # 페이지 아래 이만큼은 바닥글 영역
 CLIP_DPI = 170
 MIN_NATIVE_DPI = 72
@@ -27,6 +30,8 @@ RESIZE_TOLERANCE_PX = 1  # 사진 조각을 목표 크기와 이 픽셀 수 이�
 MAX_NATIVE_DPI = 1200  # 원본 해상도가 이보다 높은 조각은 없다(최대 약 1130dpi)
 CROP_PAD = 4  # 흰 여백을 자른 뒤 남기는 여백(pt)
 WHITE = 248   # 이 값 이상이면 흰색으로 본다(회색조 0~255)
+
+_NOT_CAPTION = re.compile(r"[㉠-㉻❍※]")  # 쪽 아래 각주(㉠)나 본문 글머리는 사진 설명이 아니다
 
 
 def _tiles(page):
@@ -70,28 +75,30 @@ def photo_regions(page):
             if o is not g and r[1] >= gy1 - 1 and min(r[2], gr[2]) - max(r[0], gr[0]) > 0.5 * (gr[2] - gr[0]):
                 g["limit"] = min(g["limit"], r[1])
         g["cands"] = []
-    # 사진 이미지 여백이 옆 사진과 겹치는 쪽이 있어서, 글 블록 하나는 가장 가까운(가로 중심) 묶음 하나에만 준다
+    # 사진 이미지 여백이 옆 사진과 겹치는 쪽이 있어서, 글 블록 하나는 묶음 하나에만 준다.
+    # 바로 위(세로로 가장 가까운) 사진 중에서 가로 중심이 가장 가까운 묶음을 고른다
+    # (가운데나 오른쪽 아래에 엇갈려 놓인 사진의 설명이 윗줄 사진에 잘못 붙지 않게)
     for b in blocks:
         bx0, by0, bx1, by1 = b[:4]
-        best = None
+        fits = []
         for g in groups:
             gx0, gy0, gx1, gy1 = g["rect"]
             overlap = min(bx1, gx1 + TILE_X_TOL) - max(bx0, gx0 - TILE_X_TOL)
             if by0 >= gy1 - 4 and by1 <= g["limit"] + 1 and overlap > 0.5 * (bx1 - bx0):
-                d = abs((bx0 + bx1) / 2 - (gx0 + gx1) / 2)
-                if best is None or d < best[0]:
-                    best = (d, g)
-        if best:
-            best[1]["cands"].append((by0, by1, bx0, bx1))
-    assigned = {c for g in groups for c in g["cands"]}
+                fits.append((by0 - gy1, abs((bx0 + bx1) / 2 - (gx0 + gx1) / 2), g))
+        if fits:
+            near = min(f[0] for f in fits)
+            best = min((f for f in fits if f[0] <= near + CAPTION_GAP), key=lambda f: f[1])
+            best[2]["cands"].append((by0, by1, bx0, bx1, _NOT_CAPTION.match(b[4].strip()) is not None))
+    assigned = {c[:4] for g in groups for c in g["cands"]}
     regions = []
     for g in groups:
         gx0, gy0, gx1, gy1 = g["rect"]
         cands = sorted(g["cands"])
         bottom, cx0, cx1 = gy1, gx0, gx1
         texts = []
-        for by0, by1, bx0, bx1 in cands:
-            if by0 - bottom > CAPTION_GAP:
+        for by0, by1, bx0, bx1, note in cands:
+            if by0 - bottom > (CAPTION_GAP if texts else FIRST_CAPTION_GAP) or (note and not texts):
                 break
             bottom = max(bottom, by1)
             cx0, cx1 = min(cx0, bx0), max(cx1, bx1)
