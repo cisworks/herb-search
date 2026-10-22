@@ -719,6 +719,9 @@
 </div>
 <script>
 const searchInput = document.getElementById('searchInput');
+// 검색(Enter, 목록에서 선택)을 마친 뒤 검색칸을 다시 누르면 검색어 전체를 블록 선택한다. 입력 중에는 false.
+let searchDone = false;
+let selectAllOnMouseUp = false;
 const comboToggle = document.getElementById('comboToggle');
 const comboDropdown = document.getElementById('comboDropdown');
 const resultsBox = document.getElementById('results');
@@ -1075,6 +1078,7 @@ async function selectComboItem(it) {
   const nameOnly = it.name_only || it.name_primary || it.korean_name;
   searchInput.value = nameOnly;
   await doSearch(nameOnly);
+  searchDone = true;
   showDetail(it.id);
 }
 
@@ -1365,7 +1369,20 @@ detailBox.addEventListener('click', (ev) => {
   showDetail(link.dataset.id);
 });
 
+// 검색칸을 누르면(검색을 마친 뒤이거나, 다른 곳에 있다가 들어올 때) 검색어 전체를 선택한다. 입력 중에 누르면 평소처럼
+// 누른 자리에 커서만 놓는다. mouseup 에서 막지 않으면 브라우저가 선택을 풀고 커서를 놓아 버린다.
+searchInput.addEventListener('mousedown', () => {
+  selectAllOnMouseUp = !!searchInput.value && (searchDone || document.activeElement !== searchInput);
+});
+searchInput.addEventListener('mouseup', (ev) => {
+  if (!selectAllOnMouseUp) return;
+  selectAllOnMouseUp = false;
+  ev.preventDefault();
+  searchInput.select();
+});
+
 searchInput.addEventListener('input', () => {
+  searchDone = false;
   clearTimeout(debounceTimer);
   const q = searchInput.value.trim();
   if (!q) {
@@ -1384,6 +1401,7 @@ searchInput.addEventListener('keydown', async (ev) => {
   const q = searchInput.value.trim();
   if (!q) return;
   const data = await doSearch(q);
+  searchDone = true;
   const first = data.official[0] || data.sensory[0];
   if (first) {
     showDetail(first.id);
