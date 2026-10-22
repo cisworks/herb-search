@@ -22,6 +22,7 @@
   #zoom.on { display: block; }
   #zoom img { position: absolute; left: 0; top: 0; transform-origin: 0 0; max-width: none; background: #fff; cursor: grab; will-change: transform; -webkit-user-drag: none; user-select: none; }
   #zoom img.drag { cursor: grabbing; }
+  #zoom #zover { pointer-events: none; cursor: inherit; background: transparent; }
   #zoom .bar { position: fixed; top: 10px; right: 12px; display: flex; gap: 6px; z-index: 11; }
   #zoom .bar button { min-width: 36px; height: 36px; border: 0; border-radius: 6px; background: rgba(255,255,255,.9); font-size: 1.1rem; cursor: pointer; }
   #zoom .hint { position: fixed; bottom: 10px; left: 0; right: 0; text-align: center; color: #ccc; font-size: 0.75rem; pointer-events: none; }
@@ -31,7 +32,7 @@
   <section class="col">
     <h2>{{ col.title }}<small>Total : {{ col.photos|length }} · 사진을 누르면 확대</small></h2>
     {% for p in col.photos %}
-    <div class="photo"><img src="{{ p.src }}" data-hi="{{ p.hi }}" loading="lazy" alt="{{ col.title }} {{ loop.index }}"></div>
+    <div class="photo"><img src="{{ p.src }}" data-hi="{{ p.hi }}"{% if p.dpi %} data-dpi="{{ p.dpi }}" data-shown-dpi="{{ col.shown_dpi }}" data-photo="{{ p.photo }}" data-text="{{ p.text }}"{% endif %} loading="lazy" alt="{{ col.title }} {{ loop.index }}"></div>
     {% endfor %}
   </section>
 {% endfor %}
@@ -39,6 +40,7 @@
 <div id="zoom">
   <div class="bar"><button id="zin" title="확대">+</button><button id="zout" title="축소">−</button><button id="zfit" title="맞춤">↺</button><button id="zclose" title="닫기 (Esc)">✕</button></div>
   <img id="zimg" alt="">
+  <img id="zover" alt="" hidden>
   <div class="hint">휠/두 손가락: 확대·축소 · 끌어서 이동 · 더블클릭: 맞춤/확대 · Esc: 닫기</div>
 </div>
 <script>
@@ -46,27 +48,128 @@
   var zoom = document.getElementById('zoom'), zimg = document.getElementById('zimg');
   var scale = 1, fit = 1, tx = 0, ty = 0, MAXZ = 6;
   var ptrs = {}, moved = false, pinch = 0;
-  function apply() { zimg.style.transform = 'translate(' + tx + 'px,' + ty + 'px) scale(' + scale + ')'; }
+  var zover = document.getElementById('zover');
+  function apply() {
+    var t = 'translate(' + tx + 'px,' + ty + 'px) scale(' + scale + ')';
+    zimg.style.transform = t;
+    if (!zover.hidden) zover.style.transform = t;
+    crispSchedule();
+  }
+  // 브라우저는 CSS transform 으로 그림을 늘리고 줄일 때 쌍선형(bilinear) 보간을 써서, 원본 크기에 가까운
+  // 배율(0.9~1.1배)에서도 가는 질감이 PDF 뷰어(PDFium)보다 흐려진다(같은 그림을 쌍선형으로 1.01배 하면 세부
+  // 선명도가 14% 줄고 Lanczos 는 3% 만 준다). 그래서 보는 동작이 멈추면(0.12초) 지금 화면에 보이는
+  // 부분만 Lanczos3 로 직접 다시 그려 canvas 로 대신 보여 준다(움직이는 동안에는 빠른 CSS 변형 사용).
+  // 같은 출처 그림(관능검사해설서 사진)에서만 쓴다: 다른 출처 그림은 픽셀을 읽을 수 없다.
+  var zc = document.createElement('canvas');
+  zc.id = 'zcrisp';
+  zc.style.cssText = 'position:absolute;left:0;top:0;pointer-events:none;display:none';
+  zimg.parentNode.insertBefore(zc, zover);
+  var crispOK = false, crispTimer = 0, srcPix = null, srcW = 0, srcH = 0, srcFor = '';
+  function crispSchedule() {
+    clearTimeout(crispTimer);
+    zc.style.display = 'none'; zimg.style.visibility = '';
+    if (crispOK) crispTimer = setTimeout(renderCrisp, 120);
+  }
+  function loadSrcPix() {
+    try {
+      var c = document.createElement('canvas'); c.width = zimg.naturalWidth; c.height = zimg.naturalHeight;
+      var x = c.getContext('2d', { willReadFrequently: true });
+      x.drawImage(zimg, 0, 0);
+      srcPix = x.getImageData(0, 0, c.width, c.height).data; srcW = c.width; srcH = c.height; srcFor = zimg.src;
+      return true;
+    } catch (e) { srcPix = null; return false; }
+  }
+  function lz(x) {
+    if (x === 0) return 1;
+    if (x <= -3 || x >= 3) return 0;
+    var px = Math.PI * x;
+    return 3 * Math.sin(px) * Math.sin(px / 3) / (px * px);
+  }
+  // 화면 장치 픽셀 i 하나에 대한 원본 픽셀 가중치(Lanczos3). u = 그 픽셀 가운데의 원본 좌표.
+  function axisW(first, n, dpr, off, sc, srcN) {
+    var fs = Math.max(1, 1 / (sc * dpr)), support = 3 * fs, out = new Array(n);
+    for (var i = 0; i < n; i++) {
+      var u = ((first + i + 0.5) / dpr - off) / sc;
+      var a = Math.max(0, Math.floor(u - support)), b = Math.min(srcN - 1, Math.ceil(u + support));
+      var w = [], sum = 0;
+      for (var j = a; j <= b; j++) { var v = lz((j + 0.5 - u) / fs); w.push(v); sum += v; }
+      for (var k = 0; k < w.length; k++) w[k] /= sum;
+      out[i] = { a: a, w: w };
+    }
+    return out;
+  }
+  function renderCrisp() {
+    if (!crispOK || !zoom.classList.contains('on')) return;
+    if (!srcPix || srcFor !== zimg.src) { if (!loadSrcPix()) { crispOK = false; return; } }
+    var dpr = window.devicePixelRatio || 1;
+    var OW = Math.round(innerWidth * dpr), OH = Math.round(innerHeight * dpr);
+    var x0 = Math.max(0, Math.ceil(tx * dpr)), x1 = Math.min(OW, Math.floor((tx + srcW * scale) * dpr));
+    var y0 = Math.max(0, Math.ceil(ty * dpr)), y1 = Math.min(OH, Math.floor((ty + srcH * scale) * dpr));
+    var nx = x1 - x0, ny = y1 - y0;
+    if (nx <= 0 || ny <= 0 || nx * ny > 6e6) return;
+    var wx = axisW(x0, nx, dpr, tx, scale, srcW), wy = axisW(y0, ny, dpr, ty, scale, srcH);
+    var r0 = srcH, r1 = 0;
+    for (var yy = 0; yy < ny; yy++) { r0 = Math.min(r0, wy[yy].a); r1 = Math.max(r1, wy[yy].a + wy[yy].w.length - 1); }
+    var rows = r1 - r0 + 1, tmp = new Float32Array(nx * rows * 3);
+    for (var r = 0; r < rows; r++) {
+      var rowBase = (r0 + r) * srcW;
+      for (var x = 0; x < nx; x++) {
+        var ax = wx[x], rr = 0, gg = 0, bb = 0;
+        for (var k = 0; k < ax.w.length; k++) {
+          var idx = (rowBase + ax.a + k) * 4, wt = ax.w[k];
+          rr += srcPix[idx] * wt; gg += srcPix[idx + 1] * wt; bb += srcPix[idx + 2] * wt;
+        }
+        var o = (r * nx + x) * 3; tmp[o] = rr; tmp[o + 1] = gg; tmp[o + 2] = bb;
+      }
+    }
+    var out = new ImageData(nx, ny), od = out.data;
+    for (var y = 0; y < ny; y++) {
+      var ay = wy[y];
+      for (var xx = 0; xx < nx; xx++) {
+        var sr = 0, sg = 0, sb = 0;
+        for (var q = 0; q < ay.w.length; q++) {
+          var t = ((ay.a + q - r0) * nx + xx) * 3, w2 = ay.w[q];
+          sr += tmp[t] * w2; sg += tmp[t + 1] * w2; sb += tmp[t + 2] * w2;
+        }
+        var oo = (y * nx + xx) * 4;
+        od[oo] = sr < 0 ? 0 : sr > 255 ? 255 : sr;
+        od[oo + 1] = sg < 0 ? 0 : sg > 255 ? 255 : sg;
+        od[oo + 2] = sb < 0 ? 0 : sb > 255 ? 255 : sb;
+        od[oo + 3] = 255;
+      }
+    }
+    zc.width = OW; zc.height = OH; zc.style.width = innerWidth + 'px'; zc.style.height = innerHeight + 'px';
+    zc.getContext('2d').putImageData(out, x0, y0);
+    zc.style.display = 'block'; zimg.style.visibility = 'hidden';
+  }
   function clamp() {
     var w = zimg.naturalWidth * scale, h = zimg.naturalHeight * scale, vw = innerWidth, vh = innerHeight;
     tx = w <= vw ? (vw - w) / 2 : Math.min(0, Math.max(vw - w, tx));
     ty = h <= vh ? (vh - h) / 2 : Math.min(0, Math.max(vh - h, ty));
   }
+  // 원본 해상도 그림(가로 픽셀이 예전 그림보다 많다)도 처음 보이는 크기와 최대 확대 비율은 예전
+  // 작은 그림 기준 그대로 되도록, "예전 그림 크기 / 지금 그림 크기"(ratio)를 곱해서 맞춘다.
+  var ratio = 1;
   function fitView() {
-    fit = Math.min(innerWidth / zimg.naturalWidth, innerHeight / zimg.naturalHeight, 1.6) * 0.96;
+    var ew = zimg.naturalWidth * ratio, eh = zimg.naturalHeight * ratio;
+    fit = Math.min(innerWidth / ew, innerHeight / eh, 1.6) * 0.96 * ratio;
     scale = fit; tx = ty = 0; clamp(); apply();
   }
   function zoomAt(f, cx, cy) {
     var ns = Math.min(fit * MAXZ, Math.max(fit, scale * f)), r = ns / scale;
     tx = cx - (cx - tx) * r; ty = cy - (cy - ty) * r; scale = ns; clamp(); apply();
   }
-  function open(hi, lo) {
+  function open(hi, lo, r, photoUrl, textUrl) {
     // 작은 그림을 바로 보여 주고, 고화질 그림이 도착하면 같은 크기로 바꿔 끼운다(보이는 크기는 그대로)
+    ratio = r || 1;
     zoom.classList.add('on');
+    zover.hidden = true; zover.removeAttribute('src');
+    crispOK = false; clearTimeout(crispTimer); zc.style.display = 'none'; zimg.style.visibility = '';
     zimg.onload = function () { fitView(); };
     zimg.src = lo;
     zimg.dataset.cur = hi;
-    if (!hi || hi === lo) return;
+    if (photoUrl && textUrl) { openLayers(lo, photoUrl, textUrl); return; }
+    if (!hi || new URL(hi, location.href).href === new URL(lo, location.href).href) return;
     var big = new Image();
     big.onload = function () {
       if (!zoom.classList.contains('on') || zimg.dataset.cur !== hi) return;
@@ -77,12 +180,40 @@
     };
     big.src = hi;
   }
-  function close() { zoom.classList.remove('on'); zimg.dataset.cur = ''; }
+  // 관능검사해설서 그림은 글자와 선이 PDF 안에서는 벡터인데, 한 장의 그림에 사진 해상도로 그려 두면
+  // 크게 확대할 때 글자 가장자리가 번진다. 그래서 확대 화면에서는 사진만 있는 그림 위에 글자/선만 4배
+  // 해상도로 그린 투명 그림을 같은 위치·크기로 겹친다(둘 다 도착하면 바꿔 끼운다).
+  function openLayers(lo, photoUrl, textUrl) {
+    var photo = new Image(), text = new Image(), done = 0;
+    var finish = function () {
+      if (++done < 2 || !zoom.classList.contains('on') || zimg.dataset.cur === '') return;
+      if (photo.naturalWidth !== zimg.naturalWidth || photo.naturalHeight !== zimg.naturalHeight) return;  // 크기가 다르면(예: 다른 그림으로 바뀜) 쓰지 않는다
+      zimg.onload = function () {
+        zimg.onload = null;
+        crispOK = true;
+        zover.style.width = zimg.naturalWidth + 'px'; zover.style.height = zimg.naturalHeight + 'px';
+        zover.onload = function () { zover.onload = null; zover.hidden = false; apply(); };
+        zover.src = textUrl;
+      };
+      zimg.src = photoUrl;
+    };
+    photo.onload = text.onload = finish;
+    photo.src = photoUrl; text.src = textUrl;
+  }
+  function close() { zoom.classList.remove('on'); zimg.dataset.cur = ''; zover.hidden = true; zover.removeAttribute('src'); crispOK = false; clearTimeout(crispTimer); zc.style.display = 'none'; zimg.style.visibility = ''; }
   // 그림을 끌 때 브라우저의 기본 "그림 끌어놓기"가 끼어들면 드래그가 끊기므로 막는다
   zimg.draggable = false;
   zimg.addEventListener('dragstart', function (e) { e.preventDefault(); });
   document.querySelectorAll('.photo img').forEach(function (im) {
-    im.addEventListener('click', function () { open(im.dataset.hi, im.src); });
+    im.addEventListener('click', function () { open(im.dataset.hi, im.src, im.dataset.dpi ? im.dataset.shownDpi / im.dataset.dpi : 1, im.dataset.photo, im.dataset.text); });
+    // 목록 그림은 원본 해상도 그림이지만, 화면에 보이는 크기는 예전(작은 그림: shown-dpi)과
+    // 같게 한다. 원본 dpi 그림의 가로 픽셀 x (shown-dpi / 원본 dpi) = 예전 그림의 가로 픽셀.
+    if (im.dataset.dpi) {
+      var fitShown = function () {
+        im.style.width = Math.round(im.naturalWidth * im.dataset.shownDpi / im.dataset.dpi) + 'px';
+      };
+      if (im.complete && im.naturalWidth) fitShown(); else im.addEventListener('load', fitShown, { once: true });
+    }
   });
   zoom.addEventListener('wheel', function (e) { e.preventDefault(); zoomAt(e.deltaY < 0 ? 1.2 : 1 / 1.2, e.clientX, e.clientY); }, { passive: false });
   zimg.addEventListener('dblclick', function (e) { if (scale > fit * 1.05) { fitView(); } else { zoomAt(3, e.clientX, e.clientY); } });

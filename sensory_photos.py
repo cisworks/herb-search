@@ -22,6 +22,9 @@ TILE_GAP = 3
 CAPTION_GAP = 12
 FOOTER_MARGIN = 60  # 페이지 아래 이만큼은 바닥글 영역
 CLIP_DPI = 170
+MIN_NATIVE_DPI = 72
+RESIZE_TOLERANCE_PX = 1  # 사진 조각을 목표 크기와 이 픽셀 수 이하로만 다르면 늘리거나 줄이지 않는다
+MAX_NATIVE_DPI = 1200  # 원본 해상도가 이보다 높은 조각은 없다(최대 약 1130dpi)
 CROP_PAD = 4  # 흰 여백을 자른 뒤 남기는 여백(pt)
 WHITE = 248   # 이 값 이상이면 흰색으로 본다(회색조 0~255)
 
@@ -151,6 +154,148 @@ def _content_rect(page, rect):
         rect[0] + (cols[-1] + 1) * sx + CROP_PAD,
         rect[1] + (rows[-1] + 1) * sy + CROP_PAD,
     ) & fitz.Rect(*rect)
+
+
+def native_dpi(doc, page_no, index):
+    """index 번째 사진 묶음 속 사진 조각들의 원본 해상도(dpi, 가로 픽셀 / 가로 인치)의 최댓값.
+    이 dpi로 그리면 PDF 안의 사진 픽셀이 줄거나 늘지 않고 1:1로 나온다. 묶음이 없으면 None."""
+    page = doc[page_no]
+    regions = photo_regions(page)
+    if not 0 <= index < len(regions):
+        return None
+    xrefs = regions[index]["xrefs"]
+    best = 0.0
+    for im in page.get_image_info(xrefs=True):
+        x0, _, x1, _ = im["bbox"]
+        if im.get("xref", 0) in xrefs and x1 > x0:
+            best = max(best, im["width"] / ((x1 - x0) / 72))
+    return max(MIN_NATIVE_DPI, min(round(best), MAX_NATIVE_DPI)) if best else None
+
+
+def _tile_infos(page, xrefs):
+    """묶음에 속한 사진 조각들: [{"xref", "bbox"(pt), "w", "h"(원본 픽셀)}] (위에서 아래 순)."""
+    out = []
+    for im in page.get_image_info(xrefs=True):
+        x0, y0, x1, y1 = im["bbox"]
+        if im.get("xref", 0) in xrefs and x1 > x0 and y1 > y0:
+            out.append({"xref": im["xref"], "bbox": (x0, y0, x1, y1), "w": im["width"], "h": im["height"], "transform": im["transform"]})
+    return sorted(out, key=lambda t: (t["bbox"][1], t["bbox"][0]))
+
+
+def render_region_original(doc, page_no, index, layer="all", k=1):
+    """사진 묶음을 PDF 안의 원본 JPEG 픽셀 그대로 붙여서 PNG 바이트로 만든다. None 이면 그 묶음이 없다.
+
+    PDF 페이지를 다시 그리면(render_region) 사진이 한 번 더 보간되어 원본보다 흐려진다(원본 대비
+    선명도 약 20~40% 감소). 여기서는 사진 조각의 원본 JPEG(extract_image)을 다시 그리지 않고 그대로
+    정수 픽셀 위치에 붙이고, 사진 위에 얹힌 글자/선은 이미지를 모두 뺀 쪽을 같은 배율로 투명 배경에 그려
+    그 위에 겹친다. 배율은 조각의 원본 해상도(픽셀/pt)이다. 지원하지 않는 형식(회전, 투명 마스크,
+    RGB/회색조가 아닌 이미지)이 있으면 render_region(원본 dpi)으로 대신한다.
+
+    layer: "all"(기본, 사진 + 글자/선), "photo"(사진만, 글자/선 없음), "text"(글자/선만, 투명 배경, 가로세로
+    k배 해상도). photo 와 text 는 같은 자르기 영역을 쓰므로 text 를 1/k 크기로 photo 위에 겹치면 정확히
+    맞는다. 확대해서 볼 때 글자/선을 PDF 벡터처럼 또렷하게 보이려고 쓴다. 이 두 층은 fallback 이 없어,
+    원본 방식을 쓸 수 없으면 None 을 돌려준다(호출한 쪽에서 "all" 로 대신한다)."""
+    import io
+
+    import pymupdf as fitz
+    from PIL import Image, ImageChops
+
+    page = doc[page_no]
+    regions = photo_regions(page)
+    if not 0 <= index < len(regions):
+        return None
+    me = regions[index]
+    tiles = _tile_infos(page, me["xrefs"])
+
+    def fallback():
+        if layer != "all":
+            return None
+        return render_region(doc, page_no, index, dpi=native_dpi(doc, page_no, index) or CLIP_DPI)
+
+    if not tiles:
+        return fallback()
+    rect = fitz.Rect(*me["rect"])
+    z = max(t["w"] / (t["bbox"][2] - t["bbox"][0]) for t in tiles)  # 픽셀 / pt
+    loaded = []
+    for t in tiles:
+        a, b, c, d = t["transform"][:4]
+        if abs(b) > 1e-3 or abs(c) > 1e-3 or a <= 0 or d <= 0:
+            return fallback()
+        info = doc.extract_image(t["xref"])
+        if not info or info.get("smask") or info.get("colorspace") not in (1, 3):
+            return fallback()
+        try:
+            img = Image.open(io.BytesIO(info["image"])).convert("RGB")
+        except Exception:  # noqa: BLE001
+            return fallback()
+        loaded.append(img)
+
+    # 투명 배경에 글자/선만 그린 겹침 층: 사진 조각 이미지를 모두 지운 임시 쪽을 쓴다
+    tmp = fitz.open()
+    try:
+        tmp.insert_pdf(doc, from_page=page_no, to_page=page_no)
+        tp = tmp[0]
+        tregs = photo_regions(tp)
+        tme = tregs[index]
+        others = [r for r in tregs if r is not tme and _intersects(r["rect"], tme["rect"])]
+        for r in tregs:
+            for xref in r["xrefs"]:
+                if xref:
+                    tp.delete_image(xref)
+        for o in others:
+            for t in o["texts"]:
+                tp.add_redact_annot(fitz.Rect(*t) + (-1, -1, 1, 1), fill=False)
+        tp.apply_redactions(images=fitz.PDF_REDACT_IMAGE_NONE, graphics=fitz.PDF_REDACT_LINE_ART_NONE)
+        m = fitz.Matrix(z, 0, 0, z, -rect.x0 * z, -rect.y0 * z)
+        pm = tp.get_pixmap(matrix=m, clip=rect, alpha=True)
+        overlay = Image.open(io.BytesIO(pm.tobytes("png"))).convert("RGBA")
+        overlay_k = None
+        if layer == "text":
+            mk = fitz.Matrix(z * k, 0, 0, z * k, -rect.x0 * z * k, -rect.y0 * z * k)
+            pmk = tp.get_pixmap(matrix=mk, clip=rect, alpha=True)
+            overlay_k = Image.open(io.BytesIO(pmk.tobytes("png"))).convert("RGBA")
+    finally:
+        tmp.close()
+
+    canvas = Image.new("RGB", overlay.size, (255, 255, 255))
+    prev_bottom = None  # 바로 위 조각의 아래 끝(픽셀): 맞닿은 조각 사이에 1픽셀 틈/겹침이 생기지 않게 맞춘다
+    for t, img in zip(tiles, loaded):
+        x0, y0, x1, y1 = t["bbox"]
+        tw, th = round((x1 - x0) * z), round((y1 - y0) * z)
+        # 목표 크기와 1픽셀 이하로만 다르면(반올림 차이) 늘리거나 줄이지 않고 원본 픽셀 그대로 붙인다.
+        # 1픽셀 때문에 조각 전체를 다시 보간하면 그 조각이 눈에 띄게 흐려진다.
+        if (tw, th) != img.size and (abs(tw - img.width) > RESIZE_TOLERANCE_PX or abs(th - img.height) > RESIZE_TOLERANCE_PX):
+            img = img.resize((tw, th), Image.LANCZOS)
+        px = round((x0 - rect.x0) * z)
+        py_exact = (y0 - rect.y0) * z
+        py = round(py_exact)
+        if prev_bottom is not None and abs(py_exact - prev_bottom) <= 1.5:
+            py = prev_bottom
+        canvas.paste(img, (px, py))
+        prev_bottom = py + img.size[1]
+    photo_only = canvas.copy()
+    canvas.paste(overlay, (0, 0), overlay)
+
+    # 흰 여백 잘라내기(render_region의 _content_rect와 같은 기준: 밝기 WHITE 미만인 곳이 그림)
+    nonwhite = canvas.convert("L").point(lambda v: 255 if v < WHITE else 0)
+    box = nonwhite.getbbox()
+    if box:
+        pad = round(CROP_PAD * z)
+        box = (max(0, box[0] - pad), max(0, box[1] - pad), min(canvas.width, box[2] + pad), min(canvas.height, box[3] + pad))
+        canvas = canvas.crop(box)
+    else:
+        box = (0, 0, canvas.width, canvas.height)
+    out = io.BytesIO()
+    if layer == "photo":
+        photo_only.crop(box).save(out, "PNG")
+    elif layer == "text":
+        w, h = box[2] - box[0], box[3] - box[1]
+        text = Image.new("RGBA", (w * k, h * k), (255, 255, 255, 0))
+        text.paste(overlay_k.crop((box[0] * k, box[1] * k, box[2] * k, box[3] * k)), (0, 0))
+        text.save(out, "PNG")
+    else:
+        canvas.save(out, "PNG")
+    return out.getvalue()
 
 
 def render_region(doc, page_no, index, dpi=CLIP_DPI):

@@ -714,6 +714,8 @@ def photos(no):
 # 관능검사해설서(2022).pdf 의 품목 페이지에 실린 사진을, 사진 아래 설명과 함께 한 페이지에 모아 보여 준다.
 # 사진/설명 위치 찾기와 그리기는 sensory_photos.py 참고(설명은 글자가 아니라 PDF 에서 잘라낸 그림).
 SENSORY_PHOTO_FILE = "관능검사해설서(2022).pdf"
+# 사진 그림을 만드는 방식을 바꿀 때 올린다(브라우저가 하루 동안 저장해 둔 예전 그림 대신 새로 받게 한다).
+SENSORY_PHOTO_VER = 3
 
 def _sensory_entry_for(name_only, hanja):
     """공정서 품목에 해당하는 관능검사해설서 품목. 한자까지 같으면 그것을, 한자 표기만 다른 경우
@@ -799,16 +801,30 @@ def photo_info():
         e = ENTRY_BY_ID.get(sensory)
         if e is None or e.get("source_file") != SENSORY_PHOTO_FILE:
             abort(404)
+        import pymupdf as fitz
+
+        doc = fitz.open(str(BASE_DIR / SENSORY_PHOTO_FILE))
+        try:
+            native = {(p, i): sensory_photos.native_dpi(doc, p, i) for p, i in _sensory_photo_regions(sensory)}
+        finally:
+            doc.close()
         columns.append(
             {
                 "title": "관능검사해설서 사진정보",
                 "photos": [
                     {
-                        "src": f"/sensory_photos/{sensory}/{p}/{i}.png",
-                        "hi": f"/sensory_photos/{sensory}/{p}/{i}.png?dpi=400",
+                        # 목록과 확대 화면 모두 PDF 원본 해상도 그림을 쓴다(같은 주소라 한 번만 받는다).
+                        "src": f"/sensory_photos/{sensory}/{p}/{i}.png?dpi=native&v={SENSORY_PHOTO_VER}",
+                        "hi": f"/sensory_photos/{sensory}/{p}/{i}.png?dpi=native&v={SENSORY_PHOTO_VER}",
+                        # 목록에서 보이는 크기는 예전(170dpi 그림) 그대로 두려고, 원본 해상도(dpi)를 알려 준다.
+                        "dpi": native[(p, i)],
+                        # 확대 화면용 두 층: 사진만 + 글자/선만(4배 해상도)
+                        "photo": f"/sensory_photos/{sensory}/{p}/{i}.png?dpi=native&layer=photo&v={SENSORY_PHOTO_VER}",
+                        "text": f"/sensory_photos/{sensory}/{p}/{i}.png?dpi=native&layer=text&k=4&v={SENSORY_PHOTO_VER}",
                     }
                     for p, i in _sensory_photo_regions(sensory)
                 ],
+                "shown_dpi": sensory_photos.CLIP_DPI,
             }
         )
     if not columns:
@@ -874,9 +890,21 @@ def sensory_photo_image(entry_id, page_no, index):
         abort(404)
     doc = fitz.open(str(BASE_DIR / SENSORY_PHOTO_FILE))
     try:
-        # 확대해서 볼 때는 ?dpi=400 (해설서 사진 원본 해상도가 대체로 300~430dpi)
-        dpi = min(max(request.args.get("dpi", sensory_photos.CLIP_DPI, type=int), 72), 450)
-        png = sensory_photos.render_region(doc, page_no, index, dpi=dpi)
+        # 확대해서 볼 때는 ?dpi=native: 그 사진의 PDF 원본 해상도(대체로 380~430dpi)로 그려
+        # 원본 픽셀이 그대로 나온다. 숫자를 주면 그 dpi(72~450)로 그린다.
+        raw = request.args.get("dpi", "")
+        if raw == "native":
+            # PDF 안의 원본 JPEG 픽셀을 다시 그리지 않고 그대로 붙인다(렌더링보다 선명).
+            # layer=photo(사진만) / layer=text&k=4(글자와 선만 4배 해상도, 투명 배경)는 확대 화면에서
+            # 글자와 선을 PDF 벡터처럼 또렷하게 보이려고 겹쳐 쓰는 두 층이다.
+            layer = request.args.get("layer", "all")
+            if layer not in ("all", "photo", "text"):
+                abort(400)
+            k = min(max(request.args.get("k", 4, type=int), 1), 6)
+            png = sensory_photos.render_region_original(doc, page_no, index, layer=layer, k=k)
+        else:
+            dpi = min(max(int(raw) if raw.isdigit() else sensory_photos.CLIP_DPI, 72), 450)
+            png = sensory_photos.render_region(doc, page_no, index, dpi=dpi)
     finally:
         doc.close()
     if png is None:
