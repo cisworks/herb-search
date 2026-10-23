@@ -80,6 +80,12 @@ SPECK_MIN_PT = 8
 SPECK_FAINT = 110
 SPECK_PAD_PT = 5
 SPECK_CELL = 3  # 덩어리를 찾을 때 픽셀 SPECK_CELL x SPECK_CELL 칸을 한 칸으로 본다
+# 흰 여백을 자를 때 오른쪽 끝을 지정하는 예외: 스케일바("1cm") 오른쪽에 옅은 그림자/점만 있는 넓은 여백이 남는 사진. 페이지 x 좌표(pt)
+# x_pt 보다 오른쪽은 그림이 아닌 것으로 보고 자르는 기준에서 뺀다(자른 뒤 CROP_PAD 여백이 붙는다).
+# 나도근(111쪽) 1번째 사진: 스케일바 오른쪽 끝이 297.4pt.
+CLIP_RIGHT = [
+    {"page": 111, "at": (51, 495), "x_pt": 298.5},
+]
 WHITE = 248   # 이 값 이상이면 흰색으로 본다(회색조 0~255)
 
 _NOT_CAPTION = re.compile(r"[㉠-㉻❍※]")  # 쪽 아래 각주(㉠)나 본문 글머리는 사진 설명이 아니다
@@ -438,11 +444,13 @@ def _non_dust_bbox(gray, mask, z):
     return (x0 * f, y0 * f, (x1 + 1) * f, (y1 + 1) * f)
 
 
-def _crop_box(canvas, z):
+def _crop_box(canvas, z, right_px=None):
     """canvas(RGB, 배율 z 픽셀/pt)에서 그림/글자가 있는 영역에 여백(CROP_PAD)을 둔 자르기 상자. 없으면 None.
     render_region 의 _content_rect 와 같은 기준(밝기 WHITE 미만인 곳이 그림)이되, 먼지 얼룩(SPECK_*)은 뺀다."""
     gray = canvas.convert("L")
     mask = gray.point(lambda v: 255 if v < WHITE else 0)
+    if right_px is not None:  # 오른쪽 끝을 지정한 사진(CLIP_RIGHT): 그 오른쪽은 그림으로 보지 않는다
+        mask.paste(0, (max(0, right_px), 0, mask.width, mask.height))
     raw = mask.getbbox()
     if not raw:
         return None
@@ -456,6 +464,12 @@ def _crop_box(canvas, z):
         else:
             box.append(raw[side] - pad if side < 2 else raw[side] + pad)
     return (max(0, box[0]), max(0, box[1]), min(canvas.width, box[2]), min(canvas.height, box[3]))
+
+
+def _clip_right(page_no, me):
+    """CLIP_RIGHT 에 지정된 사진 묶음이면 자르는 기준에서 오른쪽 끝으로 삼을 페이지 x 좌표(pt), 아니면 None."""
+    return next((c["x_pt"] for c in CLIP_RIGHT if c["page"] == page_no
+                 and abs(me["photo"][0] - c["at"][0]) < 3 and abs(me["photo"][1] - c["at"][1]) < 3), None)
 
 
 def _width_target(page_no, me):
@@ -818,7 +832,8 @@ def render_region_original(doc, page_no, index, layer="all", k=1):
     canvas.paste(overlay, (0, 0), overlay)
 
     # 흰 여백 잘라내기(render_region의 _content_rect와 같은 기준: 밝기 WHITE 미만인 곳이 그림)
-    box = _crop_box(canvas, z)
+    clip_x = _clip_right(page_no, me)
+    box = _crop_box(canvas, z, None if clip_x is None else round((clip_x - rect.x0) * z))
     if box:
         canvas = canvas.crop(box)
     else:
