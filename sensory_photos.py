@@ -87,6 +87,22 @@ SPLIT_CAPTIONS = [
     {"page": 789, "photos": [(60, 294), (302, 319)]},      # 호박
     {"page": 797, "photos": [(53, 59), (308, 107)]},       # 홍화
     {"page": 801, "photos": [(77, 428), (308, 419)]},      # 활석
+    # 아래 둘은 합쳐진 줄이 사진 폭보다 짧아서 "any" 로 나눈다
+    {"page": 213, "photos": [(69, 76), (295, 112)], "any": True},     # 맥아 3·4: "맥아" | "맥아 추말"
+    {"page": 420, "photos": [(51, 491), (280, 497)], "any": True},    # 수오등 1·2: "수오등 전형" | "수오등 절편"
+    {"page": 138, "photos": [(62, 238), (293, 238)], "any": True},    # 누고
+    {"page": 157, "photos": [(77, 289), (321, 274)], "any": True},    # 당약
+    {"page": 189, "photos": [(77, 60), (308, 60)], "any": True},      # 두충엽
+    {"page": 254, "photos": [(62, 304), (293, 304)], "any": True},    # 반지련
+    {"page": 439, "photos": [(70, 442), (298, 443)], "any": True},    # 아마인
+    {"page": 473, "photos": [(59, 60), (287, 79)], "any": True},      # 영지
+    {"page": 538, "photos": [(50, 59), (288, 62)], "any": True},      # 육계 1·2
+    {"page": 538, "photos": [(42, 290), (274, 269)], "any": True},    # 육계 3·4
+    {"page": 571, "photos": [(65, 283), (317, 287)], "any": True},    # 자석영
+    {"page": 607, "photos": [(60, 308), (308, 311)], "any": True},    # 절패모
+    {"page": 657, "photos": [(32, 59), (285, 97)], "any": True},      # 차전초
+    {"page": 666, "photos": [(16, 298), (301, 301)], "any": True},    # 천남성
+    {"page": 812, "photos": [(48, 321), (267, 313)], "any": True},    # 황정
     # 길초근(110쪽) 1·2번째: 1번째 설명 마지막 줄 끝에 2번째 사진의 제목 "지주향(蜘蛛香)"이 같은 줄로 이어져 있다
     {"page": 110, "photos": [(36, 500), (298, 501)], "after": "붙어있다."},
     # 녹용(131쪽) 5·6번째:"녹용(마록, 중간부) 종단면 | 녹용(마록, 하부) 종단면" 이 5번째 아래 한 줄로 이어져 있다
@@ -282,7 +298,8 @@ def _split_captions(page, number, regions):
         owner = wide = None
         for r in (a, b):
             w = max(r["texts"], key=lambda t: t[2] - t[0], default=None)
-            if w is not None and w[2] - w[0] > r["photo"][2] - r["photo"][0]:
+            # "any": 설명 줄이 사진 폭보다 짧아도(두 설명이 짧게 한 줄에 합쳐진 경우) 나눈다
+            if w is not None and (s.get("any") or w[2] - w[0] > r["photo"][2] - r["photo"][0]):
                 owner, wide = r, w
                 break
         if owner is None:
