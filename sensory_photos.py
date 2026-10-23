@@ -21,6 +21,10 @@ MIN_PHOTO_W = 80
 MIN_PHOTO_H = 25
 TILE_X_TOL = 8
 TILE_GAP = 3
+MERGE_X_OVERLAP = 0.4  # 사진 묶음 둘이 가로로 좁은 쪽 폭의 이만큼 넘게 겹치고
+MERGE_Y_OVERLAP = 0.5  # 세로로도 낮은 쪽 높이의 이만큼 넘게 겹치면 한 장의 사진이 둘로 쪼개진 것으로 보고 합친다
+MERGE_STACK_GAP = 6  # 좌우 끝이 같게(MERGE_STACK_X_TOL 이내) 위아래로 이 pt 이하로만 떨어져 있어도 한 사진으로 본다(설명이 들어갈 수 없는 간격)
+MERGE_STACK_X_TOL = 12
 CAPTION_GAP = 12
 FIRST_CAPTION_GAP = 40  # 사진 이미지 아래 흰 여백 때문에, 설명 첫 줄은 사진 아래끝에서 이만큼까지 떨어져 있을 수 있다
 FOOTER_MARGIN = 60  # 페이지 아래 이만큼은 바닥글 영역
@@ -68,7 +72,9 @@ WHITE = 248   # 이 값 이상이면 흰색으로 본다(회색조 0~255)
 
 _NOT_CAPTION = re.compile(r"[㉠-㉻❍※]")  # 쪽 아래 각주(㉠)나 본문 글머리는 사진 설명이 아니다
 SIDE_MARKS = "◀◁◄"  # 사진 오른쪽에 "◀ 설명"으로 놓인 설명의 머리표
+LEFT_MARKS = "▶▷►"  # 사진 왼쪽에 "설명 ▶"로 놓인(오른쪽 맞춤) 설명의 머리표
 SIDE_NEAR = 50 # 머리표가 사진 이미지(흰 여백 포함) 오른쪽 끝에서 이만큼까지 겹쳐 있어도 그 사진의 설명으로 본다
+SIDE_NEAR_LEFT = 100  # 왼쪽 설명(▶)은 사진 이미지의 왼쪽 흰 여백이 넓은 경우(차전자)가 있어 이만큼까지 겹쳐 있어도 본다
 SIDE_GAP = 6  # 사진(과 아래 설명) 아래에 옮겨 붙이는 오른쪽 설명 사이의 간격(pt)
 
 
@@ -97,13 +103,40 @@ def _group_tiles(tiles):
     return groups
 
 
+def _merge_split_photos(groups):
+    """한 장의 그림이 사진 둘로 쪼개져 있으면 한 묶음으로 합친다. 이미지 둘이 가로로 겹쳐 놓인 경우(견우자 흑축 외형·단면,
+    상심자 꽃잎조각·수과, 인동 잎 윗면·아랫면)와 위아래로 5pt쯤만 떨어져 이어진 경우(견우자 미국나팔꽃 씨 외형·단면 등)다.
+    이미지 가장자리의 흰 여백이 옆 사진과 겹치는 정도(40% 미만)는 나란히 놓인 다른 사진이므로 합치지 않는다."""
+    merged = True
+    while merged:
+        merged = False
+        for i, a in enumerate(groups):
+            for b in groups[i + 1:]:
+                A, B = a["rect"], b["rect"]
+                xo = min(A[2], B[2]) - max(A[0], B[0])
+                yo = min(A[3], B[3]) - max(A[1], B[1])
+                stacked = (
+                    abs(A[0] - B[0]) <= MERGE_STACK_X_TOL and abs(A[2] - B[2]) <= MERGE_STACK_X_TOL
+                    and (0 <= B[1] - A[3] <= MERGE_STACK_GAP or 0 <= A[1] - B[3] <= MERGE_STACK_GAP)
+                )
+                if stacked or (xo > MERGE_X_OVERLAP * min(A[2] - A[0], B[2] - B[0]) and yo > MERGE_Y_OVERLAP * min(A[3] - A[1], B[3] - B[1])):
+                    a["rect"] = [min(A[0], B[0]), min(A[1], B[1]), max(A[2], B[2]), max(A[3], B[3])]
+                    a["xrefs"] |= b["xrefs"]
+                    groups.remove(b)
+                    merged = True
+                    break
+            if merged:
+                break
+    return groups
+
+
 def _has_mark(text):
-    return any(ch in text for ch in SIDE_MARKS)
+    return any(ch in text for ch in SIDE_MARKS + LEFT_MARKS)
 
 
 def _find_side_captions(page, blocks, groups, footer_y):
-    """사진 오른쪽에 "◀ 설명"으로 놓인 설명을 찾아 그 사진 묶음(g["side"])에 붙인다. 이어지는 설명 줄(같은
-    칸에서 줄 간격 CAPTION_GAP 이내)도 함께 모으고, 쓰인 글 블록 영역의 집합을 돌려준다.
+    """사진 오른쪽에 "◀ 설명"으로, 또는 사진 왼쪽에 "설명 ▶"(오른쪽 맞춤)으로 놓인 설명을 찾아 그 사진 묶음(g["side"])에
+    붙인다. 이어지는 설명 줄(같은 칸에서 줄 간격 CAPTION_GAP 이내)도 함께 모으고, 쓰인 글 블록 영역의 집합을 돌려준다.
     g["side"] = {"rect": 설명 전체 영역, "blocks": [글 블록 영역], "marks": [머리표(◀) 글자 영역]}"""
     used = set()
     for m in blocks:
@@ -111,13 +144,21 @@ def _find_side_captions(page, blocks, groups, footer_y):
         if not _has_mark(m[4]) or tuple(m[:4]) in used:
             continue
         mx0, my0, mx1, my1 = m[:4]
+        left = any(ch in m[4] for ch in LEFT_MARKS)  # 설명이 사진 왼쪽에 있다(머리표 ▶, 오른쪽 맞춤)
         best = None
         for g in groups:
             gx0, gy0, gx1, gy1 = g["rect"]
             vo = min(my1, gy1) - max(my0, gy0)
-            if g.get("side") or vo <= 0 or gx0 >= mx0 or gx1 - mx0 > SIDE_NEAR:
+            if g.get("side") or vo <= 0:
                 continue
-            key = (-vo, abs(mx0 - gx1))
+            if left:
+                if gx1 <= mx1 or mx1 - gx0 > SIDE_NEAR_LEFT:
+                    continue
+                key = (-vo, abs(gx0 - mx1))
+            else:
+                if gx0 >= mx0 or gx1 - mx0 > SIDE_NEAR:
+                    continue
+                key = (-vo, abs(mx0 - gx1))
             if best is None or key < best[0]:
                 best = (key, g)
         if best is None:
@@ -128,7 +169,8 @@ def _find_side_captions(page, blocks, groups, footer_y):
             bx0, by0, bx1, by1 = b[:4]
             if (
                 tuple(b[:4]) in used or tuple(b[:4]) == rects[0] or by0 < bottom - 3 or by0 - bottom > CAPTION_GAP
-                or by1 > footer_y or not (mx0 - 6 <= bx0 <= mx0 + 40) or _has_mark(b[4])
+                or by1 > footer_y or _has_mark(b[4])
+                or not (mx1 - 40 <= bx1 <= mx1 + 6 if left else mx0 - 6 <= bx0 <= mx0 + 40)
                 or _NOT_CAPTION.match(b[4].strip())
             ):
                 continue
@@ -136,8 +178,8 @@ def _find_side_captions(page, blocks, groups, footer_y):
             bottom = max(bottom, by1)
         used.update(rects)
         union = (min(r[0] for r in rects), min(r[1] for r in rects), max(r[2] for r in rects), max(r[3] for r in rects))
-        marks = [(r.x0, r.y0, r.x1, r.y1) for ch in SIDE_MARKS for r in page.search_for(ch, clip=fitz_rect(m[:4]))]
-        best[1]["side"] = {"rect": union, "blocks": rects, "marks": marks}
+        marks = [(r.x0, r.y0, r.x1, r.y1) for ch in SIDE_MARKS + LEFT_MARKS for r in page.search_for(ch, clip=fitz_rect(m[:4]))]
+        best[1]["side"] = {"rect": union, "blocks": rects, "marks": marks, "left": left}
     return used
 
 
@@ -208,7 +250,7 @@ def photo_regions(page, number=None):
     """페이지 하나의 사진 묶음 목록. 각 항목은 {"rect": (x0, y0, x1, y1) 사진+아래 설명 영역,
     "photo": 사진 영역, "xrefs": 사진 이미지 번호들, "texts": 이 묶음에 딸린 글 블록 영역들}.
     읽는 순서(위에서 아래, 같은 줄이면 왼쪽부터)로 돌려준다."""
-    groups = _group_tiles(_tiles(page))
+    groups = _merge_split_photos(_group_tiles(_tiles(page)))
     blocks = [b for b in page.get_text("blocks") if b[4].strip()]
     footer_y = page.rect.height - FOOTER_MARGIN
     for g in groups:
@@ -459,6 +501,13 @@ def _side_image(doc, page_no, index, scale, k=1, reflow_pt=None):
     side = me.get("side")
     if not side:
         return None
+
+    def plain(tp):
+        # 사진 왼쪽에 오른쪽 맞춤으로 놓였던 설명(▶)은 줄마다 왼쪽 끝을 맞춰서 붙인다
+        if side.get("left"):
+            return _alpha_cropped_left(tp, side["blocks"], scale, k)
+        return _alpha_cropped(tp, side["rect"], scale, k)
+
     tmp = fitz.open()
     try:
         tmp.insert_pdf(doc, from_page=page_no, to_page=page_no)
@@ -473,13 +522,13 @@ def _side_image(doc, page_no, index, scale, k=1, reflow_pt=None):
             head = _alpha_cropped(tp, side["blocks"][0], scale, k)
             body = _reflow_image(tp, side["blocks"][1:], reflow_pt - 2, scale, k)
             if head is None or body is None:
-                return _alpha_cropped(tp, side["rect"], scale, k)
+                return plain(tp)
             gap = round(-2 * scale) * k  # 제목 아래 흰 여백과 겹쳐서 원본 줄 간격에 가깝게
             out = Image.new("RGBA", (max(head.width, body.width), head.height + gap + body.height), (255, 255, 255, 0))
             out.paste(head, (0, 0))
             out.alpha_composite(body, (0, head.height + gap))
             return out
-        return _alpha_cropped(tp, side["rect"], scale, k)
+        return plain(tp)
     finally:
         tmp.close()
 
@@ -507,6 +556,43 @@ def _alpha_cropped(tp, rect, scale, k=1):
     else:
         pm = tp.get_pixmap(matrix=fitz.Matrix(scale * k, scale * k), clip=rect, alpha=True)
         img = Image.open(io.BytesIO(pm.tobytes("png"))).convert("RGBA")
+    out = Image.new("RGBA", ((x1 - x0) * k, (y1 - y0) * k), (255, 255, 255, 0))
+    out.paste(img.crop((x0 * k, y0 * k, min(x1 * k, img.width), min(y1 * k, img.height))), (0, 0))
+    return out
+
+
+def _alpha_cropped_left(tp, blocks, scale, k=1):
+    """_alpha_cropped 와 같되, 글 블록(줄)마다 따로 잘라 모든 줄의 왼쪽 끝이 같아지게 옮겨 붙인다(오른쪽 맞춤 설명을 왼쪽 맞춤으로).
+    줄의 위치와 옮기는 폭은 k=1 배율의 정수 픽셀로 정하고 k배 한다(사진층/글자층이 어긋나지 않게)."""
+    import io
+    import math
+
+    import pymupdf as fitz
+    from PIL import Image
+
+    rect = fitz.Rect(min(b[0] for b in blocks), min(b[1] for b in blocks), max(b[2] for b in blocks), max(b[3] for b in blocks)) + (-2, -2, 2, 2)
+    left = min(b[0] for b in blocks)
+
+    def build(kk):
+        pm = tp.get_pixmap(matrix=fitz.Matrix(scale * kk, scale * kk), clip=rect, alpha=True)
+        img = Image.open(io.BytesIO(pm.tobytes("png"))).convert("RGBA")
+        out = Image.new("RGBA", img.size, (255, 255, 255, 0))
+        for b in blocks:
+            x0, x1 = int((b[0] - 1.5 - rect.x0) * scale), math.ceil((b[2] + 1.5 - rect.x0) * scale)
+            y0, y1 = int((b[1] - 1 - rect.y0) * scale), math.ceil((b[3] + 1 - rect.y0) * scale)
+            dx = max(0, x0 - round((b[0] - left) * scale))
+            piece = img.crop((x0 * kk, y0 * kk, min(x1 * kk, img.width), min(y1 * kk, img.height)))
+            out.alpha_composite(piece, (dx * kk, y0 * kk))
+        return out
+
+    img1 = build(1)
+    box = img1.getchannel("A").point(lambda v: 255 if v > 40 else 0).getbbox()
+    if not box:
+        return None
+    pad = round(CROP_PAD * scale)
+    x0, y0 = max(0, box[0] - pad), max(0, box[1] - pad)
+    x1, y1 = min(img1.width, box[2] + pad), min(img1.height, box[3] + pad)
+    img = img1 if k == 1 else build(k)
     out = Image.new("RGBA", ((x1 - x0) * k, (y1 - y0) * k), (255, 255, 255, 0))
     out.paste(img.crop((x0 * k, y0 * k, min(x1 * k, img.width), min(y1 * k, img.height))), (0, 0))
     return out
@@ -640,7 +726,7 @@ def render_region_original(doc, page_no, index, layer="all", k=1):
 
     canvas = Image.new("RGB", overlay.size, (255, 255, 255))
     prev_bottom = None  # 바로 위 조각의 아래 끝(픽셀): 맞닿은 조각 사이에 1픽셀 틈/겹침이 생기지 않게 맞춘다
-    for t, img in zip(tiles, loaded):
+    for ti, (t, img) in enumerate(zip(tiles, loaded)):
         x0, y0, x1, y1 = t["bbox"]
         tw, th = round((x1 - x0) * z), round((y1 - y0) * z)
         # 목표 크기와 1픽셀 이하로만 다르면(반올림 차이) 늘리거나 줄이지 않고 원본 픽셀 그대로 붙인다.
@@ -652,6 +738,10 @@ def render_region_original(doc, page_no, index, layer="all", k=1):
         py = round(py_exact)
         if prev_bottom is not None and abs(py_exact - prev_bottom) <= 1.5:
             py = prev_bottom
+        # 가로로 겹쳐 놓인 조각(한 그림이 둘로 쪼개진 경우)은 흰 여백이 앞 조각의 그림을 덮지 않게 어두운 쪽을 남긴다
+        if any(min(o["bbox"][2], x1) - max(o["bbox"][0], x0) > 2 and min(o["bbox"][3], y1) - max(o["bbox"][1], y0) > 2 for o in tiles[:ti]):
+            under = canvas.crop((px, py, px + img.width, py + img.height))
+            img = ImageChops.darker(under, img)
         canvas.paste(img, (px, py))
         prev_bottom = py + img.size[1]
     photo_only = canvas.copy()

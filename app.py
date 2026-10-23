@@ -715,7 +715,7 @@ def photos(no):
 # 사진/설명 위치 찾기와 그리기는 sensory_photos.py 참고(설명은 글자가 아니라 PDF 에서 잘라낸 그림).
 SENSORY_PHOTO_FILE = "관능검사해설서(2022).pdf"
 # 사진 그림을 만드는 방식을 바꿀 때 올린다(브라우저가 하루 동안 저장해 둔 예전 그림 대신 새로 받게 한다).
-SENSORY_PHOTO_VER = 16
+SENSORY_PHOTO_VER = 19
 
 def _sensory_entry_for(name_only, hanja):
     """공정서 품목에 해당하는 관능검사해설서 품목. 한자까지 같으면 그것을, 한자 표기만 다른 경우
