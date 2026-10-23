@@ -25,6 +25,13 @@ MERGE_X_OVERLAP = 0.4  # 사진 묶음 둘이 가로로 좁은 쪽 폭의 이만
 MERGE_Y_OVERLAP = 0.5  # 세로로도 낮은 쪽 높이의 이만큼 넘게 겹치면 한 장의 사진이 둘로 쪼개진 것으로 보고 합친다
 MERGE_STACK_GAP = 6  # 좌우 끝이 같게(MERGE_STACK_X_TOL 이내) 위아래로 이 pt 이하로만 떨어져 있어도 한 사진으로 본다(설명이 들어갈 수 없는 간격)
 MERGE_STACK_X_TOL = 12
+# 자동으로 합쳐지지 않는 사진 묶음을 직접 합치는 예외(PDF 쪽 번호 0부터, 합칠 사진 묶음들의 왼쪽 위 위치 pt).
+# 대자석(166쪽): 위아래로 놓인 두 사진(왼쪽 위·왼쪽 아래)이 "대자석 전형" 설명 하나를 같이 쓰므로 한 사진으로 합친다.
+SPLIT_MIN_GAP = 12  # SPLIT_CAPTIONS 에서 "after" 없이 가장 큰 빈칸에서 가를 때, 이 pt 이상 벌어진 빈칸이 있어야 한다
+MERGE_PHOTOS = [{"page": 166, "photos": [(82, 449), (62, 565)]}]
+# 사진 그림 안에 픽셀로 박혀 있는 눈금("1cm" 글자와 막대)을 지우는 예외: PDF 쪽 번호(0부터)와 지울 영역 (x0, y0, x1, y1) pt.
+# 대자석(166쪽) 합친 1번째 사진의 위쪽 사진 오른쪽 아래 눈금(그림 가장자리의 흰 바탕 위에만 있다).
+ERASE_IN_PHOTO = [{"page": 166, "rect": (274.5, 554.5, 308.5, 565.0)}]
 CAPTION_GAP = 12
 FIRST_CAPTION_GAP = 40  # 사진 이미지 아래 흰 여백 때문에, 설명 첫 줄은 사진 아래끝에서 이만큼까지 떨어져 있을 수 있다
 FOOTER_MARGIN = 60  # 페이지 아래 이만큼은 바닥글 영역
@@ -50,7 +57,39 @@ SPLIT_CAPTIONS = [
     {"page": 106, "photos": [(40, 291), (298, 298)], "after": "이다."},
     # 갱미(22쪽) 1·2번째 사진: "갱미: 멥쌀. 반투명하다." 와 "나미 [위품]: 찹쌀. 불투명하다." 가 한 줄로 이어져 있다
     {"page": 22, "photos": [(79, 519), (316, 525)], "after": "반투명하다."},
-    # 녹용(131쪽) 5·6번째: "녹용(마록, 중간부) 종단면 | 녹용(마록, 하부) 종단면" 이 5번째 아래 한 줄로 이어져 있다
+    # 겐티아나(27쪽) 1·2번째: 1번째 설명 마지막 줄 끝에 2번째 사진의 제목 "겐티아나(자연 발효 가공품)"이 같은 줄로 이어져 있다
+    # (이 줄이 1번째 묶음 글로 잡혀 있으면 2번째 설명 첫 줄 "겐티아나를 발효한 것으로"까지 지워진다)
+    {"page": 27, "photos": [(56, 438), (308, 438)], "after": "황갈색이다."},
+    # 등피(192쪽) 1·2번째: 1번째 설명 마지막 줄 끝에 2번째 사진의 제목 "등피(건조 전) 바깥 면"이 같은 줄로 이어져 있다
+    {"page": 192, "photos": [(56, 388), (293, 388)], "after": "되어있다."},
+    # 아래는 "after" 없이 글자 사이 가장 큰 빈칸에서 가른다(좌우로 나란한 두 사진의 설명이 한 줄로 합쳐진 경우).
+    # 긴 줄이 왼쪽 사진에 붙어 있으면 줄의 오른쪽 끝(뒤 글)을 오른쪽(다음 순서) 사진 설명으로, 오른쪽 사진에 붙어 있으면
+    # 줄의 왼쪽 끝(앞 글)을 왼쪽(앞 순서) 사진 설명으로 옮긴다. 어느 쪽인지는 _split_captions 가 알아서 구분한다.
+    {"page": 38, "photos": [(56, 442), (306, 442)]},       # 계심
+    {"page": 194, "photos": [(54, 395), (295, 395)]},      # 디기탈리스
+    {"page": 212, "photos": [(51, 545), (293, 552)]},      # 맥아
+    {"page": 244, "photos": [(44, 456), (293, 456)]},      # 밀몽화
+    {"page": 277, "photos": [(77, 610), (308, 603)]},      # 백부자
+    {"page": 311, "photos": [(67, 401), (319, 401)]},      # 부평
+    {"page": 342, "photos": [(62, 429), (280, 450)]},      # 산두근
+    {"page": 376, "photos": [(62, 278), (293, 278)]},      # 석고
+    {"page": 410, "photos": [(62, 314), (293, 314)]},      # 소계 3·4
+    {"page": 410, "photos": [(62, 521), (293, 583)]},      # 소계 5·6
+    {"page": 421, "photos": [(54, 293), (308, 299)]},      # 수오등
+    {"page": 425, "photos": [(77, 295), (315, 328)]},      # 스코폴리아근
+    {"page": 441, "photos": [(68, 367), (308, 372)]},      # 아선약
+    {"page": 580, "photos": [(35, 507), (293, 507)]},      # 자오가
+    {"page": 650, "photos": [(62, 278), (280, 297)]},      # 진주
+    {"page": 719, "photos": [(77, 352), (308, 318)]},      # 판람근
+    {"page": 763, "photos": [(77, 321), (308, 333)]},      # 해삼 3·4
+    {"page": 763, "photos": [(77, 528), (296, 513)]},      # 해삼 5·6
+    {"page": 774, "photos": [(62, 543), (275, 534)]},      # 향부자
+    {"page": 789, "photos": [(60, 294), (302, 319)]},      # 호박
+    {"page": 797, "photos": [(53, 59), (308, 107)]},       # 홍화
+    {"page": 801, "photos": [(77, 428), (308, 419)]},      # 활석
+    # 길초근(110쪽) 1·2번째: 1번째 설명 마지막 줄 끝에 2번째 사진의 제목 "지주향(蜘蛛香)"이 같은 줄로 이어져 있다
+    {"page": 110, "photos": [(36, 500), (298, 501)], "after": "붙어있다."},
+    # 녹용(131쪽) 5·6번째:"녹용(마록, 중간부) 종단면 | 녹용(마록, 하부) 종단면" 이 5번째 아래 한 줄로 이어져 있다
     {"page": 131, "photos": [(73, 282), (313, 281)], "after": "종단면"},
     # 녹용(131쪽) 7·8번째: "녹용(마록, 하부) 종단면 | 녹용(마록, 측지부) 종단면" 이 8번째(오른쪽) 아래 한 줄로 이어져 있고,
     # 앞 절반이 왼쪽 7번째 사진의 설명이다
@@ -148,6 +187,26 @@ def _merge_split_photos(groups):
     return groups
 
 
+def _merge_listed(groups, number):
+    """MERGE_PHOTOS 에 적힌 사진 묶음들을 한 묶음으로 합친다(자동으로 합치기에는 좌우 위치가 어긋난 경우)."""
+    for s in MERGE_PHOTOS:
+        if s["page"] != number:
+            continue
+        found = [next((g for g in groups if abs(g["rect"][0] - p[0]) < 3 and abs(g["rect"][1] - p[1]) < 3), None)
+                 for p in s["photos"]]
+        if None in found:
+            continue
+        first = found[0]
+        for g in found[1:]:
+            if g is first:
+                continue
+            A, B = first["rect"], g["rect"]
+            first["rect"] = [min(A[0], B[0]), min(A[1], B[1]), max(A[2], B[2]), max(A[3], B[3])]
+            first["xrefs"] |= g["xrefs"]
+            groups.remove(g)
+    return groups
+
+
 def _has_mark(text):
     return any(ch in text for ch in SIDE_MARKS + LEFT_MARKS)
 
@@ -237,12 +296,19 @@ def _split_captions(page, number, regions):
                               and wide[0] - 1 <= (c["bbox"][0] + c["bbox"][2]) / 2 <= wide[2] + 1
                               and wide[1] <= (c["bbox"][1] + c["bbox"][3]) / 2 <= wide[3]]
         chars.sort(key=lambda c: c[1][0])
-        text = "".join(c[0] for c in chars)
-        at = text.find(s["after"])
-        if at < 0:
-            continue
-        last = chars[at + len(s["after"]) - 1][1]
-        nxt = next((c for c in chars[at + len(s["after"]):] if c[0] not in ",.;:"), None)
+        if s.get("after"):
+            text = "".join(c[0] for c in chars)
+            at = text.find(s["after"])
+            if at < 0:
+                continue
+            last = chars[at + len(s["after"]) - 1][1]
+            nxt = next((c for c in chars[at + len(s["after"]):] if c[0] not in ",.;:"), None)
+        else:
+            # "after" 가 없으면 글자 사이 가장 큰 빈칸(SPLIT_MIN_GAP 이상)에서 가른다(두 설명이 한 줄에 좌우로 놓인 경우)
+            gap, gi = max(((chars[k + 1][1][0] - chars[k][1][2], k) for k in range(len(chars) - 1)), default=(0, 0))
+            if gap < SPLIT_MIN_GAP:
+                continue
+            last, nxt = chars[gi][1], chars[gi + 1]
         if nxt is None:
             continue
         cut_a, start_b = last[2] + 0.3, nxt[1][0] - 0.3
@@ -268,7 +334,7 @@ def photo_regions(page, number=None):
     """페이지 하나의 사진 묶음 목록. 각 항목은 {"rect": (x0, y0, x1, y1) 사진+아래 설명 영역,
     "photo": 사진 영역, "xrefs": 사진 이미지 번호들, "texts": 이 묶음에 딸린 글 블록 영역들}.
     읽는 순서(위에서 아래, 같은 줄이면 왼쪽부터)로 돌려준다."""
-    groups = _merge_split_photos(_group_tiles(_tiles(page)))
+    groups = _merge_listed(_merge_split_photos(_group_tiles(_tiles(page))), page.number if number is None else number)
     blocks = [b for b in page.get_text("blocks") if b[4].strip()]
     footer_y = page.rect.height - FOOTER_MARGIN
     for g in groups:
@@ -828,6 +894,13 @@ def render_region_original(doc, page_no, index, layer="all", k=1):
             img = ImageChops.darker(under, img)
         canvas.paste(img, (px, py))
         prev_bottom = py + img.size[1]
+    # 사진 그림 안에 박혀 있는 눈금(글자와 선이 그림 픽셀이다)을 지정한 곳만 흰색으로 지운다
+    for er in ERASE_IN_PHOTO:
+        if er["page"] == page_no:
+            e0, e1 = er["rect"][:2], er["rect"][2:]
+            if rect.x0 <= e0[0] and rect.y0 <= e0[1] and e1[0] <= rect.x1 and e1[1] <= rect.y1:
+                canvas.paste((255, 255, 255), (round((e0[0] - rect.x0) * z), round((e0[1] - rect.y0) * z),
+                                               round((e1[0] - rect.x0) * z), round((e1[1] - rect.y0) * z)))
     photo_only = canvas.copy()
     canvas.paste(overlay, (0, 0), overlay)
 
@@ -881,7 +954,8 @@ def render_region(doc, page_no, index, dpi=CLIP_DPI):
     page = doc[page_no]
     tmp = None
     try:
-        if others or me.get("side") or me.get("hide"):
+        erase = [er["rect"] for er in ERASE_IN_PHOTO if er["page"] == page_no]
+        if others or me.get("side") or me.get("hide") or erase:
             # 겹치는 다른 묶음의 사진과 글자를 지운 임시 쪽에 그린다
             tmp = fitz.open()
             tmp.insert_pdf(doc, from_page=page_no, to_page=page_no)
@@ -900,6 +974,8 @@ def render_region(doc, page_no, index, dpi=CLIP_DPI):
                 _redact_side(tp, tme["side"])
             _redact_hidden(tp, tme)
             tp.apply_redactions(images=fitz.PDF_REDACT_IMAGE_NONE, graphics=fitz.PDF_REDACT_LINE_ART_NONE)
+            for er in erase:  # 그림 안의 눈금: 흰 사각형을 위에 덮는다
+                tp.draw_rect(fitz.Rect(*er), color=None, fill=(1, 1, 1), overlay=True)
             page = tp
         clip = _content_rect(page, me["rect"])
         png = page.get_pixmap(clip=clip, dpi=dpi).tobytes("png")
