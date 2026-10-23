@@ -55,6 +55,9 @@ SPLIT_CAPTIONS = [
     # 녹용(131쪽) 7·8번째: "녹용(마록, 하부) 종단면 | 녹용(마록, 측지부) 종단면" 이 8번째(오른쪽) 아래 한 줄로 이어져 있고,
     # 앞 절반이 왼쪽 7번째 사진의 설명이다
     {"page": 131, "photos": [(74, 476), (310, 477)], "after": "종단면"},
+    # 해마(756쪽) 3·4번째 사진: 두 사진 아래의 제목 "해마"와 "해마"가 한 줄(한 블록)로 합쳐져 4번째 사진 아래에만 붙어 있다.
+    # 앞의 "해마"는 3번째(왼쪽 아래) 사진의 제목이다
+    {"page": 756, "photos": [(54, 275), (295, 295)], "after": "해마"},
 ]
 # 보이는 가로폭을 맞추는 예외: 사진 묶음 그림이 이 폭(pt)이 되도록 가운데에 흰 여백을 덧붙이고, ◀ 설명이 있으면 그 폭에
 # 맞춰 줄바꿈한다. 진교(648쪽)의 3번째(큰잎용담 엽초)와 9번째(진범 뿌리) 사진을 2번째 사진(절편)의 폭에 맞춘다.
@@ -68,6 +71,15 @@ WIDTH_TO = [
     {"page": 704, "at": (104, 500), "width_pt": 244.56},
     {"page": 704, "at": (335, 499), "width_pt": 244.56},
 ]
+# 흰 여백을 자를 때 먼지 얼룩을 무시하는 기준: 사진 가장자리에 아주 옅고 작은 점이 흩어져 있으면 그 점까지 그림으로 봐서 흰 여백이
+# 크게 남는다. 이어진 점(픽셀) 덩어리 중 가로세로가 모두 SPECK_BLOB_PT(12pt) 이하이고 밝기 SPECK_FAINT 미만(진한) 픽셀이 없는 것을 먼지로
+# 보고, 먼지를 뺀 그림 범위가 먼지까지 포함한 범위보다 SPECK_MIN_PT 이상 안쪽이면 그 쪽은 먼지를 뺀 범위로 자른다. 자른 쪽에는
+# 글자/그림이 잘리지 않게 SPECK_PAD_PT 여백을 둔다.
+SPECK_BLOB_PT = 12
+SPECK_MIN_PT = 8
+SPECK_FAINT = 110
+SPECK_PAD_PT = 5
+SPECK_CELL = 3  # 덩어리를 찾을 때 픽셀 SPECK_CELL x SPECK_CELL 칸을 한 칸으로 본다
 WHITE = 248   # 이 값 이상이면 흰색으로 본다(회색조 0~255)
 
 _NOT_CAPTION = re.compile(r"[㉠-㉻❍※]")  # 쪽 아래 각주(㉠)나 본문 글머리는 사진 설명이 아니다
@@ -386,6 +398,64 @@ def _redact_side(tp, side):
 
     for t in side["blocks"]:
         tp.add_redact_annot(fitz.Rect(*t) + (-1, -1, 1, 1), fill=False)
+
+
+def _non_dust_bbox(gray, mask, z):
+    """mask(밝기 WHITE 미만=255) 에서 먼지 덩어리(SPECK_*)를 뺀 그림 범위 (x0, y0, x1, y1) 픽셀. 먼지만 있으면 None."""
+    from PIL import Image, ImageFilter
+
+    f = SPECK_CELL
+    cw, ch = -(-gray.width // f), -(-gray.height // f)
+    # 칸마다: 안에 흰색 아닌 픽셀이 있는지 / 가장 어두운 밝기 (칸 가운데 픽셀에서 3x3 이웃의 최댓값/최솟값을 본다)
+    act = mask.filter(ImageFilter.MaxFilter(f)).resize((cw, ch), Image.NEAREST).tobytes()
+    dark = gray.filter(ImageFilter.MinFilter(f)).resize((cw, ch), Image.NEAREST).tobytes()
+    blob = SPECK_BLOB_PT * z / f
+    seen = bytearray(cw * ch)
+    x0 = y0 = 10 ** 9
+    x1 = y1 = -1
+    for start in range(cw * ch):
+        if not act[start] or seen[start]:
+            continue
+        seen[start] = 1
+        stack, minx, maxx, miny, maxy, darkest = [start], cw, -1, ch, -1, 255
+        while stack:
+            c = stack.pop()
+            cy, cx = divmod(c, cw)
+            minx, maxx, miny, maxy = min(minx, cx), max(maxx, cx), min(miny, cy), max(maxy, cy)
+            darkest = min(darkest, dark[c])
+            for ny in (cy - 1, cy, cy + 1):
+                if 0 <= ny < ch:
+                    for nx in (cx - 1, cx, cx + 1):
+                        n = ny * cw + nx
+                        if 0 <= nx < cw and act[n] and not seen[n]:
+                            seen[n] = 1
+                            stack.append(n)
+        if maxx - minx + 1 <= blob and maxy - miny + 1 <= blob and darkest >= SPECK_FAINT:
+            continue  # 먼지
+        x0, y0, x1, y1 = min(x0, minx), min(y0, miny), max(x1, maxx), max(y1, maxy)
+    if x1 < 0:
+        return None
+    return (x0 * f, y0 * f, (x1 + 1) * f, (y1 + 1) * f)
+
+
+def _crop_box(canvas, z):
+    """canvas(RGB, 배율 z 픽셀/pt)에서 그림/글자가 있는 영역에 여백(CROP_PAD)을 둔 자르기 상자. 없으면 None.
+    render_region 의 _content_rect 와 같은 기준(밝기 WHITE 미만인 곳이 그림)이되, 먼지 얼룩(SPECK_*)은 뺀다."""
+    gray = canvas.convert("L")
+    mask = gray.point(lambda v: 255 if v < WHITE else 0)
+    raw = mask.getbbox()
+    if not raw:
+        return None
+    core = _non_dust_bbox(gray, mask, z) or raw
+    pad, spad = round(CROP_PAD * z), round(SPECK_PAD_PT * z)
+    box = []
+    for side in range(4):
+        gap = core[side] - raw[side] if side < 2 else raw[side] - core[side]
+        if gap >= SPECK_MIN_PT * z:  # 먼지를 뺀 범위가 충분히 안쪽이면 그쪽으로(5pt 여백)
+            box.append(core[side] - spad if side < 2 else core[side] + spad)
+        else:
+            box.append(raw[side] - pad if side < 2 else raw[side] + pad)
+    return (max(0, box[0]), max(0, box[1]), min(canvas.width, box[2]), min(canvas.height, box[3]))
 
 
 def _width_target(page_no, me):
@@ -748,11 +818,8 @@ def render_region_original(doc, page_no, index, layer="all", k=1):
     canvas.paste(overlay, (0, 0), overlay)
 
     # 흰 여백 잘라내기(render_region의 _content_rect와 같은 기준: 밝기 WHITE 미만인 곳이 그림)
-    nonwhite = canvas.convert("L").point(lambda v: 255 if v < WHITE else 0)
-    box = nonwhite.getbbox()
+    box = _crop_box(canvas, z)
     if box:
-        pad = round(CROP_PAD * z)
-        box = (max(0, box[0] - pad), max(0, box[1] - pad), min(canvas.width, box[2] + pad), min(canvas.height, box[3] + pad))
         canvas = canvas.crop(box)
     else:
         box = (0, 0, canvas.width, canvas.height)
