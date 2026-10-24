@@ -204,7 +204,8 @@
   }
   .result-item:last-child { border-bottom: none; }
   .result-item:hover,
-  .result-item.selected { background: #f0f5ef; }  /* selected: 지금 오른쪽 화면에 보이는 생약 */
+  .result-item.kb-active,
+  .result-item.selected { background: #f0f5ef; }  /* kb-active: 방향키로 옮기는 반전(마우스를 올린 것과 같은 색) */  /* selected: 지금 오른쪽 화면에 보이는 생약 */
   .result-item .rname { font-weight: 600; }
   .synonym { font-size: 90%; font-weight: 500; }
   .source-badge {
@@ -1534,6 +1535,54 @@ document.addEventListener('click', (ev) => {
   if (!ev.target.closest('#prepTab .search-box')) closePrepDropdown();
 });
 
+// ---- 목록(드롭다운) 방향키 이동 -------------------------------------------
+// 목록이 열려 있을 때 위/아래 방향키로 마우스를 올렸을 때와 같은 옅은 색 반전(kb-active)을 옮기고, Enter 를 누르면
+// 반전된 항목을 눌렀을 때와 똑같이 선택(검색)한다. 마우스를 움직여 다른 항목에 올리면 반전도 그 항목으로 옮겨 간다.
+// 항목을 고르면 목록을 열었던 ▾ 버튼이 선택(포커스) 표시로 남지 않게 한다.
+function releaseToggleFocus() {
+  const el = document.activeElement;
+  if (el && el.classList && el.classList.contains('combo-toggle')) el.blur();
+}
+
+function setupDropdownKeys(dropdown) {
+  const rows = () => [...dropdown.querySelectorAll('.result-item')];
+  const clearActive = () => dropdown.querySelectorAll('.result-item.kb-active').forEach(el => el.classList.remove('kb-active'));
+  const setActive = (el) => {
+    clearActive();
+    el.classList.add('kb-active');
+    el.scrollIntoView({ block: 'nearest' });
+  };
+  // 목록을 ▾ 버튼으로 열면 포커스가 버튼에 있으므로, 입력칸이 아니라 문서 전체에서 키를 받는다(열려 있는 목록에만 적용).
+  document.addEventListener('keydown', (ev) => {
+    if (dropdown.style.display !== 'block') return;
+    const list = rows();
+    if (!list.length) return;
+    const cur = list.findIndex(el => el.classList.contains('kb-active'));
+    if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') {
+      ev.preventDefault();
+      const next = ev.key === 'ArrowDown' ? Math.min(cur + 1, list.length - 1) : Math.max(cur - 1, 0);
+      setActive(list[cur < 0 && ev.key === 'ArrowUp' ? 0 : next]);
+    } else if (ev.key === 'Enter' && cur >= 0) {
+      ev.preventDefault();
+      ev.stopImmediatePropagation();  // 입력칸의 기본 Enter 검색보다 먼저 처리한다
+      list[cur].click();
+      releaseToggleFocus();
+    }
+  }, true);
+  dropdown.addEventListener('click', releaseToggleFocus);  // 마우스로 항목을 골랐을 때도 ▾ 버튼의 포커스 표시를 푼다
+  let lastX = -1, lastY = -1;
+  dropdown.addEventListener('mousemove', (ev) => {
+    // 방향키로 목록이 스크롤될 때 브라우저가 보내는 가짜 mousemove(좌표 그대로)는 무시한다
+    if (ev.clientX === lastX && ev.clientY === lastY) return;
+    lastX = ev.clientX; lastY = ev.clientY;
+    const row = ev.target.closest('.result-item');
+    if (row && !row.classList.contains('kb-active')) setActive(row);
+  });
+}
+setupDropdownKeys(comboDropdown);
+setupDropdownKeys(testItemDropdown);
+setupDropdownKeys(prepDropdown);
+
 detailBox.addEventListener('click', (ev) => {
   const link = ev.target.closest('.ref-link');
   if (!link) return;
@@ -1551,6 +1600,14 @@ searchInput.addEventListener('mouseup', (ev) => {
   selectAllOnMouseUp = false;
   ev.preventDefault();
   searchInput.select();
+});
+
+// 전체 목록이 펼쳐진 상태에서 검색칸을 누르면 목록을 닫는다(생약제제 검색칸도 같다).
+searchInput.addEventListener('click', () => {
+  if (comboDropdown.style.display === 'block') closeComboDropdown();
+});
+prepInput.addEventListener('click', () => {
+  if (prepDropdown.style.display === 'block') closePrepDropdown();
 });
 
 searchInput.addEventListener('input', () => {
