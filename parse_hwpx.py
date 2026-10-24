@@ -725,7 +725,7 @@ def _looks_like_latin_title(text: str) -> bool:
 def _looks_like_english_title(text: str) -> bool:
     """생약제제 품목의 영문명 줄("Gamisoyosan Extract Granules", "Samsoeum Soft․Dry Extract" 등). 한글이 없고 대문자나 "("로
     시작하며, 영어 낱말(3글자 이상)이 둘 이상 들어 있는 짧은 줄. "(C21H20O9 : 416.38)" 같은 화학식 줄은 낱말이 아니라 제외한다."""
-    t = text.strip()
+    t = re.sub(r"^\d+(?:\.\d+)?\s*%\s*", "", text.strip())  # "10 % Scopolia Extract Powder" 처럼 농도로 시작하는 영문명
     return (
         5 <= len(t) <= 140
         and not _HANGUL_RE.search(t)
@@ -1698,6 +1698,8 @@ _ELEMENT_DIGIT_RE = re.compile(r"([A-Z][a-z]?)(\d{1,4})")
 _QUANT_LABEL_RE = re.compile(r"양\s*\([^()]*\)\s*$")
 # "조단백(%)" 처럼 단위 표시 "(%)"로 끝나는 짧은 줄도 바로 아래 "= ..." 수식줄의 라벨이다.
 _PERCENT_LABEL_RE = re.compile(r"\(%\)\s*$")
+# "0.05 mol/L 에틸렌디아민테트라아세트산디나트륨액 1 mL" + "= 23.719 mg KAl(SO4)2․12H2O" 처럼 적정액 1 mL 에 해당하는 양을 쓰는 라벨 줄
+_TITRANT_LABEL_RE = re.compile(r"\d\s*mL\s*$")
 
 # C, H, O, N 뒤에 바로 숫자가 오면 그 자체로 화학식의 원자 개수 표시이므로,
 # "FeSO4"나 "7H2O"처럼 원소기호+숫자 쌍이 한 번만 나와 위 규칙(2번 이상)에
@@ -1953,10 +1955,16 @@ def _render_rich_html(text: str) -> str:
                     # 10.0 % 이하이다." 로 끝나는 절차 설명)까지 수식줄
                     # 라벨로 잘못 끌려 들어와 그 문단 전체가 가운데 정렬되어
                     # 버린다.
+                    # "= ~" 줄 바로 위의 짧은 이름 줄("총 안토시아니딘", "헤스페리딘의 함량", "총 깅콜산의 농도 (ppm)")도 그 계산식의 라벨이다.
+                    short_label = (
+                        not pulled and len(candidate.strip()) <= 30 and not re.search(r"[.다:：]$", candidate.strip())
+                    )
                     if len(candidate) > 80 or not (
                         _FORMULA_TOKEN_RE.search(candidate)
                         or _QUANT_LABEL_RE.search(candidate)
                         or _PERCENT_LABEL_RE.search(candidate)
+                        or _TITRANT_LABEL_RE.search(candidate)
+                        or short_label
                     ):
                         break
                     pulled.append(text_idxs[k])
@@ -2788,6 +2796,21 @@ def parse_hwpx_bytes_sections(
                     "is_formula_title": is_formula_title,
                 }
             )
+
+    if prep:
+        # 쌍화탕가갈근창출엑스 과립처럼 영문명이 두 문단으로 쪼개진 경우("Ssanghwatanggagalgeunchangchul" / "Extract Granules"):
+        # 영어 낱말 하나뿐인 앞 조각은 영문명으로 인정되지 않으므로, 바로 뒤가 영문명이면 영문명의 일부로 본다.
+        for i in range(1, len(flat) - 1):
+            cur, nxt = flat[i], flat[i + 1]
+            if (
+                not cur["has_header"] and not nxt["has_header"]
+                and re.fullmatch(r"[A-Z][A-Za-z]{7,}\s*", cur["plain_text"] or "")
+                and _looks_like_english_title(nxt["plain_text"])
+                and _HANGUL_RE.search(flat[i - 1]["plain_text"] or "")
+            ):
+                nxt["plain_text"] = cur["plain_text"].strip() + " " + nxt["plain_text"]  # 앞 조각을 다음 줄 앞에 이어 붙이고
+                cur["english_fragment"] = True
+        flat = [x for x in flat if not x.get("english_fragment")]  # 앞 조각 문단은 따로 두지 않는다
 
     # --- 2단계: 진짜 "품목 제목 시작"만 확정한다. -----------------------------
     # 이름처럼 생긴 짧은 문단이라도 (a) 바로 다음 문단이 또 이름처럼 생겼거나

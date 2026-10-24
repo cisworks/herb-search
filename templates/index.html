@@ -1819,6 +1819,10 @@ async function showDetail(id, filterItem, opts = {}) {
   );
 
   tmAvailable = new Set(item.test_methods || []);
+  // "확인시험 (생약제제에 적용)", "정량법 (생규집 생약시험법)" 항목은 시험항목 검색에서 확인시험/정량법으로 열었을 때만 보여 준다
+  // (생약 검색 결과나 다른 시험항목으로 열었을 때는 숨긴다).
+  const showMethodSections = filterItem && filterItem.keywords.length === 1 && ['확인시험', '정량법'].includes(filterItem.keywords[0]);
+  if (item.kind === 'official' && !showMethodSections) item.sections = item.sections.filter(sec => !sec.note);
   const sectionsHtml = buildSectionsHtml(item, filterItem);
 
   const definitionHtml = (item.definition_parts && item.definition_parts.length)
@@ -1978,7 +1982,7 @@ function renderSectionBody(sec) {
   return (sec.ref_id !== undefined && sec.ref_id !== null) ? linkifyRef(html, sec.ref_id) : html;
 }
 
-function renderItemText(it) {
+function renderItemText(it, depth = 0) {
   const refId = (it.ref_id !== undefined && it.ref_id !== null) ? it.ref_id : null;
   const purity = renderSectionLabel === '순도시험';
   if (it.bold !== undefined) {
@@ -1989,15 +1993,16 @@ function renderItemText(it) {
     let atEnd = '';
     if (purity && it.bold) {
       const name = it.bold.trim().replace(/\s*[:：]$/, '');
-      if (name === '곰팡이독소') {
+      // "생약시험법" 버튼은 최상위 항목(1) 중금속)에만 붙인다. 그 아래 하위 항목(나) 중금속)에는 붙이지 않는다.
+      if (depth === 0 && name === '곰팡이독소') {
         afterBold = tmButton('mycotoxin');
-      } else if (name === '중금속') {
+      } else if (depth === 0 && name === '중금속') {
         afterBold = tmButton('heavy');
-      } else if (name === '잔류농약') {
+      } else if (depth === 0 && name === '잔류농약') {
         afterBold = tmButton('pesticide');
-      } else if (name === '이산화황') {
+      } else if (depth === 0 && name === '이산화황') {
         afterBold = tmButton('so2');
-      } else {
+      } else if (!['곰팡이독소', '중금속', '잔류농약', '이산화황'].includes(name)) {
         boldInner = tmLinkIbmul(boldInner);
       }
     }
@@ -2010,12 +2015,12 @@ function renderItemText(it) {
   return refId ? linkifyRef(textHtml, refId) : textHtml;
 }
 
-function renderItemList(items) {
+function renderItemList(items, depth = 0) {
   const lis = items.map(it => `
     <li>
       ${it.marker ? `<span class="item-marker">${it.marker_html !== undefined ? it.marker_html : escapeHtml(it.marker)}</span>` : ''}
-      <span class="item-text">${renderItemText(it)}</span>
-      ${it.children && it.children.length ? renderItemList(it.children) : ''}
+      <span class="item-text">${renderItemText(it, depth)}</span>
+      ${it.children && it.children.length ? renderItemList(it.children, depth + 1) : ''}
     </li>
   `).join('');
   return `<ol class="item-list">${lis}</ol>`;
