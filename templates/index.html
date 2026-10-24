@@ -126,7 +126,7 @@
   .search-box input {
     width: 100%;
     padding: 14px 40px 14px 16px;
-    font-size: 1.05rem;
+    font-size: calc(1.05rem - 1pt);
     border: 2px solid var(--border);
     border-radius: 10px;
     outline: none;
@@ -216,6 +216,13 @@
     border-radius: 3px;
     margin-left: 6px;
     line-height: 1.5;
+    vertical-align: middle;
+  }
+  .source-part {  /* 생약제제: KP/KHP 배지 오른쪽의 "각조 제2부" 같은 파일 구분 */
+    margin-left: 4px;
+    font-size: 0.72rem;
+    font-weight: 500;
+    color: var(--sub);
     vertical-align: middle;
   }
   .empty-msg {
@@ -457,6 +464,11 @@
     flex: none;
   }
   .section .section-header:hover .toggle-icon { border-color: var(--main-dark); }
+  .section .section-note {  /* 항목명 배지 오른쪽의 보조 표시, 예: 확인시험 (생약제제에 적용) */
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--main-dark);
+  }
   .section.collapsed .section-content { display: none; }
   .section .body {
     white-space: pre-line;
@@ -603,6 +615,10 @@
   .orig-table.no-head td { border-color: #fff; }
   .orig-table.no-head td:nth-child(1) { text-align: right; }
   .orig-table.no-head td:nth-child(3) { text-align: left; }
+  /* 생약제제 제법의 "생약명 | 분량" 표: 첫 행도 제목 행이 아니다(생약명은 왼쪽, 분량은 오른쪽 정렬). */
+  .orig-table.recipe-table tr:first-child td { background: none; font-weight: 400; }
+  .orig-table.recipe-table td:nth-child(1) { text-align: left; }
+  .orig-table.recipe-table td:nth-child(n+2) { text-align: right; white-space: nowrap; }  /* 분량이 여러 칸(1일3회/1일2회 등)이어도 모두 오른쪽 정렬 */
   .tab-bar {
     display: flex;
     gap: 6px;
@@ -610,8 +626,10 @@
   }
   .tab-btn {
     flex: 1 1 0;
-    padding: 10px 12px;
-    font-size: 0.92rem;
+    min-width: 0;
+    padding: 10px 4px;
+    white-space: nowrap;  /* 탭이 셋이라 "시험항목 검 / 색"처럼 한 글자만 다음 줄로 넘어가지 않게 한 줄로 둔다 */
+    font-size: 0.85rem;
     font-weight: 600;
     border: 2px solid var(--border);
     background: #fff;
@@ -628,6 +646,8 @@
   }
   .tab-panel { display: none; }
   .tab-panel.active { display: block; }
+  /* 생약제제 본문 속 그림(크로마토그램 등) */
+  .detail img.prep-fig { display: block; max-width: 100%; height: auto; margin: 10px 0; }
 
   .collapse-btn {
     flex: 0 0 auto;
@@ -678,6 +698,7 @@
     <div class="tab-bar">
       <button type="button" class="tab-btn active" id="nameTabBtn" data-tab="nameTab">생약 검색</button>
       <button type="button" class="tab-btn" id="testTabBtn" data-tab="testTab">시험항목 검색</button>
+      <button type="button" class="tab-btn" id="prepTabBtn" data-tab="prepTab">생약제제 검색</button>
       <button type="button" class="collapse-btn" id="leftPanelCollapseBtn" title="왼쪽 화면 접기" aria-label="왼쪽 화면 접기">◀</button>
     </div>
 
@@ -697,6 +718,15 @@
         <div class="combo-dropdown" id="testItemDropdown" style="display:none;"></div>
       </div>
       <div class="results" id="testResults" style="display:none;"></div>
+    </div>
+
+    <div class="tab-panel" id="prepTab">
+      <div class="search-box">
+        <input type="text" id="prepInput" placeholder="생약제제명을 입력하거나 목록에서 선택하세요" autocomplete="off">
+        <button type="button" class="combo-toggle" id="prepToggle" aria-label="생약제제 전체 목록 보기" title="생약제제 전체 목록 보기">▾</button>
+        <div class="combo-dropdown" id="prepDropdown" style="display:none;"></div>
+      </div>
+      <div class="results" id="prepResults" style="display:none;"></div>
     </div>
   </div>
   <div class="panel-resizer" id="panelResizer"></div>
@@ -722,6 +752,10 @@ const searchInput = document.getElementById('searchInput');
 // 검색(Enter, 목록에서 선택)을 마친 뒤 검색칸을 다시 누르면 검색어 전체를 블록 선택한다. 입력 중에는 false.
 let searchDone = false;
 let selectAllOnMouseUp = false;
+const prepInput = document.getElementById('prepInput');
+const prepToggle = document.getElementById('prepToggle');
+const prepDropdown = document.getElementById('prepDropdown');
+const prepResultsBox = document.getElementById('prepResults');
 const comboToggle = document.getElementById('comboToggle');
 const comboDropdown = document.getElementById('comboDropdown');
 const resultsBox = document.getElementById('results');
@@ -1007,7 +1041,7 @@ function comboRowHtml(it) {
   const primary = it.name_primary || it.korean_name;
   return `
     <div class="result-item" data-id="${it.id}">
-      <span class="rname">${escapeHtml(primary)}${sourceBadge(it.source_tag)}</span>
+      <span class="rname">${escapeHtml(primary)}${sourceBadge(it.source_tag, it.part)}</span>
     </div>
   `;
 }
@@ -1049,7 +1083,8 @@ function closeComboDropdown() {
 // 짧을 때). 팝업이 열려 있는 동안만 패널의 overflow를 풀어 팝업이 패널 밖으로
 // 그대로 펼쳐지게 한다.
 function syncDropdownOpenClass() {
-  const open = comboDropdown.style.display === 'block' || testItemDropdown.style.display === 'block';
+  const open = comboDropdown.style.display === 'block' || testItemDropdown.style.display === 'block'
+    || prepDropdown.style.display === 'block';
   document.querySelector('.left-panel').classList.toggle('dropdown-open', open);
 }
 
@@ -1097,7 +1132,9 @@ function activateTab(tabId) {
   document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === tabId));
   closeComboDropdown();
   closeTestItemDropdown();
+  closePrepDropdown();
   if (tabId === 'testTab') fitTestResultsHeight();
+  if (tabId === 'prepTab') fitPrepResultsHeight();
 }
 tabButtons.forEach(btn => {
   btn.addEventListener('click', () => {
@@ -1212,7 +1249,7 @@ function testResultRowHtml(it) {
   const primary = it.name_primary || it.korean_name;
   return `
     <div class="result-item" data-id="${it.id}">
-      <span class="rname">${escapeHtml(primary)}${sourceBadge(it.source_tag)}</span>
+      <span class="rname">${escapeHtml(primary)}${sourceBadge(it.source_tag, it.part)}</span>
     </div>
   `;
 }
@@ -1257,12 +1294,14 @@ async function selectTestItem(testItem) {
   const res = await fetch('/api/test_item_search?item=' + encodeURIComponent(testItem.keywords.join(',')));
   const items = await res.json();
   testResultsBox.style.display = 'flex';
+  // 확인시험/정량법은 생약제제에 적용하는 시험법(7. 생규집(확인, 함량))의 이름도 한 목록에 합쳐서 온다
+  const merged = testItem.keywords.length === 1 && (testItem.keywords[0] === '확인시험' || testItem.keywords[0] === '정량법');
   const rows = items.length
     ? items.map(testResultRowHtml).join('')
     : `<div class="empty-msg">"${escapeHtml(testItem.label)}" 항목이 있는 품목이 없습니다.</div>`;
   testResultsBox.innerHTML = `
     <div class="result-group">
-      <div class="group-label">공정서 (${items.length})</div>
+      <div class="group-label">${merged ? '공정서·생약제제' : '공정서'} (${items.length})</div>
       ${rows}
     </div>
   `;
@@ -1272,6 +1311,135 @@ async function selectTestItem(testItem) {
   applyShownHighlight();
   fitTestResultsHeight();
 }
+
+// ---- 생약제제 검색 탭 ----------------------------------------------------
+// 생약 검색 탭과 같은 방식이다: 이름을 치면(200ms 뒤) 검색해서 아래에 목록을 보여 주고, 목록의 항목을 누르면 오른쪽에
+// 상세를 보여 준다. ▾ 를 누르면 전체 목록(생약제제 hwpx 3개 파일의 품목)이 펼쳐진다.
+let prepListCache = null;
+let prepSeq = 0;
+let prepTimer = null;
+let prepDone = false;
+let prepSelectAllOnMouseUp = false;
+
+async function getPrepList() {
+  if (!prepListCache) {
+    const res = await fetch('/api/prep_list');
+    prepListCache = await res.json();
+  }
+  return prepListCache;
+}
+
+function closePrepDropdown() {
+  prepDropdown.style.display = 'none';
+  syncDropdownOpenClass();
+}
+
+function fitPrepDropdownHeight() {
+  if (prepDropdown.style.display !== 'block') return;
+  const top = prepDropdown.getBoundingClientRect().top;
+  prepDropdown.style.maxHeight = Math.max(160, window.innerHeight - top - 24) + 'px';
+}
+window.addEventListener('resize', fitPrepDropdownHeight);
+
+// 검색 결과 카드는 창 아래끝 - 24px 까지 늘어나고 그 안에서 스크롤된다(시험항목 검색 탭과 같다).
+function fitPrepResultsHeight() {
+  const group = prepResultsBox.querySelector('.result-group');
+  if (!group) return;
+  const top = group.getBoundingClientRect().top;
+  group.style.maxHeight = Math.max(160, window.innerHeight - top - 24) + 'px';
+}
+window.addEventListener('resize', fitPrepResultsHeight);
+
+async function openPrepDropdown() {
+  const items = await getPrepList();
+  prepDropdown.innerHTML = `
+    <div class="group-label">생약제제 전체 목록 (${items.length})</div>
+    ${items.map(comboRowHtml).join('')}
+  `;
+  prepDropdown.querySelectorAll('.result-item').forEach(el => {
+    el.addEventListener('click', () => {
+      const it = items.find(x => String(x.id) === el.dataset.id);
+      if (it) selectPrepItem(it);
+    });
+  });
+  prepDropdown.style.display = 'block';
+  syncDropdownOpenClass();
+  fitPrepDropdownHeight();
+}
+
+function renderPrepResults(items, q) {
+  prepResultsBox.style.display = 'flex';
+  const rows = items.length
+    ? items.map(resultRowHtml).join('')
+    : `<div class="empty-msg">"${escapeHtml(q)}"에 대한 검색 결과가 없습니다.</div>`;
+  prepResultsBox.innerHTML = `
+    <div class="result-group">
+      <div class="group-label">생약제제 (${items.length})</div>
+      ${rows}
+    </div>
+  `;
+  prepResultsBox.querySelectorAll('.result-item').forEach(el => {
+    el.addEventListener('click', () => showDetail(el.dataset.id));
+  });
+  applyShownHighlight();
+  fitPrepResultsHeight();
+}
+
+async function doPrepSearch(q) {
+  const seq = ++prepSeq;
+  const res = await fetch('/api/prep_search?q=' + encodeURIComponent(q));
+  const items = await res.json();
+  if (seq === prepSeq) renderPrepResults(items, q);
+  return items;
+}
+
+async function selectPrepItem(it) {
+  closePrepDropdown();
+  const name = it.name_primary || it.korean_name;
+  prepInput.value = name;
+  await doPrepSearch(name);
+  prepDone = true;
+  showDetail(it.id);
+}
+
+prepToggle.addEventListener('click', () => {
+  if (prepDropdown.style.display === 'block') closePrepDropdown();
+  else openPrepDropdown();
+});
+
+prepInput.addEventListener('input', () => {
+  prepDone = false;
+  clearTimeout(prepTimer);
+  const q = prepInput.value.trim();
+  if (!q) {
+    prepResultsBox.style.display = 'none';
+    prepResultsBox.innerHTML = '';
+    return;
+  }
+  prepTimer = setTimeout(() => doPrepSearch(q), 200);
+});
+
+prepInput.addEventListener('keydown', async (ev) => {
+  if (ev.key !== 'Enter') return;
+  ev.preventDefault();
+  clearTimeout(prepTimer);
+  const q = prepInput.value.trim();
+  if (!q) return;
+  const items = await doPrepSearch(q);
+  prepDone = true;
+  if (items.length) showDetail(items[0].id);
+});
+
+// 생약 검색칸과 같다: 검색을 마친 뒤(또는 다른 곳에 있다가 들어올 때) 누르면 검색어 전체를 선택한다.
+prepInput.addEventListener('mousedown', () => {
+  prepSelectAllOnMouseUp = !!prepInput.value && (prepDone || document.activeElement !== prepInput);
+});
+prepInput.addEventListener('mouseup', (ev) => {
+  if (!prepSelectAllOnMouseUp) return;
+  prepSelectAllOnMouseUp = false;
+  ev.preventDefault();
+  prepInput.select();
+});
 
 // "text" 하나(예: "납  5 ppm 이하.")가 keywords 중 하나라도 담고 있는지
 // 정규화해서 검사한다. 계층형 항목의 "자기 자신" 텍스트만 보고(자식 항목
@@ -1335,12 +1503,14 @@ function findMatchingNodes(items, keywords) {
 // (창 아래끝 - 24px)으로 창 크기에 맞춰 세로로 늘어나고, 그 안에서 카드
 // 자체가 스크롤되게 한다.
 function fitTestResultsHeight() {
-  const group = testResultsBox.querySelector('.result-group');
-  if (!group) return;
-  const top = group.getBoundingClientRect().top;
+  const groups = [...testResultsBox.querySelectorAll('.result-group')];
+  if (!groups.length) return;
+  // 확인시험/정량법은 "공정서"와 "생약제제에 적용" 두 카드가 위아래로 놓이므로 남은 높이를 나눠 쓴다(카드 사이 간격 48px).
+  const top = groups[0].getBoundingClientRect().top;
   const bottomGap = 24;
-  const height = window.innerHeight - top - bottomGap;
-  group.style.maxHeight = Math.max(160, height) + 'px';
+  const rowGap = 48;
+  const height = (window.innerHeight - top - bottomGap - rowGap * (groups.length - 1)) / groups.length;
+  groups.forEach(g => { g.style.maxHeight = Math.max(160, height) + 'px'; });
 }
 
 window.addEventListener('resize', fitTestResultsHeight);
@@ -1360,6 +1530,7 @@ testItemInput.addEventListener('click', () => {
 document.addEventListener('click', (ev) => {
   if (!ev.target.closest('#nameTab .search-box')) closeComboDropdown();
   if (!ev.target.closest('#testTab .search-box')) closeTestItemDropdown();
+  if (!ev.target.closest('#prepTab .search-box')) closePrepDropdown();
 });
 
 detailBox.addEventListener('click', (ev) => {
@@ -1413,7 +1584,7 @@ searchInput.addEventListener('keydown', async (ev) => {
 // 판단한다. 검색을 다시 해서 결과 카드가 새로 그려져도 같은 항목이 있으면 다시 표시한다.
 let shownKey = '';
 function applyShownHighlight() {
-  [resultsBox, testResultsBox].forEach(box => {
+  [resultsBox, testResultsBox, prepResultsBox].forEach(box => {
     box.querySelectorAll('.result-item').forEach(el => {
       const key = el.classList.contains('case-item')
         ? `case:${el.dataset.file}:${el.dataset.start}`
@@ -1443,7 +1614,7 @@ function resultRowHtml(it) {
   const primary = it.name_primary || it.korean_name;
   return `
     <div class="result-item" data-id="${it.id}">
-      <span class="rname">${escapeHtml(primary)}${sourceBadge(it.source_tag)}</span>
+      <span class="rname">${escapeHtml(primary)}${sourceBadge(it.source_tag, it.part)}</span>
     </div>
   `;
 }
@@ -1524,12 +1695,13 @@ function renderResults(data, q) {
 // 렌더링한다. expanded가 false면 처음부터 접힌 상태(collapsed)로 그려지고,
 // 헤더를 클릭하면 펼치고 접을 수 있다(클릭 처리는 detailBox의 위임 리스너
 // 참조).
-function sectionHtml(label, bodyHtml, expanded) {
+function sectionHtml(label, bodyHtml, expanded, note = '') {
   return `
     <div class="section${expanded ? '' : ' collapsed'}">
       <div class="section-header">
         <div class="label">${escapeHtml(label)}</div>
         <span class="toggle-icon">${expanded ? '−' : '+'}</span>
+        ${note ? `<span class="section-note">${escapeHtml(note)}</span>` : ''}
         ${tmButton(TM_SECTION_KEYS[label])}
       </div>
       <div class="section-content">${bodyHtml}</div>
@@ -1540,7 +1712,7 @@ function sectionHtml(label, bodyHtml, expanded) {
 // 섹션 하나를 항상 통째로(하위 항목 전부) 보여줄 때 쓰는 기본 렌더링.
 function fullSectionHtml(sec, expanded = true) {
   const body = sec.items && sec.items.length ? renderItemListIn(sec.label, sec.items) : `<div class="body">${renderSectionBody(sec)}</div>`;
-  return sectionHtml(sec.label, body, expanded);
+  return sectionHtml(sec.label, body, expanded, sec.note || '');
 }
 
 // ---- 생약시험법(3. 생약시험법.hwpx) 연결 ----
@@ -1657,7 +1829,7 @@ async function showDetail(id, filterItem, opts = {}) {
   detailBox.innerHTML = `
     <div class="detail-header">
       <div class="detail-title-row">
-        <h2>${renderName(item)}${sourceBadge(item.source_tag)}</h2>
+        <h2>${renderName(item)}${sourceBadge(item.source_tag, item.part)}</h2>
         <div class="detail-title-actions">
           ${linkButtonHtml('사진정보', item.photo_links, '국가생약정보 사진(왼쪽)과 관능검사해설서 사진(오른쪽) 보기')}
           ${linkButtonHtml('적응증', item.indication_links, '국가생약정보의 채취 및 가공, 적응증(효능/효과), 용법용량, 저장 보기')}
@@ -1857,9 +2029,9 @@ function renderName(it) {
   return `${escapeHtml(primary)}${synonym ? ` <span class="synonym">${synonymHtml}</span>` : ''}`;
 }
 
-function sourceBadge(tag) {
+function sourceBadge(tag, part) {
   if (!tag) return '';
-  return `<span class="source-badge">${escapeHtml(tag)}</span>`;
+  return `<span class="source-badge">${escapeHtml(tag)}</span>` + (part ? `<span class="source-part">${escapeHtml(part)}</span>` : '');
 }
 
 function escapeHtml(str) {

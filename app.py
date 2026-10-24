@@ -21,7 +21,7 @@ from urllib.parse import quote, urlencode
 from flask import Flask, Response, abort, jsonify, render_template, request
 
 import sensory_photos
-from parse_hwpx import parse_hwpx
+from parse_hwpx import finalize_method_section, parse_hwpx, parse_method_hwpx
 from parse_sensory_pdf import build_sensory_entries
 from parse_case_pdf import parse_case_pdf
 from parse_hwpx import fix_private_use_chars
@@ -32,6 +32,19 @@ BASE_DIR = Path(__file__).resolve().parent
 # 일반시험법 "35. 생약시험법"(3. 생약시험법.hwpx). 생약 상세 화면의 이물/중금속/잔류농약/
 # 이산화황/곰팡이독소/건조감량/회분/산불용성회분 항목이 이 문서의 해당 항목을 보여 준다.
 TEST_METHOD_FILE = "3. 생약시험법.hwpx"
+
+# 생약제제(엑스, 과립, 환, 산 등) 품목집. 생약 품목(ENTRIES)과 섞이지 않게 따로 불러와 "생약제제 검색" 탭에서만 쓴다.
+PREP_FILE_NAMES = (
+    "4. 약전(각조 제2부 생약제제).hwpx",
+    "5. 생규집(각조 제2부).hwpx",
+    "6. 생규집(각조 제3부).hwpx",
+)
+PREP_ID_START = 100000  # 생약제제 품목 id 는 생약/관능검사해설서 id 와 겹치지 않게 큰 수부터 매긴다
+
+# 생약제제에 적용하는 확인시험법·함량시험법(생약/생약제제 이름별). 품목집이 아니라 시험법 모음이라 load_entries 에서 빼고,
+# "시험항목 검색"의 확인시험/정량법 목록과, 같은 이름의 공정서 생약 상세("확인시험 (생약제제에 적용)" 등)에 쓴다.
+METHOD_FILE_NAME = "7. 생규집(확인, 함량).hwpx"
+METHOD_ID_START = 200000
 
 app = Flask(__name__)
 
@@ -119,7 +132,9 @@ def _resolve_purity_references(entries):
 
 def load_entries():
     # 3. 생약시험법.hwpx 는 생약 품목이 아니라 시험법 본문이라(아래 TEST_METHODS) 제외한다.
-    hwpx_files = sorted(p for p in BASE_DIR.glob("*.hwpx") if p.name != TEST_METHOD_FILE)
+    hwpx_files = sorted(
+        p for p in BASE_DIR.glob("*.hwpx") if p.name not in (TEST_METHOD_FILE, METHOD_FILE_NAME) and p.name not in PREP_FILE_NAMES
+    )
     entries = []
     for f in hwpx_files:
         try:
@@ -177,6 +192,160 @@ def load_sensory_entries(start_id):
     return entries, [f.name for f in pdf_files]
 
 
+_PREP_IMG_RE = re.compile(r"\[\[IMG:(image\d+)\]\]")
+
+
+def _inject_prep_images(obj, file_idx):
+    """생약제제 본문 속 그림 자리 표시("[[IMG:image3]]")를 실제 그림 태그로 바꾼다(html 필드). html 이 아닌 글(text)에서는 지운다."""
+    img_tag = lambda m: (  # noqa: E731
+        f'<img class="prep-fig" src="/api/prep_image/{file_idx}/{m.group(1)}" alt="크로마토그램" loading="lazy">'
+    )
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            if isinstance(v, str):
+                if "[[IMG:" in v:
+                    obj[k] = _PREP_IMG_RE.sub(img_tag, v) if k.endswith("html") else _PREP_IMG_RE.sub("", v)
+            else:
+                _inject_prep_images(v, file_idx)
+    elif isinstance(obj, list):
+        for i, v in enumerate(obj):
+            if isinstance(v, str):
+                if "[[IMG:" in v:
+                    obj[i] = _PREP_IMG_RE.sub("", v)
+            else:
+                _inject_prep_images(v, file_idx)
+
+
+def _mark_recipe_tables(obj):
+    """제법의 "생약명 | 분량" 표에 recipe-table 클래스를 붙여 화면에서 첫 행을 제목 행처럼 꾸미지 않게 한다."""
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            if isinstance(v, str):
+                obj[k] = v.replace('<table class="orig-table">', '<table class="orig-table recipe-table">')
+            else:
+                _mark_recipe_tables(v)
+    elif isinstance(obj, list):
+        for i, v in enumerate(obj):
+            if isinstance(v, str):
+                obj[i] = v.replace('<table class="orig-table">', '<table class="orig-table recipe-table">')
+            else:
+                _mark_recipe_tables(v)
+
+
+def _prep_base_name(name):
+    """"우황청심원 액 (변방)" -> "우황청심원 액" (끝의 괄호 부분을 뗀 이름)"""
+    return re.sub(r"\s*\([^()]*\)\s*$", "", name).strip()
+
+
+def load_prep_entries(start_id):
+    """생약제제 hwpx(PREP_FILE_NAMES)를 파싱한다. 문서마다 품목 제목 아래에 영문명 줄이 오는 형식이라 parse_hwpx(prep=True)
+    로 읽는다. 본문의 그림(크로마토그램)은 /api/prep_image 로 보여 준다."""
+    entries, files = [], []
+    for fi, name in enumerate(PREP_FILE_NAMES):
+        f = BASE_DIR / name
+        if not f.is_file():
+            continue
+        try:
+            file_entries = parse_hwpx(f, prep=True)
+        except Exception as exc:  # noqa: BLE001
+            print(f"[경고] {f} 파싱 실패: {exc}")
+            continue
+        tag = _source_tag(name)
+        part = (re.search(r"각조 제\d부", name) or [""])[0]  # 파일명의 "각조 제2부", "각조 제3부"
+        prev_name = ""
+        for e in file_entries:
+            e["source_file"] = name
+            e["source_tag"] = tag
+            e["part"] = part
+            # 우황청심원처럼 제목이 "(변방, 사향대체물질 함유)"로 시작하면 앞 품목 이름에 이어 붙인다
+            if e["korean_name"].startswith("(") and prev_name:
+                base = _prep_base_name(prev_name)
+                e["korean_name"] = base + e["korean_name"]
+                e["name_primary"] = base + e["name_primary"]
+                e["name_only"], e["hanja"] = base, e["korean_name"][len(base):].strip("()")
+            else:
+                prev_name = e["korean_name"]
+            _inject_prep_images(e, fi)
+            for sec in e["sections"]:
+                if sec["label"] in ("제법", "분량"):
+                    _mark_recipe_tables(sec)
+        entries.extend(file_entries)
+        files.append(name)
+    for i, e in enumerate(entries):
+        e["id"] = start_id + i
+        e["kind"] = "prep"
+        e["_search_blob"] = _normalize(
+            " ".join(filter(None, [e.get("korean_name"), e.get("name_only"), e.get("english_name"), e.get("latin_name")]))
+        )
+    return entries, files
+
+
+def load_prep_methods(start_id):
+    """"7. 생규집(확인, 함량).hwpx" 를 읽어 (목록용 항목들, 생약 상세에 붙일 섹션 표)를 돌려준다.
+    항목은 생약제제 품목처럼 /api/item 으로 열리고(kind="prep"), 섹션 표는 {종류: {(이름, 한자): [섹션,...]}} 이다."""
+    path = BASE_DIR / METHOD_FILE_NAME
+    entries = []
+    by_herb = {"confirm": {}, "quant": {}}
+    if not path.is_file():
+        return entries, by_herb
+    try:
+        data = parse_method_hwpx(path)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[경고] {path} 파싱 실패: {exc}")
+        return entries, by_herb
+    labels = {"confirm": "확인시험", "quant": "정량법", "simul": "정량법"}
+    for key in ("confirm", "quant", "simul"):
+        for m in data[key]:
+            section = finalize_method_section(key, m["text"], labels[key])
+            # 항목명 배지 오른쪽에 따로 보여 준다
+            section["note"] = "(생규집 생약시험법)" if key != "confirm" else "(생약제제에 적용)"
+            display = m["name"].replace("․", "·").replace("‧", "·")
+            entries.append(
+                {
+                    "kind": "prep",
+                    "method_kind": "quant" if key == "simul" else key,
+                    "names": m["names"],  # "건강․생강" -> ["건강", "생강"], "진피(陳皮)" 는 한자 포함
+                    "korean_name": display,
+                    "name_primary": display,
+                    "name_only": display,
+                    "hanja": "",
+                    "english_name": "",
+                    "latin_name": "",
+                    "synonym_name": "",
+                    "synonym_html": "",
+                    "definition": "",
+                    "definition_parts": [],
+                    "sections": [section],
+                    "source_tag": "KHP",
+                    "part": "",
+                    "_search_blob": _normalize(display),
+                }
+            )
+            for part in m["names"]:
+                name, hanja = _split_method_name(part)
+                by_herb["quant" if key == "simul" else key].setdefault((name, hanja), []).append(section)
+    for i, e in enumerate(entries):
+        e["id"] = start_id + i
+    return entries, by_herb
+
+
+def _split_method_name(part):
+    """"진피(陳皮)" -> ("진피", "陳皮"), "갈근" -> ("갈근", "")"""
+    hm = re.match(r"^(.+?)\(([^()]+)\)$", part)
+    return (hm.group(1), hm.group(2)) if hm else (part, "")
+
+
+def prep_method_sections(name_only, hanja):
+    """공정서 생약(name_only, hanja)과 이름이 같은 "생약제제에 적용" 시험법 섹션들을 {종류: [섹션,...]} 로 돌려준다.
+    파일의 이름에 한자가 붙어 있으면(진피(陳皮)) 한자까지 같아야 한다."""
+    found = {}
+    for kind, table in PREP_METHOD_BY_HERB.items():
+        secs = list(table.get((name_only, ""), [])) + (list(table.get((name_only, hanja), [])) if hanja else [])
+        if secs:
+            found[kind] = secs
+    return found
+
+
 def load_case_entries():
     """이 폴더의 "...사례집....pdf"(관능검사 사례집)를 찾아 파싱한다.
     공정서/관능검사해설서와 달리 검색 결과에서 생약 하나당 여러 건(카테고리별)
@@ -211,6 +380,8 @@ TEST_METHODS = load_test_methods()
 ENTRIES, LOADED_FILES = load_entries()
 SENSORY_ENTRIES, SENSORY_FILES = load_sensory_entries(start_id=len(ENTRIES))
 CASE_ENTRIES, CASE_FILES = load_case_entries()
+PREP_ENTRIES, PREP_FILES = load_prep_entries(PREP_ID_START)
+PREP_METHOD_ENTRIES, PREP_METHOD_BY_HERB = load_prep_methods(METHOD_ID_START)
 
 
 def _fix_private_use(obj):
@@ -226,7 +397,7 @@ def _fix_private_use(obj):
 
 _fix_private_use(SENSORY_ENTRIES)
 _fix_private_use(CASE_ENTRIES)
-ENTRY_BY_ID = {e["id"]: e for e in ENTRIES + SENSORY_ENTRIES}
+ENTRY_BY_ID = {e["id"]: e for e in ENTRIES + SENSORY_ENTRIES + PREP_ENTRIES + PREP_METHOD_ENTRIES}
 
 
 # 국가생약정보(nifds.go.kr) 공정서 생약 상세 페이지 대응표.
@@ -491,6 +662,7 @@ def summary(e):
         "english_name": e.get("english_name", ""),
         "latin_name": e.get("latin_name", ""),
         "source_tag": e.get("source_tag", ""),
+        "part": e.get("part", ""),
     }
 
 
@@ -502,6 +674,53 @@ def index():
         loaded_files=LOADED_FILES,
         sensory_count=len(SENSORY_ENTRIES),
     )
+
+
+@app.route("/api/prep_list")
+def api_prep_list():
+    items = sorted(PREP_ENTRIES, key=lambda e: e["korean_name"])
+    return jsonify([summary(e) for e in items])
+
+
+@app.route("/api/prep_search")
+def api_prep_search():
+    q = _normalize(request.args.get("q", ""))
+    if not q:
+        return jsonify([])
+    return jsonify([summary(e) for e in _search(PREP_ENTRIES, q)[:100]])
+
+
+@functools.lru_cache(maxsize=64)
+def _prep_image_png(file_idx, name):
+    """생약제제 hwpx 안의 그림(BMP 등)을 웹에 맞게 PNG 로 바꿔 돌려준다. 없으면 None."""
+    import io
+    import zipfile
+
+    from PIL import Image
+
+    if not 0 <= file_idx < len(PREP_FILE_NAMES):
+        return None
+    path = BASE_DIR / PREP_FILE_NAMES[file_idx]
+    if not path.is_file():
+        return None
+    with zipfile.ZipFile(path) as zf:
+        member = next((n for n in zf.namelist() if re.fullmatch(rf"BinData/{name}\.\w+", n, re.I)), None)
+        if member is None:
+            return None
+        img = Image.open(io.BytesIO(zf.read(member)))
+    buf = io.BytesIO()
+    img.convert("RGB").save(buf, "PNG", optimize=True)
+    return buf.getvalue()
+
+
+@app.route("/api/prep_image/<int:file_idx>/<name>")
+def api_prep_image(file_idx, name):
+    if not re.fullmatch(r"image\d+", name):
+        abort(404)
+    png = _prep_image_png(file_idx, name)
+    if png is None:
+        abort(404)
+    return Response(png, mimetype="image/png", headers={"Cache-Control": "public, max-age=86400"})
 
 
 @app.route("/api/list")
@@ -566,6 +785,7 @@ def api_search():
 
 # 이름이 같은 항목(section) 자체가 있는지로 찾는 시험항목
 SECTION_TEST_ITEMS = ("확인시험", "순도시험", "정량법", "엑스함량", "정유함량")
+PREP_METHOD_KIND_BY_ITEM = {"확인시험": "confirm", "정량법": "quant"}  # 생약제제 적용 시험법 종류(7. 생규집(확인, 함량))
 
 
 @app.route("/api/test_item_search")
@@ -598,6 +818,20 @@ def api_test_item_search():
                     if any(_text_has_keyword(norm_text, w) for w in needles_raw):
                         matches.append(e)
                         break
+    # 확인시험/정량법은 생약제제에 적용하는 시험법(7. 생규집(확인, 함량))의 이름도 한 목록에 합친다.
+    # 공정서 생약과 이름이 같은 것은 공정서 항목으로 통일하고, 공정서에 없는 이름만 따로 보탠다.
+    if len(needles_raw) == 1 and needles_raw[0] in PREP_METHOD_KIND_BY_ITEM:
+        kind = PREP_METHOD_KIND_BY_ITEM[needles_raw[0]]
+        listed = {(e["name_only"], e["hanja"]) for e in matches}
+        listed_names = {n for n, _ in listed}
+        for pe in PREP_METHOD_ENTRIES:
+            if pe["method_kind"] != kind:
+                continue
+            covered = bool(pe["names"]) and all(
+                _split_method_name(p) in listed if _split_method_name(p)[1] else p in listed_names for p in pe["names"]
+            )
+            if not covered:
+                matches.append(pe)
     matches.sort(key=lambda e: e["korean_name"])
     return jsonify([summary(e) for e in matches])
 
@@ -622,6 +856,42 @@ def api_item(item_id):
                 "page_end": e.get("page_end", 0),
             }
         )
+    if e.get("kind") == "prep":
+        # 생약제제: 공정서 생약과 같은 모양으로 보여 주되, 국가생약정보 연결 버튼과 생약시험법 연결은 없다
+        return jsonify(
+            {
+                "id": e["id"],
+                "kind": "prep",
+                "korean_name": e["korean_name"],
+                "name_primary": e.get("name_primary", ""),
+                "synonym_name": e.get("synonym_name", ""),
+                "synonym_html": e.get("synonym_html", ""),
+                "name_only": e["name_only"],
+                "hanja": e["hanja"],
+                "english_name": e["english_name"],
+                "latin_name": e["latin_name"],
+                "definition": e["definition"],
+                "definition_parts": e.get("definition_parts", []),
+                "sections": e["sections"],
+                "source_tag": e.get("source_tag", ""),
+                "part": e.get("part", ""),
+                "test_methods": [],
+            }
+        )
+    sections = list(e["sections"])
+    # 이름이 같은 "생약제제에 적용" 시험법이 있으면 확인시험/정량법 바로 아래에 새 항목으로 붙인다
+    for kind, base_label in (("confirm", "확인시험"), ("quant", "정량법")):
+        extra = prep_method_sections(e["name_only"], e["hanja"]).get(kind)
+        if not extra:
+            continue
+        pos = next((i for i, sec in enumerate(sections) if sec["label"] == base_label), None)
+        if pos is not None:
+            at = pos + 1
+        elif kind == "confirm":  # 공정서에는 없고 생약제제 파일에만 있는 확인시험(육종용 등)은 성상 다음에 둔다
+            at = next((i + 1 for i, sec in enumerate(sections) if sec["label"] == "성상"), 0)
+        else:
+            at = len(sections)
+        sections[at:at] = extra
     return jsonify(
         {
             "id": e["id"],
@@ -636,7 +906,7 @@ def api_item(item_id):
             "latin_name": e["latin_name"],
             "definition": e["definition"],
             "definition_parts": e.get("definition_parts", []),
-            "sections": e["sections"],
+            "sections": sections,
             "source_tag": e.get("source_tag", ""),
             "photo_links": photo_info_links(e["name_only"], e["hanja"]),
             "indication_links": indication_links(e["name_only"], e["hanja"]),
