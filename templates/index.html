@@ -40,6 +40,10 @@
     display: flex;
     align-items: center;
     gap: 8px;
+    z-index: 2;  /* 가운데 안내 문구(전체 폭 문단)에 가려져 눌리지 않는 일이 없게 한다 */
+    color: inherit;  /* 로고와 기관명을 누르면 이 사이트의 홈페이지로 이동 */
+    text-decoration: none;
+    cursor: pointer;
   }
   .org-badge img {
     width: 34px;
@@ -133,7 +137,7 @@
     transition: border-color 0.15s;
   }
   .search-box input:focus { border-color: var(--main); }
-  #prepInput::placeholder { font-size: calc(1.05rem - 1pt); }  /* 생약제제 검색 안내문만 1pt 작게, 입력한 검색어는 원래 크기 */
+  .search-box input::placeholder { font-size: calc(1.05rem - 1pt); }  /* 세 검색칸의 안내문은 1pt 작게(같은 크기), 입력한 검색어는 원래 크기 */
   .combo-toggle {
     position: absolute;
     right: 6px;
@@ -319,7 +323,7 @@
   .detail-placeholder {
     height: calc(100vh - 180px);
     min-height: 200px;
-    background: var(--card) url("{{ url_for('static', filename='herb_illustration.svg') }}") no-repeat center bottom / auto 100%;
+    background: var(--card) url("{{ url_for('static', filename='herb_illustration.svg') }}") no-repeat center bottom / contain;
     border: 1px dashed var(--border);
     border-radius: 12px;
   }
@@ -675,17 +679,41 @@
   .left-panel.collapsed .tab-bar { margin-bottom: 0; justify-content: center; }
   .left-panel.collapsed .tab-bar .tab-btn { display: none; }
   .left-panel.collapsed .tab-panel { display: none; }
+
+  /* 접힌 상태에서 ▶ 버튼에 마우스를 올리면(peek) 왼쪽 화면이 오른쪽 화면 위로 임시로 펼쳐진다. 접힌 띠의 폭(오른쪽 화면 위치)은 그대로 두고
+     탭 줄과 본문만 접기 전 너비(--peek-width)로 겹쳐 보여 주며, 마우스가 왼쪽 화면을 벗어나면 다시 접힌다. */
+  .left-panel.collapsed.peek { z-index: 60; }
+  .left-panel.collapsed.peek .tab-bar {
+    width: var(--peek-width);
+    box-sizing: border-box;
+    margin-bottom: 0;
+    padding: 0 0 14px;
+    justify-content: flex-start;
+    background: var(--bg);
+  }
+  .left-panel.collapsed.peek .tab-bar .tab-btn { display: block; }
+  /* 펼치기 버튼은 접힌 띠에 있던 자리(맨 왼쪽)에 그대로 두고, 탭 버튼들이 그 오른쪽에 놓인다 */
+  .left-panel.collapsed.peek .tab-bar .collapse-btn { order: -1; position: relative; left: -1.1px; }
+  .left-panel.collapsed.peek .tab-panel.active {
+    display: block;
+    width: var(--peek-width);
+    box-sizing: border-box;
+    padding: 0 0 16px;
+    background: var(--bg);
+    box-shadow: 0 14px 26px rgba(0, 0, 0, 0.16);
+    border-radius: 0 0 12px 12px;
+  }
 </style>
 </head>
 <body>
 <header>
-  <div class="org-badge">
+  <a class="org-badge" href="{{ url_for('index') }}" title="홈페이지로 이동">
     <img src="{{ url_for('static', filename='seoul_logo.png') }}" alt="서울시 휘장">
     <div class="org-name">
       <div>서울시보건환경연구원</div>
       <div>강북농수산물검사소</div>
     </div>
-  </div>
+  </a>
   <div class="header-inner">
     <h1>생약 검색</h1>
     <div class="header-meta">
@@ -706,7 +734,7 @@
 
     <div class="tab-panel active" id="nameTab">
       <div class="search-box">
-        <input type="text" id="searchInput" placeholder="생약명을 입력하거나 목록에서 선택하세요" autocomplete="off">
+        <input type="text" id="searchInput" placeholder="생약명을 입력하거나 목록에서 선택하세요." autocomplete="off">
         <button type="button" class="combo-toggle" id="comboToggle" aria-label="공정서 전체 목록 보기" title="공정서 전체 목록 보기">▾</button>
         <div class="combo-dropdown" id="comboDropdown" style="display:none;"></div>
       </div>
@@ -715,7 +743,7 @@
 
     <div class="tab-panel" id="testTab">
       <div class="search-box">
-        <input type="text" id="testItemInput" placeholder="시험항목을 선택하세요" autocomplete="off" readonly>
+        <input type="text" id="testItemInput" placeholder="시험항목을 선택하세요." autocomplete="off" readonly>
         <button type="button" class="combo-toggle" id="testItemToggle" aria-label="시험항목 목록 보기" title="시험항목 목록 보기">▾</button>
         <div class="combo-dropdown" id="testItemDropdown" style="display:none;"></div>
       </div>
@@ -724,7 +752,7 @@
 
     <div class="tab-panel" id="prepTab">
       <div class="search-box">
-        <input type="text" id="prepInput" placeholder="생약제제명을 입력하거나 목록에서 선택하세요" autocomplete="off">
+        <input type="text" id="prepInput" placeholder="생약제제명을 입력하거나 목록에서 선택하세요." autocomplete="off">
         <button type="button" class="combo-toggle" id="prepToggle" aria-label="생약제제 전체 목록 보기" title="생약제제 전체 목록 보기">▾</button>
         <div class="combo-dropdown" id="prepDropdown" style="display:none;"></div>
       </div>
@@ -854,7 +882,31 @@ function computeInitialLeftWidth(leftPanel) {
   const COLLAPSED_WIDTH = 44 * 0.3;
   let savedWidth = null;
 
+  // 접힌 상태에서 ▶ 에 마우스를 올리면 왼쪽 화면을 임시로 펼치고(peek), 마우스가 왼쪽 화면 밖으로 나가면 다시 접는다.
+  let peekTimer = null;
+  function openPeek() {
+    if (!leftPanel.classList.contains('collapsed')) return;
+    clearTimeout(peekTimer);
+    leftPanel.style.setProperty('--peek-width', savedWidth || '400px');
+    leftPanel.classList.add('peek');
+  }
+  function closePeek() {
+    clearTimeout(peekTimer);
+    leftPanel.classList.remove('peek');
+    closeComboDropdown();
+    closeTestItemDropdown();
+    closePrepDropdown();
+  }
+  collapseBtn.addEventListener('mouseenter', openPeek);
+  leftPanel.addEventListener('mouseenter', () => clearTimeout(peekTimer));
+  leftPanel.addEventListener('mouseleave', () => {
+    if (!leftPanel.classList.contains('peek')) return;
+    peekTimer = setTimeout(closePeek, 120);  // 잠깐 경계를 스쳐도 바로 닫히지 않게
+  });
+
   collapseBtn.addEventListener('click', () => {
+    clearTimeout(peekTimer);
+    leftPanel.classList.remove('peek');
     const collapsed = leftPanel.classList.toggle('collapsed');
     if (collapsed) {
       savedWidth = leftPanel.style.width;
@@ -1617,11 +1669,17 @@ searchInput.addEventListener('mouseup', (ev) => {
 });
 
 // 전체 목록이 펼쳐진 상태에서 검색칸을 누르면 목록을 닫는다(생약제제 검색칸도 같다).
+// 반대로 목록이 닫혀 있을 때는, 이미 커서가 있는 입력칸을 한 번 더 누르면 목록을 연다(처음 눌러 커서를 놓을 때는 열지 않는다).
+let searchWasFocused = false, prepWasFocused = false;
+searchInput.addEventListener('mousedown', () => { searchWasFocused = document.activeElement === searchInput; });
+prepInput.addEventListener('mousedown', () => { prepWasFocused = document.activeElement === prepInput; });
 searchInput.addEventListener('click', () => {
   if (comboDropdown.style.display === 'block') closeComboDropdown();
+  else if (searchWasFocused) openComboDropdown();
 });
 prepInput.addEventListener('click', () => {
   if (prepDropdown.style.display === 'block') closePrepDropdown();
+  else if (prepWasFocused) openPrepDropdown();
 });
 
 searchInput.addEventListener('input', () => {
