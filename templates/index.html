@@ -1548,7 +1548,7 @@ function releaseToggleFocus() {
   if (el && el.classList && el.classList.contains('combo-toggle')) el.blur();
 }
 
-function setupDropdownKeys(dropdown, input, openFn) {
+function setupDropdownKeys(dropdown, input, openFn, closeFn) {
   const rows = () => [...dropdown.querySelectorAll('.result-item')];
   const clearActive = () => dropdown.querySelectorAll('.result-item.kb-active').forEach(el => el.classList.remove('kb-active'));
   const setActive = (el) => {
@@ -1564,6 +1564,11 @@ function setupDropdownKeys(dropdown, input, openFn) {
         ev.preventDefault();
         openFn();
       }
+      return;
+    }
+    if (ev.key === 'Escape') {  // 목록이 열려 있을 때 Esc 로 닫는다
+      ev.preventDefault();
+      closeFn();
       return;
     }
     const list = rows();
@@ -1588,9 +1593,9 @@ function setupDropdownKeys(dropdown, input, openFn) {
     if (row && !row.classList.contains('kb-active')) setActive(row);
   });
 }
-setupDropdownKeys(comboDropdown, searchInput, openComboDropdown);
-setupDropdownKeys(testItemDropdown, testItemInput, openTestItemDropdown);
-setupDropdownKeys(prepDropdown, prepInput, openPrepDropdown);
+setupDropdownKeys(comboDropdown, searchInput, openComboDropdown, closeComboDropdown);
+setupDropdownKeys(testItemDropdown, testItemInput, openTestItemDropdown, closeTestItemDropdown);
+setupDropdownKeys(prepDropdown, prepInput, openPrepDropdown, closePrepDropdown);
 
 detailBox.addEventListener('click', (ev) => {
   const link = ev.target.closest('.ref-link');
