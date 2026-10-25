@@ -109,24 +109,29 @@
       <circle cx="100" cy="226" r="3" fill="#2f6f4f"/>
       <circle cx="156" cy="172" r="3" fill="#2f6f4f"/>
 
-      <!-- 뾰족한 타원형 잎(측맥 포함) -->
-      <g stroke-width="1.8">
-        <path d="M96 232 C74 216 46 220 32 242 C24 262 38 282 66 288 C90 292 108 280 112 260
-                 C114 248 108 238 96 232 Z" fill="#2f6f4f" fill-opacity="0.15"/>
-        <path d="M50 236 L96 278" stroke-width="0.9"/>
-        <path d="M58 240 L66 254" stroke-width="0.7"/>
-        <path d="M68 252 L78 266" stroke-width="0.7"/>
-        <path d="M78 264 L90 276" stroke-width="0.7"/>
-
-        <path d="M154 178 C132 162 104 166 90 188 C82 208 96 228 124 234 C148 238 166 226 170 206
-                 C172 194 166 184 154 178 Z" fill="#2f6f4f" fill-opacity="0.15"/>
-        <path d="M108 182 L154 224" stroke-width="0.9"/>
-        <path d="M116 186 L124 200" stroke-width="0.7"/>
-        <path d="M126 198 L136 212" stroke-width="0.7"/>
-
-        <path d="M198 128 C176 112 148 116 134 138 C126 158 140 178 168 184 C192 188 210 176 214 156
-                 C216 144 210 134 198 128 Z" fill="#2f6f4f" fill-opacity="0.15"/>
-        <path d="M152 132 L198 174" stroke-width="0.9"/>
+      <!-- 일반적인 잎 모양(달걀형, 끝이 뾰족하고 밑은 둥근 잎 + 잎자루, 가운데 주맥과 양쪽 측맥) -->
+      <g stroke-width="1.7">
+        <g transform="translate(100,226) rotate(165)">
+          <path d="M0 0 C6 -18 34 -28 66 -12 C74 -8 80 -3 86 0 C80 3 74 8 66 12 C34 28 6 18 0 0 Z" fill="#2f6f4f" fill-opacity="0.15"/>
+          <path d="M-12 0 L0 0" stroke-width="2"/>
+          <path d="M0 0 C28 -2 58 -1 84 0" stroke-width="1"/>
+          <path d="M12 0 L26 -12 M26 0 L44 -14 M40 0 L58 -12 M54 0 L68 -8" stroke-width="0.7"/>
+          <path d="M12 0 L26 12 M26 0 L44 14 M40 0 L58 12 M54 0 L68 8" stroke-width="0.7"/>
+        </g>
+        <g transform="translate(130,197) rotate(235) scale(0.95)">
+          <path d="M0 0 C6 -18 34 -28 66 -12 C74 -8 80 -3 86 0 C80 3 74 8 66 12 C34 28 6 18 0 0 Z" fill="#2f6f4f" fill-opacity="0.15"/>
+          <path d="M-12 0 L0 0" stroke-width="2"/>
+          <path d="M0 0 C28 -2 58 -1 84 0" stroke-width="1"/>
+          <path d="M12 0 L26 -12 M26 0 L44 -14 M40 0 L58 -12 M54 0 L68 -8" stroke-width="0.7"/>
+          <path d="M12 0 L26 12 M26 0 L44 14 M40 0 L58 12 M54 0 L68 8" stroke-width="0.7"/>
+        </g>
+        <g transform="translate(160,162) rotate(300) scale(1.05)">
+          <path d="M0 0 C6 -18 34 -28 66 -12 C74 -8 80 -3 86 0 C80 3 74 8 66 12 C34 28 6 18 0 0 Z" fill="#2f6f4f" fill-opacity="0.15"/>
+          <path d="M-12 0 L0 0" stroke-width="2"/>
+          <path d="M0 0 C28 -2 58 -1 84 0" stroke-width="1"/>
+          <path d="M12 0 L26 -12 M26 0 L44 -14 M40 0 L58 -12 M54 0 L68 -8" stroke-width="0.7"/>
+          <path d="M12 0 L26 12 M26 0 L44 14 M40 0 L58 12 M54 0 L68 8" stroke-width="0.7"/>
+        </g>
       </g>
 
       <!-- 늘어진 열매송이(작은 꽃자루로 축에 연결) -->
