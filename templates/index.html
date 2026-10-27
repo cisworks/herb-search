@@ -1316,7 +1316,7 @@ function testResultRowHtml(it) {
   const primary = it.name_primary || it.korean_name;
   return `
     <div class="result-item" data-id="${it.id}">
-      <span class="rname">${escapeHtml(primary)}${sourceBadge(it.source_tag, it.part)}</span>
+      <span class="rname">${escapeHtml(primary)}${sourceBadge(it.source_tag, it.part)}${flagBadge(it.flag)}</span>
     </div>
   `;
 }
