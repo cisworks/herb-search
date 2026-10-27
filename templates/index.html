@@ -224,6 +224,19 @@
     line-height: 1.5;
     vertical-align: middle;
   }
+  .flag-badge {  /* 생약명 오른쪽의 식약공용/독성주의 표시 */
+    display: inline-block;
+    font-size: 0.68rem;
+    font-weight: 700;
+    padding: 0 5px;
+    border-radius: 3px;
+    margin-left: 6px;
+    line-height: 1.5;
+    vertical-align: middle;
+    white-space: nowrap;
+  }
+  .flag-common { background: #e3f1e8; border: 1.5px solid #3a8a5c; color: #25663f; }
+  .flag-toxic { background: #fbe6e3; border: 1.5px solid #c0392b; color: #a0281c; }
   .source-part {  /* 생약제제: KP/KHP 배지 오른쪽의 "각조 제2부" 같은 파일 구분 */
     margin-left: 4px;
     font-size: 0.72rem;
@@ -1095,7 +1108,7 @@ function comboRowHtml(it) {
   const primary = it.name_primary || it.korean_name;
   return `
     <div class="result-item" data-id="${it.id}">
-      <span class="rname">${escapeHtml(primary)}${sourceBadge(it.source_tag, it.part)}</span>
+      <span class="rname">${escapeHtml(primary)}${sourceBadge(it.source_tag, it.part)}${flagBadge(it.flag)}</span>
     </div>
   `;
 }
@@ -1744,7 +1757,7 @@ function resultRowHtml(it) {
   const primary = it.name_primary || it.korean_name;
   return `
     <div class="result-item" data-id="${it.id}">
-      <span class="rname">${escapeHtml(primary)}${sourceBadge(it.source_tag, it.part)}</span>
+      <span class="rname">${escapeHtml(primary)}${sourceBadge(it.source_tag, it.part)}${flagBadge(it.flag)}</span>
     </div>
   `;
 }
@@ -1963,7 +1976,7 @@ async function showDetail(id, filterItem, opts = {}) {
   detailBox.innerHTML = `
     <div class="detail-header">
       <div class="detail-title-row">
-        <h2>${renderName(item)}${sourceBadge(item.source_tag, item.part)}</h2>
+        <h2>${renderName(item)}${sourceBadge(item.source_tag, item.part)}${flagBadge(item.flag)}</h2>
         <div class="detail-title-actions">
           ${linkButtonHtml('사진정보', item.photo_links, '국가생약정보 사진(왼쪽)과 관능검사해설서 사진(오른쪽) 보기')}
           ${linkButtonHtml('적응증', item.indication_links, '국가생약정보의 채취 및 가공, 적응증(효능/효과), 용법용량, 저장 보기')}
@@ -2167,6 +2180,13 @@ function renderName(it) {
 function sourceBadge(tag, part) {
   if (!tag) return '';
   return `<span class="source-badge">${escapeHtml(tag)}</span>` + (part ? `<span class="source-part">${escapeHtml(part)}</span>` : '');
+}
+
+// 식약공용/독성주의 표시(식약공용독성주의.xlsx 기준, 서버가 flag 로 내려 준다).
+function flagBadge(flag) {
+  if (flag === '식약공용') return '<span class="flag-badge flag-common">식약공용</span>';
+  if (flag === '독성주의') return '<span class="flag-badge flag-toxic">독성주의</span>';
+  return '';
 }
 
 function escapeHtml(str) {

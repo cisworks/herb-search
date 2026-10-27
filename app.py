@@ -650,8 +650,20 @@ def ingredient_links(name_only, hanja=""):
     return [{"origin": "", "url": NIFDS_INGREDIENT_URL.format(q=quote(key))}]
 
 
+# 식약공용독성주의.xlsx 의 "생약명 -> 식약공용/독성주의"(herb_flags.json). 공정서 생약에만 표시한다.
+HERB_FLAGS = _load_json_map("herb_flags.json")
+
+
+def herb_flag(e):
+    if e.get("kind", "official") != "official":
+        return ""
+    name = e["name_only"]
+    return HERB_FLAGS.get(name) or HERB_FLAGS.get((name.split() or [""])[0], "")  # "사프란 번홍화"는 첫 단어로 찾는다
+
+
 def summary(e):
     return {
+        "flag": herb_flag(e),
         "id": e["id"],
         "kind": e.get("kind", "official"),
         "korean_name": e["korean_name"],
@@ -896,6 +908,7 @@ def api_item(item_id):
         {
             "id": e["id"],
             "kind": "official",
+            "flag": herb_flag(e),
             "korean_name": e["korean_name"],
             "name_primary": e.get("name_primary", ""),
             "synonym_name": e.get("synonym_name", ""),
