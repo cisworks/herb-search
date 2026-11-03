@@ -732,13 +732,25 @@
 
   /* ===== 모바일(화면 폭 860px 이하) 보정: 위쪽 규칙들보다 뒤에 두어 같은 우선순위에서 이기게 한다. PC 폭에서는 적용되지 않는다. ===== */
   .pdf-open-link { display: none; }  /* "PDF 새 창으로 열기": 모바일에서만 보인다 */
+  .cite-short { display: none; }  /* 안내 문구의 짧은 공정서 이름: 모바일에서만 보인다 */
+  .org-short { display: none; }  /* 기관명의 짧은 두 줄: 모바일에서만 보인다 */
   @media (max-width: 860px) {
     /* 1) 헤더: 로고/기관명이 제목·안내 문구와 겹치지 않게 맨 위 가운데 한 줄로 올린다 */
-    header { padding: 10px 12px 8px; }
-    .org-badge { position: static; transform: none; justify-content: center; margin: 0 0 8px; }
-    header h1 { font-size: 1.3rem; }
+    header { padding: 10px 12px 8px; display: flex; flex-wrap: wrap; justify-content: center; align-items: center; }
+    .header-inner { display: contents; }  /* h1 과 안내 문구가 header 의 줄 배치에 직접 참여한다 */
+    /* 로고와 기관명은 화면 왼쪽에 붙이고(위쪽 줄), 글자 크기는 20% 줄인다(34px -> 27.2px, 0.72rem -> 0.576rem) */
+    .org-badge { position: absolute; left: 10px; top: 10px; transform: none; gap: 6.4px; margin: 0; }
+    .org-badge img { width: 1.5552rem; height: 1.5552rem; }  /* 기관명 두 줄 높이(0.576rem x 줄높이 1.35 x 2)에 맞춘다 */
+    .org-badge .org-name { font-size: 0.576rem; }
+    .org-full { display: none; }
+    .org-short { display: block; }  /* 첫줄 '강북농수산물', 둘째줄 '검사소' */
+    header h1 { flex: 0 0 100%; text-align: center; font-size: 1.3rem; margin: 0; }  /* '생약 검색'은 화면 가운데 */
+    .header-meta { flex: 0 0 100%; margin-top: 6px; }
     .header-meta p { font-size: 0.8rem; }
     .header-meta p.header-cite { font-size: 0.68rem; }
+    /* 2) 긴 공정서 이름을 짧게 */
+    .cite-full { display: none; }
+    .cite-short { display: inline; }
 
     /* 2) 생약명/영문명/라틴명 위, 버튼 묶음 아래로 쌓는다(이름이 한 글자씩 줄바꿈되지 않게) */
     .detail { padding: 16px; }
@@ -747,9 +759,15 @@
       grid-column: 1;
       grid-row: auto;
       margin-top: 10px;
-      justify-items: start;
-      grid-template-columns: repeat(auto-fill, 5rem);
+      justify-items: stretch;
+      grid-template-columns: repeat(4, minmax(0, 1fr));  /* 버튼을 가로 4열로(칸 폭에 맞춰 늘어난다) */
+      gap: 4px;
+      width: 100%;
+      max-width: 26rem;
     }
+    .detail-title-actions .link-btn,
+    .detail-title-actions .link-menu { width: 100%; }
+    .detail-title-actions .link-btn { font-size: 0.62rem; }  /* 4열 칸(약 74px)에 "생약감별자료집"이 들어가게 */
 
     /* 4) 접기 버튼은 모바일에서 쓰지 않는다. PC에서 접은 채 창을 좁혀도 갇히지 않게 접힌 모양도 풀어 둔다 */
     .collapse-btn { display: none; }
@@ -775,6 +793,11 @@
     .sensory-frame { flex: 1 1 auto; min-height: 0; height: auto; }
   }
 
+  @media (max-width: 370px) {
+    /* 아주 좁은 화면: 왼쪽 로고가 가운데 제목('생약 검색')과 겹치지 않게 제목 위 줄 왼쪽에 둔다 */
+    .org-badge { position: static; flex: 0 0 100%; margin-bottom: 4px; }
+  }
+
   /* 6) 손가락으로 누르는 화면(pointer: coarse)에서만 작은 버튼의 누르는 영역을 키운다. 마우스를 쓰는 PC에는 적용되지 않는다 */
   @media (pointer: coarse) {
     .link-btn { padding: 10px 0; }  /* 글자 크기는 그대로(5rem 폭에 "생약감별자료집"이 들어가야 한다), 누르는 높이만 키운다 */
@@ -792,15 +815,17 @@
   <a class="org-badge" href="{{ url_for('index') }}" title="홈페이지로 이동">
     <img src="{{ url_for('static', filename='seoul_logo.png') }}" alt="서울시 휘장">
     <div class="org-name">
-      <div>서울시보건환경연구원</div>
-      <div>강북농수산물검사소</div>
+      <div class="org-full">서울시보건환경연구원</div>
+      <div class="org-full">강북농수산물검사소</div>
+      <div class="org-short">강북농수산물</div>
+      <div class="org-short">검사소</div>
     </div>
   </a>
   <div class="header-inner">
     <h1>생약 검색</h1>
     <div class="header-meta">
       <p>공정서 {{ total_count }}품목, 관능검사해설서 {{ sensory_count }}품목</p>
-      <p class="header-cite">대한민국약전 의약품 각조 제2부(제2026-44호, 2026. 6. 29.) │ 대한민국약전외한약(생약)규격집 의약품 각조 제1부(제2026-68호, 2026. 9. 30.)</p>
+      <p class="header-cite"><span class="cite-full">대한민국약전 의약품 각조 제2부</span><span class="cite-short">대한약전</span>(제2026-44호, 2026. 6. 29.) │ <span class="cite-full">대한민국약전외한약(생약)규격집</span><span class="cite-short">생약규격집</span><span class="cite-full"> 의약품 각조 제1부</span>(제2026-68호, 2026. 9. 30.)</p>
     </div>
   </div>
 </header>
