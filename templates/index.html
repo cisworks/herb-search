@@ -767,7 +767,14 @@
     }
     .detail-title-actions .link-btn,
     .detail-title-actions .link-menu { width: 100%; }
-    .detail-title-actions .link-btn { font-size: 0.62rem; }  /* 4열 칸(약 74px)에 "생약감별자료집"이 들어가게 */
+    /* 버튼 글자는 가장 긴 라벨("생약감별자료집", 7글자 = 7em)이 4열 칸에 딱 들어가는 최대 크기로 한다:
+       칸 폭 = (버튼 묶음 폭 - 간격 12px) / 4, 글자 크기 = 칸 폭 / 7 (0.3px 여유). 버튼 묶음 폭은 min(26rem, 내용 폭).
+       기본값은 화면 폭(vw)으로 근사하고, 컨테이너 단위(cqw)를 지원하는 브라우저는 실제 내용 폭으로 계산한다 */
+    .detail-title-actions .link-btn { font-size: calc((min(26rem, 100vw - 66px) - 12px) / 28 - 0.3px); }
+    @supports (width: 1cqw) {
+      .detail-header:has(.detail-title-actions) { container-type: inline-size; }
+      .detail-title-actions .link-btn { font-size: calc((min(26rem, 100cqw) - 12px) / 28 - 0.3px); }
+    }
 
     /* 4) 접기 버튼은 모바일에서 쓰지 않는다. PC에서 접은 채 창을 좁혀도 갇히지 않게 접힌 모양도 풀어 둔다 */
     .collapse-btn { display: none; }
@@ -776,6 +783,13 @@
     .left-panel.collapsed .tab-bar .tab-btn { display: block; }
     .left-panel.collapsed .tab-panel.active { display: block; }
     .tab-bar { flex-wrap: wrap; }
+    /* 탭 버튼('생약 검색', '시험항목 검색', '생약제제 검색') 글자를 검색칸 글자(1.05rem)와 같은 크기로. 가장 긴 라벨(약 5.8em)이
+       탭 칸에 안 들어가는 좁은 화면에서는 칸 폭에 맞춰 줄인다(칸 폭 = (화면 폭 - 좌우 여백 32px - 간격 12px) / 3, 안쪽 여백 4px + 테두리 4px) */
+    .tab-bar .tab-btn {
+      padding-left: 2px;
+      padding-right: 2px;
+      font-size: min(1.05rem, calc(((100vw - 44px) / 3 - 8px) / 5.9));
+    }
 
     /* 5) 관능검사해설서 PDF: 브라우저 내장 PDF 뷰어가 약한 모바일을 위해 새 창으로 여는 링크를 위에 둔다 */
     .detail.sensory-mode.show { display: flex; flex-direction: column; }
