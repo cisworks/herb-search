@@ -729,6 +729,62 @@
     box-shadow: 0 14px 26px rgba(0, 0, 0, 0.16);
     border-radius: 0 0 12px 12px;
   }
+
+  /* ===== 모바일(화면 폭 860px 이하) 보정: 위쪽 규칙들보다 뒤에 두어 같은 우선순위에서 이기게 한다. PC 폭에서는 적용되지 않는다. ===== */
+  .pdf-open-link { display: none; }  /* "PDF 새 창으로 열기": 모바일에서만 보인다 */
+  @media (max-width: 860px) {
+    /* 1) 헤더: 로고/기관명이 제목·안내 문구와 겹치지 않게 맨 위 가운데 한 줄로 올린다 */
+    header { padding: 10px 12px 8px; }
+    .org-badge { position: static; transform: none; justify-content: center; margin: 0 0 8px; }
+    header h1 { font-size: 1.3rem; }
+    .header-meta p { font-size: 0.8rem; }
+    .header-meta p.header-cite { font-size: 0.68rem; }
+
+    /* 2) 생약명/영문명/라틴명 위, 버튼 묶음 아래로 쌓는다(이름이 한 글자씩 줄바꿈되지 않게) */
+    .detail { padding: 16px; }
+    .detail-header:has(.detail-title-actions) { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; }
+    .detail-header:has(.detail-title-actions) .detail-title-actions {
+      grid-column: 1;
+      grid-row: auto;
+      margin-top: 10px;
+      justify-items: start;
+      grid-template-columns: repeat(auto-fill, 5rem);
+    }
+
+    /* 4) 접기 버튼은 모바일에서 쓰지 않는다. PC에서 접은 채 창을 좁혀도 갇히지 않게 접힌 모양도 풀어 둔다 */
+    .collapse-btn { display: none; }
+    .left-panel.collapsed { width: 100% !important; }
+    .left-panel.collapsed .tab-bar { margin-bottom: 14px; justify-content: flex-start; }
+    .left-panel.collapsed .tab-bar .tab-btn { display: block; }
+    .left-panel.collapsed .tab-panel.active { display: block; }
+    .tab-bar { flex-wrap: wrap; }
+
+    /* 5) 관능검사해설서 PDF: 브라우저 내장 PDF 뷰어가 약한 모바일을 위해 새 창으로 여는 링크를 위에 둔다 */
+    .detail.sensory-mode.show { display: flex; flex-direction: column; }
+    .pdf-open-link {
+      display: block;
+      flex: 0 0 auto;
+      padding: 10px 14px;
+      text-align: center;
+      font-size: 0.9rem;
+      font-weight: 600;
+      color: #fff;
+      background: var(--main);
+      text-decoration: none;
+    }
+    .sensory-frame { flex: 1 1 auto; min-height: 0; height: auto; }
+  }
+
+  /* 6) 손가락으로 누르는 화면(pointer: coarse)에서만 작은 버튼의 누르는 영역을 키운다. 마우스를 쓰는 PC에는 적용되지 않는다 */
+  @media (pointer: coarse) {
+    .link-btn { padding: 10px 0; }  /* 글자 크기는 그대로(5rem 폭에 "생약감별자료집"이 들어가야 한다), 누르는 높이만 키운다 */
+    .link-menu-list a { padding: 12px 14px; }
+    .section .toggle-icon { width: 26px; height: 26px; font-size: 0.95rem; }
+    .section .section-header .label { padding: 8px 12px; }
+    .tm-btn { padding: 6px 8px; font-size: 0.78rem; }
+    .combo-toggle { width: 40px; height: 40px; right: 2px; }
+    .tab-btn { padding: 13px 4px; }
+  }
 </style>
 </head>
 <body>
@@ -2100,6 +2156,7 @@ function showSensoryDetail(item, opts = {}) {
   detailBox.style.marginRight = '';
   detailBox.classList.add('sensory-mode');
   detailBox.innerHTML = `
+    <a class="pdf-open-link" href="${pdfUrl}" target="_blank" rel="noopener">PDF 새 창으로 열기</a>
     <iframe class="sensory-frame" src="${pdfUrl}" title="${escapeHtml(item.korean_name)} 원본 페이지"></iframe>
   `;
   _showDetailBox();
@@ -2108,7 +2165,12 @@ function showSensoryDetail(item, opts = {}) {
 function _showDetailBox() {
   detailBox.classList.add('show');
   detailPlaceholder.classList.add('hide');
-  window.scrollTo({ top: 0, behavior: 'smooth' });
+  if (window.matchMedia('(max-width: 860px)').matches) {
+    // 모바일(세로 배치)에서는 내용이 검색칸/목록 아래에 있으므로 내용이 시작되는 곳으로 스크롤한다
+    document.getElementById('detailWrap').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  } else {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
   positionDetailResizer();
 }
 
