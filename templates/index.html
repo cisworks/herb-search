@@ -784,9 +784,14 @@
     }
     .detail-title-actions .link-btn.link-btn-long { font-size: var(--fs-fit); }
 
-    /* 3) 검색결과: 카드 사이 간격을 30% 줄이고(48px -> 33.6px), 생약명 한 줄의 세로폭을 10% 줄인다(약 46px -> 41.4px: 위아래 여백 12px -> 9.7px) */
-    .results { gap: 33.6px; }
-    .result-item { padding-top: 9.7px; padding-bottom: 9.7px; }
+    /* 3) 검색결과 간격(원래 값에서 차례로 줄인 값):
+       - 카드 사이: 48px -> 33.6px(-30%) -> 23.5px(-30%)
+       - 생약명 한 줄 세로폭: 약 46px -> 41.4px(-10%) -> 35.2px(-15%), 위아래 여백 12px -> 9.7px -> 6.6px
+       - 검색칸과 첫 카드 사이: 48px -> 24px(-50%)
+       - 마지막 카드와 생약 상세 화면 사이: 44px -> 22px(-50%) (카드 아래 여백 24px -> 12px, 왼쪽/오른쪽 화면 사이 간격 20px -> 10px) */
+    .results { gap: 23.5px; margin-top: 24px; margin-bottom: 12px; }
+    .result-item { padding-top: 6.6px; padding-bottom: 6.6px; }
+    .wrap { gap: 10px; }
 
     /* 4) 접기 버튼은 모바일에서 쓰지 않는다. PC에서 접은 채 창을 좁혀도 갇히지 않게 접힌 모양도 풀어 둔다 */
     .collapse-btn { display: none; }
