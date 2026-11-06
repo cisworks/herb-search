@@ -630,7 +630,12 @@
     border: none;
     cursor: pointer;
   }
-  .tm-dialog-body { padding: 14px 18px 20px; overflow-y: auto; font-size: 0.92rem; }
+  .tm-dialog-body { padding: 14px 18px 20px; overflow-y: auto; font-size: 0.92rem; overscroll-behavior: contain; }
+  .tm-modal { overscroll-behavior: contain; }
+  .tm-backdrop { touch-action: none; }  /* 창 바깥을 문질러도 뒤 화면이 움직이지 않게 한다 */
+  @media (pointer: coarse) {
+    html.tm-open, html.tm-open body { overflow: hidden; }  /* 터치 화면에서는 창이 열려 있는 동안 뒤 화면을 고정한다 */
+  }
   .tm-node { margin: 8px 0; }
   .tm-node .tm-node { margin-left: 1.3rem; padding-left: 0.7rem; border-left: 2px solid #e3ebe1; }
   .tm-head, .tm-body { line-height: 1.75; }
@@ -2343,12 +2348,32 @@ async function openTestMethod(key) {
   tmBody.scrollTop = 0;
   setTmOffset(0, 0);  // 지난번에 옮겼더라도 열 때는 가운데에서 시작
   tmModal.hidden = false;
+  document.documentElement.classList.add('tm-open');
 }
 
 function closeTestMethod() {
   tmModal.hidden = true;
   tmBody.innerHTML = '';
+  document.documentElement.classList.remove('tm-open');
 }
+
+// 모바일: 생약시험법 창 안쪽에서만 스크롤되게 한다. 창 바깥이나 제목줄을 문지르는 터치, 그리고 창 내용이
+// 맨 위/맨 아래에 닿은 뒤에도 계속 미는 터치는 막아서 뒤 화면으로 스크롤이 넘어가지 않게 한다.
+let tmTouch = { x: 0, y: 0 };
+tmModal.addEventListener('touchstart', (ev) => {
+  if (ev.touches.length === 1) tmTouch = { x: ev.touches[0].clientX, y: ev.touches[0].clientY };
+}, { passive: true });
+tmModal.addEventListener('touchmove', (ev) => {
+  if (ev.touches.length !== 1) return;
+  const t = ev.touches[0];
+  const dx = t.clientX - tmTouch.x, dy = t.clientY - tmTouch.y;
+  tmTouch = { x: t.clientX, y: t.clientY };
+  if (!ev.target.closest('#tmBody')) { ev.preventDefault(); return; }
+  if (Math.abs(dy) <= Math.abs(dx)) return;  // 표를 옆으로 미는 터치는 그대로 둔다
+  const atTop = tmBody.scrollTop <= 0;
+  const atBottom = tmBody.scrollTop + tmBody.clientHeight >= tmBody.scrollHeight - 1;
+  if ((dy > 0 && atTop) || (dy < 0 && atBottom)) ev.preventDefault();
+}, { passive: false });
 
 // 제목줄을 마우스(또는 터치)로 끌어 창을 옮긴다. 창 위치는 transform 으로 옮기고, 창이 화면
 // 밖으로 완전히 나가 제목줄을 잡을 수 없게 되지 않도록 화면 안에 가둔다. 새로 열 때마다
