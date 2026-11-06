@@ -775,11 +775,14 @@
     /* 버튼 글자는 가장 긴 라벨("생약감별자료집", 7글자 = 7em)이 4열 칸에 딱 들어가는 최대 크기로 한다:
        칸 폭 = (버튼 묶음 폭 - 간격 12px) / 4, 글자 크기 = 칸 폭 / 7 (0.3px 여유). 버튼 묶음 폭은 min(26rem, 내용 폭).
        기본값은 화면 폭(vw)으로 근사하고, 컨테이너 단위(cqw)를 지원하는 브라우저는 실제 내용 폭으로 계산한다 */
-    .detail-title-actions .link-btn { font-size: calc((min(26rem, 100vw - 66px) - 12px) / 28 - 0.3px); }
+    /* 7글자 라벨("품질표준화연구", "생약감별자료집": .link-btn-long)은 칸에 딱 맞는 크기 그대로 두고, 나머지 버튼은 한 단계(1pt) 키운다
+       (6글자 이하는 1pt를 키워도 칸에 들어간다). */
+    .detail-title-actions .link-btn { --fs-fit: calc((min(26rem, 100vw - 66px) - 12px) / 28 - 0.3px); font-size: calc(var(--fs-fit) + 1pt); }
     @supports (width: 1cqw) {
       .detail-header:has(.detail-title-actions) { container-type: inline-size; }
-      .detail-title-actions .link-btn { font-size: calc((min(26rem, 100cqw) - 12px) / 28 - 0.3px); }
+      .detail-title-actions .link-btn { --fs-fit: calc((min(26rem, 100cqw) - 12px) / 28 - 0.3px); }
     }
+    .detail-title-actions .link-btn.link-btn-long { font-size: var(--fs-fit); }
 
     /* 4) 접기 버튼은 모바일에서 쓰지 않는다. PC에서 접은 채 창을 좁혀도 갇히지 않게 접힌 모양도 풀어 둔다 */
     .collapse-btn { display: none; }
@@ -2097,7 +2100,7 @@ async function showDetail(id, filterItem, opts = {}) {
           ${linkButtonHtml('HPTLC', item.hptlc_links)}
           ${linkButtonHtml('HPLC', item.hplc_links)}
           ${linkButtonHtml('성분정보', item.ingredient_links)}
-          ${item.gene_case ? '<button type="button" class="link-btn gene-case-btn" title="유전자 기원 감별 정보자료집의 해당 생약 사례 보기">유전자감별사례</button>' : ''}
+          ${item.gene_case ? '<button type="button" class="link-btn link-btn-long gene-case-btn" title="유전자 기원 감별 정보자료집의 해당 생약 사례 보기">유전자감별사례</button>' : ''}
           ${linkButtonHtml('생약감별자료집', item.dscrm_links)}
           ${linkButtonHtml('표본정보', item.specimen_links)}
           ${linkButtonHtml('품질표준화연구', item.crshm_links)}
@@ -2143,8 +2146,9 @@ async function showDetail(id, filterItem, opts = {}) {
 function linkButtonHtml(label, links, title = '국가생약정보 사이트에서 열기') {
   if (!links || !links.length) return '';
   const attrs = 'target="_blank" rel="noopener noreferrer"';
+  const long = label.length >= 7 ? ' link-btn-long' : '';  // 모바일에서 글자 크기를 키우지 않는 7글자 라벨
   if (links.length === 1) {
-    return `<a class="link-btn" href="${escapeHtml(links[0].url)}" ${attrs} title="${escapeHtml(title)}">${escapeHtml(label)}</a>`;
+    return `<a class="link-btn${long}" href="${escapeHtml(links[0].url)}" ${attrs} title="${escapeHtml(title)}">${escapeHtml(label)}</a>`;
   }
   // 기원종 이름이 비었거나("-" 포함) 같은 이름이 여러 번 나오면 번호를 붙여 구분한다.
   const names = links.map((l, i) => (l.origin && l.origin !== '-' ? l.origin : `기원종 ${i + 1}`));
@@ -2154,7 +2158,7 @@ function linkButtonHtml(label, links, title = '국가생약정보 사이트에�
   }).join('');
   return `
     <div class="link-menu">
-      <button type="button" class="link-btn" aria-haspopup="true" aria-expanded="false" title="기원종을 고르면 국가생약정보 사이트가 열립니다">${escapeHtml(label)} ▾</button>
+      <button type="button" class="link-btn${long}" aria-haspopup="true" aria-expanded="false" title="기원종을 고르면 국가생약정보 사이트가 열립니다">${escapeHtml(label)} ▾</button>
       <div class="link-menu-list">${items}</div>
     </div>
   `;
