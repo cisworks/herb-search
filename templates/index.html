@@ -792,6 +792,9 @@
     .results { gap: 23.5px; margin-top: 24px; margin-bottom: 12px; }
     .result-item { padding-top: 6.6px; padding-bottom: 6.6px; }
     .wrap { gap: 10px; }
+    /* 카드 안의 '검색 결과가 없습니다.' 칸도 15% 줄인다(위아래 여백: 왼쪽 정렬 12px -> 8.8px, 가운데 정렬 20px -> 15.6px) */
+    .result-group .empty-msg { padding-top: 15.6px; padding-bottom: 15.6px; }
+    .result-group .empty-msg.left { padding-top: 8.8px; padding-bottom: 8.8px; }
 
     /* 4) 접기 버튼은 모바일에서 쓰지 않는다. PC에서 접은 채 창을 좁혀도 갇히지 않게 접힌 모양도 풀어 둔다 */
     .collapse-btn { display: none; }
@@ -1617,6 +1620,7 @@ prepInput.addEventListener('keydown', async (ev) => {
   clearTimeout(prepTimer);
   const q = prepInput.value.trim();
   if (!q) return;
+  dismissKeyboard(prepInput);
   const items = await doPrepSearch(q);
   prepDone = true;
   if (items.length) showDetail(items[0].id);
@@ -1732,6 +1736,11 @@ document.addEventListener('click', (ev) => {
 const pointerPos = { x: -1, y: -1 };
 document.addEventListener('mousemove', (ev) => { pointerPos.x = ev.clientX; pointerPos.y = ev.clientY; });
 
+// 터치 화면(모바일)에서 검색칸에서 Enter 로 검색하면 화면 키보드가 내려가도록 입력칸의 포커스를 푼다.
+function dismissKeyboard(input) {
+  if (window.matchMedia('(pointer: coarse)').matches) input.blur();
+}
+
 // 항목을 고르면 목록을 열었던 ▾ 버튼이 선택(포커스) 표시로 남지 않게 한다.
 function releaseToggleFocus() {
   const el = document.activeElement;
@@ -1839,6 +1848,7 @@ searchInput.addEventListener('keydown', async (ev) => {
   clearTimeout(debounceTimer);
   const q = searchInput.value.trim();
   if (!q) return;
+  dismissKeyboard(searchInput);
   const data = await doSearch(q);
   searchDone = true;
   const first = data.official[0] || data.sensory[0];
