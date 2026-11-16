@@ -78,9 +78,11 @@
        fitLeftPanelHeight가 창 크기/스크롤에 맞춰 계속 계산해 넣는다). */
     overflow-y: auto;
     overflow-x: hidden;
-    scrollbar-width: thin;
+    /* 스크롤바는 보이지 않게 한다(휠/터치로는 그대로 스크롤된다). 스크롤바가 생겼다 사라지면서
+       탭 버튼과 검색칸의 가로 폭이 변하는 일이 없게 한다. */
+    scrollbar-width: none;
   }
-  .left-panel.has-scroll { padding-right: 5px; }
+  .left-panel::-webkit-scrollbar { display: none; }
   .left-panel.dropdown-open { overflow: visible; }
   .right-panel {
     flex: 1 1 0;
