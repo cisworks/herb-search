@@ -1100,7 +1100,9 @@ function positionDetailResizer() {
   if (!detailWrap || !resizerLeft || !resizerRight || !detailBox) return;
 
   let dragging = false;
+  let moved = false;
   let centerX = 0;
+  let saved = null;  // 누르기 전 인라인 스타일(움직이지 않고 놓으면 원래대로 되돌린다)
 
   function clampWidth(w) {
     const min = 400;
@@ -1110,6 +1112,7 @@ function positionDetailResizer() {
 
   function onMouseMove(e) {
     if (!dragging) return;
+    moved = true;
     detailBox.style.width = clampWidth(2 * Math.abs(e.clientX - centerX)) + 'px';
     positionDetailResizer();
   }
@@ -1117,6 +1120,14 @@ function positionDetailResizer() {
   function onMouseUp() {
     if (!dragging) return;
     dragging = false;
+    if (!moved && saved) {
+      // 끌지 않고 놓았으면 누르기 전 상태로 되돌린다(폭이 고정값으로 남지 않게)
+      detailBox.style.width = saved.width;
+      detailBox.style.maxWidth = saved.maxWidth;
+      detailBox.style.marginLeft = saved.marginLeft;
+      detailBox.style.marginRight = saved.marginRight;
+      positionDetailResizer();
+    }
     resizerLeft.classList.remove('dragging');
     resizerRight.classList.remove('dragging');
     document.body.style.userSelect = '';
@@ -1126,8 +1137,18 @@ function positionDetailResizer() {
   function startDrag(resizerEl) {
     return (e) => {
       dragging = true;
+      moved = false;
       const rect = detailBox.getBoundingClientRect();
       centerX = rect.left + rect.width / 2;
+      saved = {
+        width: detailBox.style.width,
+        maxWidth: detailBox.style.maxWidth,
+        marginLeft: detailBox.style.marginLeft,
+        marginRight: detailBox.style.marginRight,
+      };
+      // max-width(900px)를 풀기 전에 지금 폭을 먼저 고정한다. 그러지 않으면 최대 폭에 걸려 있던 설명창이 오른쪽
+      // 화면 전체 폭으로 순간 넓어졌다가 첫 마우스 이동에서 되돌아와 화면이 깜빡인다.
+      detailBox.style.width = rect.width + 'px';
       detailBox.style.maxWidth = 'none';
       detailBox.style.marginLeft = 'auto';
       detailBox.style.marginRight = 'auto';
