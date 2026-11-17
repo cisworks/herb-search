@@ -335,6 +335,21 @@
   .detail-resizer.dragging::after {
     background: var(--main);
   }
+  /* 너비를 끄는 동안 마우스 옆에 뜨는 퍼센트 풍선("100%", "+120%", "-90%"). 모서리에 마우스를 올리면 뜨는
+     "끌어서 너비 조절" 안내 풍선(브라우저 기본 title 풍선)과 비슷한 작은 크기 */
+  .detail-width-tip {
+    display: none;
+    position: fixed;
+    z-index: 1000;
+    padding: 2px 6px;
+    border: 1px solid #767676;
+    background: #fff;
+    color: #111;
+    font: 12px/1.4 "Segoe UI", "Malgun Gothic", system-ui, sans-serif;
+    pointer-events: none;
+    white-space: nowrap;
+    box-shadow: 1px 1px 3px rgba(0, 0, 0, 0.18);
+  }
   .detail-placeholder {
     height: calc(100vh - 180px);
     min-height: 200px;
@@ -945,9 +960,9 @@
   <div class="right-panel">
     <div class="detail-placeholder" id="detailPlaceholder"></div>
     <div class="detail-wrap" id="detailWrap">
-      <div class="detail-resizer" id="detailResizerLeft" title="끌어서 너비 조절"></div>
+      <div class="detail-resizer" id="detailResizerLeft" aria-label="끌어서 너비 조절"></div>
       <div class="detail" id="detail"></div>
-      <div class="detail-resizer" id="detailResizerRight" title="끌어서 너비 조절"></div>
+      <div class="detail-resizer" id="detailResizerRight" aria-label="끌어서 너비 조절"></div>
     </div>
   </div>
 </div>
@@ -1143,7 +1158,74 @@ function positionDetailResizer() {
   let dragging = false;
   let moved = false;
   let centerX = 0;
+  let baseWidth = 900;  // 100%로 보는 기본 너비(끌기 시작할 때 계산)
+  let dragSide = 'right';  // 지금 잡은 모서리('left' | 'right'): 퍼센트 풍선을 모서리 바깥쪽에 띄우는 데 쓴다
   let saved = null;  // 누르기 전 인라인 스타일(움직이지 않고 놓으면 원래대로 되돌린다)
+
+  // 끄는 동안 마우스 옆에 기본 너비(100%) 대비 지금 너비를 퍼센트 숫자만 보여 주는 작은 풍선.
+  // 눌렀을 때 "100%", 기본보다 넓히면 "+120%"처럼 숫자가 커지고, 좁히면 "-90%"처럼 숫자가 작아진다.
+  // 모서리에 마우스를 올리면 뜨는 안내("끌어서 너비 조절") 풍선과 비슷한 크기로 보이게 한다.
+  const widthTip = document.createElement('div');
+  widthTip.className = 'detail-width-tip';
+  widthTip.setAttribute('aria-hidden', 'true');
+  document.body.appendChild(widthTip);
+
+  function showWidthTip(width, e) {
+    const pct = Math.round((width / baseWidth) * 100);
+    widthTip.textContent = pct > 100 ? `+${pct}%` : (pct < 100 ? `-${pct}%` : '100%');
+    widthTip.style.display = 'block';
+    // 잡은 모서리 바깥쪽, 포인터 위에 띄운다: 왼쪽 모서리면 포인터의 왼쪽 위, 오른쪽 모서리면 포인터의 오른쪽 위.
+    // 화면 밖으로 나가지 않게 한다
+    const w = widthTip.offsetWidth, h = widthTip.offsetHeight;
+    const wantLeft = dragSide === 'left' ? e.clientX - 14 - w : e.clientX + 14;
+    const left = Math.min(window.innerWidth - w - 4, Math.max(4, wantLeft));
+    const top = Math.min(window.innerHeight - h - 4, Math.max(4, e.clientY - h - 12));
+    widthTip.style.left = left + 'px';
+    widthTip.style.top = top + 'px';
+  }
+
+  // 모서리에 마우스를 올리면 "끌어서 너비 조절" 안내를 모서리 바깥쪽에 띄운다(왼쪽 모서리는 모서리 왼쪽, 오른쪽 모서리는 오른쪽).
+  // 브라우저 기본 title 풍선은 위치를 정할 수 없어서 같은 모양의 풍선(widthTip)을 쓴다.
+  let hintTimer = null;
+  let hintShown = false;
+  let lastMouse = null;
+
+  function placeHint(side, e) {
+    const w = widthTip.offsetWidth, h = widthTip.offsetHeight;
+    const r = (side === 'left' ? resizerLeft : resizerRight).getBoundingClientRect();
+    const edgeX = r.left + r.width / 2;
+    const wantLeft = side === 'left' ? edgeX - 8 - w : edgeX + 8;
+    widthTip.style.left = Math.min(window.innerWidth - w - 4, Math.max(4, wantLeft)) + 'px';
+    widthTip.style.top = Math.min(window.innerHeight - h - 4, Math.max(4, e.clientY + 18)) + 'px';
+  }
+
+  function showHint(side) {
+    if (dragging || !lastMouse) return;
+    widthTip.textContent = '끌어서 너비 조절';
+    widthTip.style.display = 'block';
+    hintShown = true;
+    placeHint(side, lastMouse);
+  }
+
+  function hideHint() {
+    clearTimeout(hintTimer);
+    if (hintShown && !dragging) widthTip.style.display = 'none';
+    hintShown = false;
+  }
+
+  function bindHint(el, side) {
+    el.addEventListener('mouseenter', (e) => {
+      if (dragging) return;
+      lastMouse = e;
+      clearTimeout(hintTimer);
+      hintTimer = setTimeout(() => showHint(side), 250);  // 기본 안내 풍선처럼 잠깐 머문 뒤에 뜬다
+    });
+    el.addEventListener('mousemove', (e) => {
+      lastMouse = e;
+      if (hintShown && !dragging) placeHint(side, e);
+    });
+    el.addEventListener('mouseleave', hideHint);
+  }
 
   function clampWidth(w) {
     const min = 400;
@@ -1154,13 +1236,16 @@ function positionDetailResizer() {
   function onMouseMove(e) {
     if (!dragging) return;
     moved = true;
-    detailBox.style.width = clampWidth(2 * Math.abs(e.clientX - centerX)) + 'px';
+    const w = clampWidth(2 * Math.abs(e.clientX - centerX));
+    detailBox.style.width = w + 'px';
     positionDetailResizer();
+    showWidthTip(w, e);
   }
 
   function onMouseUp() {
     if (!dragging) return;
     dragging = false;
+    widthTip.style.display = 'none';
     if (!moved && saved) {
       // 끌지 않고 놓았으면 누르기 전 상태로 되돌린다(폭이 고정값으로 남지 않게)
       detailBox.style.width = saved.width;
@@ -1193,6 +1278,11 @@ function positionDetailResizer() {
       detailBox.style.maxWidth = 'none';
       detailBox.style.marginLeft = 'auto';
       detailBox.style.marginRight = 'auto';
+      // 100% = 기본 너비: CSS 의 max-width(900px) 와 오른쪽 화면 폭 중 작은 쪽(손으로 조절하기 전 설명창 너비)
+      baseWidth = Math.min(900, detailWrap.getBoundingClientRect().width);
+      dragSide = resizerEl === resizerLeft ? 'left' : 'right';
+      hideHint();
+      showWidthTip(rect.width, e);
       resizerEl.classList.add('dragging');
       document.body.style.userSelect = 'none';
       document.body.style.cursor = 'ew-resize';
@@ -1200,6 +1290,29 @@ function positionDetailResizer() {
     };
   }
 
+  // 양쪽 모서리를 더블 클릭하면 너비를 기본값(100%)으로 되돌린다: 끌어서 넣어 둔 인라인 너비/여백을 지우면 CSS 기본값
+  // (max-width 900px, 가운데 정렬)이 다시 적용된다. 되돌렸다는 표시로 "100%" 풍선을 잠깐 보여 준다.
+  let resetTipTimer = null;
+  function resetWidth(e) {
+    clearTimeout(hintTimer);
+    hintShown = false;
+    detailBox.style.width = '';
+    detailBox.style.maxWidth = '';
+    detailBox.style.marginLeft = '';
+    detailBox.style.marginRight = '';
+    positionDetailResizer();
+    dragSide = e.currentTarget === resizerLeft ? 'left' : 'right';
+    baseWidth = Math.min(900, detailWrap.getBoundingClientRect().width);
+    showWidthTip(detailBox.getBoundingClientRect().width, e);
+    clearTimeout(resetTipTimer);
+    resetTipTimer = setTimeout(() => { if (!dragging) widthTip.style.display = 'none'; }, 800);
+    e.preventDefault();
+  }
+
+  bindHint(resizerLeft, 'left');
+  bindHint(resizerRight, 'right');
+  resizerLeft.addEventListener('dblclick', resetWidth);
+  resizerRight.addEventListener('dblclick', resetWidth);
   resizerLeft.addEventListener('mousedown', startDrag(resizerLeft));
   resizerRight.addEventListener('mousedown', startDrag(resizerRight));
   document.addEventListener('mousemove', onMouseMove);
