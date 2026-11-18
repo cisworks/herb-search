@@ -908,7 +908,10 @@
     .link-btn { padding: 10px 0; }  /* 글자 크기는 그대로(5rem 폭에 "생약감별자료집"이 들어가야 한다), 누르는 높이만 키운다 */
     .link-menu-list a { padding: 12px 14px; }
     .section .toggle-icon { width: 26px; height: 26px; font-size: 0.95rem; }
-    .section .section-header .label { padding: 8px 12px; }
+    /* 성상/확인시험 등 시험항목 버튼(.label)과 생약명 아래 사진정보 등 버튼(.link-btn)의 세로폭을 같게 한다:
+       둘 다 줄 높이를 18px 로 고정하고 위아래 8px 여백을 둔다(= 34px). 글자 크기가 달라도(.link-btn 은 칸에 맞춰 변한다) 높이는 같다 */
+    .section .section-header .label { padding: 8px 12px; line-height: 18px; }
+    .detail-title-actions .link-btn { padding: 8px 0; line-height: 18px; }
     .tm-btn { padding: 6px 8px; font-size: 0.78rem; }
     .combo-toggle { width: 40px; height: 40px; right: 2px; }
     .tab-btn { padding: 13px 4px; }
