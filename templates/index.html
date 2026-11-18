@@ -418,6 +418,21 @@
     border-radius: 3px;
     cursor: pointer;
   }
+  /* 두 버튼 사이에 현재 글자 크기(%)를 보여 주는 표시부. 버튼과 같은 높이로 가운데 정렬하고, 숫자 폭이 변해도 버튼이 흔들리지 않게 고정 폭을 쓴다 */
+  .detail-zoom-pct {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+    min-width: 34px;
+    height: 20.7px;
+    font-size: 0.68rem;
+    font-weight: 700;
+    line-height: 1;
+    color: var(--main-dark);
+    font-variant-numeric: tabular-nums;
+    user-select: none;
+  }
   .detail-zoom-btn:hover:not(:disabled) { color: #fff; background: var(--main); }
   .detail-zoom-btn:disabled { opacity: 0.4; cursor: default; }
   /* 글자 크기 단계(--detail-zoom, 0.8~1.5)는 헤더(생약명/버튼)를 뺀 내용 전체에 적용한다. 관능검사해설서 PDF 화면은 제외 */
@@ -1290,19 +1305,31 @@ function positionDetailResizer() {
     };
   }
 
-  // 양쪽 모서리를 더블 클릭하면 너비를 기본값(100%)으로 되돌린다: 끌어서 넣어 둔 인라인 너비/여백을 지우면 CSS 기본값
-  // (max-width 900px, 가운데 정렬)이 다시 적용된다. 되돌렸다는 표시로 "100%" 풍선을 잠깐 보여 준다.
+  // 양쪽 모서리 더블 클릭: 가로폭이 100%(기본 폭)이면 오른쪽 화면 가득(최대)으로 넓히고, 100%가 아니거나 이미 최대 폭이면
+  // 100%로 되돌린다(끌어서 넣어 둔 인라인 너비/여백을 지우면 CSS 기본값 max-width 900px, 가운데 정렬이 다시 적용된다).
+  // 바뀐 폭은 "NNN%" 풍선으로 잠깐 보여 준다.
   let resetTipTimer = null;
   function resetWidth(e) {
     clearTimeout(hintTimer);
     hintShown = false;
-    detailBox.style.width = '';
-    detailBox.style.maxWidth = '';
-    detailBox.style.marginLeft = '';
-    detailBox.style.marginRight = '';
+    const wrapW = detailWrap.getBoundingClientRect().width;
+    const curW = detailBox.getBoundingClientRect().width;
+    // 지금 폭이 100%(기본 폭)일 때만 최대화하고, 100%가 아니거나 이미 최대 폭이면 100%로 되돌린다.
+    const isDefault = Math.abs(curW - Math.min(900, wrapW)) <= 1;
+    if (!isDefault) {
+      detailBox.style.width = '';
+      detailBox.style.maxWidth = '';
+      detailBox.style.marginLeft = '';
+      detailBox.style.marginRight = '';
+    } else {
+      detailBox.style.width = wrapW + 'px';
+      detailBox.style.maxWidth = 'none';
+      detailBox.style.marginLeft = 'auto';
+      detailBox.style.marginRight = 'auto';
+    }
     positionDetailResizer();
     dragSide = e.currentTarget === resizerLeft ? 'left' : 'right';
-    baseWidth = Math.min(900, detailWrap.getBoundingClientRect().width);
+    baseWidth = Math.min(900, wrapW);
     showWidthTip(detailBox.getBoundingClientRect().width, e);
     clearTimeout(resetTipTimer);
     resetTipTimer = setTimeout(() => { if (!dragging) widthTip.style.display = 'none'; }, 800);
@@ -2267,12 +2294,23 @@ try {
 function refreshDetailZoomUi() {
   const z = DETAIL_ZOOM_STEPS[detailZoomIdx];
   detailBox.style.setProperty('--detail-zoom', z);
+  detailBox.querySelectorAll('.detail-zoom-pct').forEach(s => { s.textContent = Math.round(z * 100) + '%'; s.title = z === 1 ? '' : '더블 클릭하면 100%로'; });
   detailBox.querySelectorAll('.detail-zoom-btn').forEach(b => {
     const dir = Number(b.dataset.dir);
     b.disabled = (dir < 0 && detailZoomIdx === 0) || (dir > 0 && detailZoomIdx === DETAIL_ZOOM_STEPS.length - 1);
     b.title = `${dir < 0 ? '글자 작게' : '글자 크게'} (현재 ${Math.round(z * 100)}%)`;
   });
 }
+// 글자 크기 표시부(%)를 더블 클릭하면 100%가 아닐 때 기본 크기(100%)로 되돌린다
+detailBox.addEventListener('dblclick', (e) => {
+  if (!e.target.closest('.detail-zoom-pct')) return;
+  const base = DETAIL_ZOOM_STEPS.indexOf(1);
+  if (detailZoomIdx === base) return;
+  detailZoomIdx = base;
+  try { localStorage.setItem('detailZoom', '1'); } catch (err) { /* 저장 실패는 무시 */ }
+  refreshDetailZoomUi();
+  window.getSelection && window.getSelection().removeAllRanges();  // 더블 클릭으로 글자가 선택되어 파랗게 보이는 것을 막는다
+});
 detailBox.addEventListener('click', (e) => {
   const btn = e.target.closest('.detail-zoom-btn');
   if (!btn || btn.disabled) return;
@@ -2317,6 +2355,7 @@ async function showDetail(id, filterItem, opts = {}) {
           <span class="detail-name-gap" aria-hidden="true"></span>
           <div class="detail-zoom" role="group" aria-label="글자 크기">
             <button type="button" class="detail-zoom-btn" data-dir="-1" aria-label="글자 작게">가−</button>
+            <span class="detail-zoom-pct" aria-live="polite">100%</span>
             <button type="button" class="detail-zoom-btn" data-dir="1" aria-label="글자 크게">가+</button>
           </div>
         </div>
