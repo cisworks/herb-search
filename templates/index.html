@@ -138,7 +138,7 @@
     outline: none;
     transition: border-color 0.15s;
   }
-  .search-box input:focus { border-color: var(--main); }
+  /* 검색칸에 커서가 있어도 테두리는 원래 색(--border) 그대로 둔다(탭을 열면 자동으로 커서가 놓이므로 늘 초록 테두리가 되지 않게) */
   .search-box input::placeholder { font-size: calc(1.05rem - 1pt); }  /* 세 검색칸의 안내문은 1pt 작게(같은 크기), 입력한 검색어는 원래 크기 */
   .combo-toggle {
     position: absolute;
