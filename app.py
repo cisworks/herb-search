@@ -46,6 +46,13 @@ PREP_ID_START = 100000  # 생약제제 품목 id 는 생약/관능검사해설�
 METHOD_FILE_NAME = "7. 생규집(확인, 함량).hwpx"
 METHOD_ID_START = 200000
 
+
+def _warn_missing(label, name):
+    """서버를 켤 때 필요한 원본 파일(hwpx/pdf)이 폴더에 없으면 콘솔에 알린다. hwpx/pdf 는 .gitignore 에 있어 git 으로
+    받아지지 않으므로, 새 컴퓨터에서 서버를 켰을 때 목록이 비는 이유를 바로 알 수 있게 한다.
+    예: [경고] 생약제제 파일이 없습니다: 4. 약전(각조 제2부 생약제제).hwpx"""
+    print(f"[경고] {label} 파일이 없습니다: {name}")
+
 app = Flask(__name__)
 
 ENTRIES = []  # 공정서(hwpx)에서 파싱된 생약 목록 (앱 시작 시 1회 로드)
@@ -136,6 +143,8 @@ def load_entries():
         p for p in BASE_DIR.glob("*.hwpx") if p.name not in (TEST_METHOD_FILE, METHOD_FILE_NAME) and p.name not in PREP_FILE_NAMES
     )
     entries = []
+    if not hwpx_files:
+        _warn_missing("공정서(생약)", "*.hwpx (예: 1. 약전(각조 제2부).hwpx, 2. 생규집(각조 제1부).hwpx)")
     for f in hwpx_files:
         try:
             file_entries = parse_hwpx(f)
@@ -174,6 +183,8 @@ def load_sensory_entries(start_id):
     하나의 id 공간으로 조회할 수 있게 한다."""
     pdf_files = sorted(p for p in BASE_DIR.glob("*.pdf") if "사례집" not in p.name)
     entries = []
+    if not pdf_files:
+        _warn_missing("관능검사해설서", "*.pdf (예: 관능검사해설서(2022).pdf)")
     for f in pdf_files:
         try:
             file_entries = build_sensory_entries(f)
@@ -237,6 +248,135 @@ def _prep_base_name(name):
     return re.sub(r"\s*\([^()]*\)\s*$", "", name).strip()
 
 
+_RECIPE_TABLE_RE = re.compile(r'(<table class="orig-table recipe-table">)(.*?)(</table>)', re.S)
+_RECIPE_SEP = ",，、․·ㆍ•∙･"  # 한 칸에 여러 생약을 나열할 때 쓰는 구분자(쉼표, 가운뎃점 여러 모양)
+_RECIPE_SPLIT_RE = re.compile(r"(\s*[" + re.escape(_RECIPE_SEP) + r"]\s*|\s+및\s+)")
+
+
+def _segment_herb_names(compact, name_to_id):
+    """줄바꿈이 사라져 이름이 붙은 글자("산수유우슬")를 알려진 생약 이름 둘 이상으로 정확히 나눈다. 안 나뉘면 None."""
+    n = len(compact)
+    best = [None] * (n + 1)
+    best[0] = []
+    for i in range(n):
+        if best[i] is None:
+            continue
+        for j in range(i + 2, min(n, i + 8) + 1):
+            if compact[i:j] in name_to_id:
+                cand = best[i] + [(i, j)]
+                if best[j] is None or len(cand) < len(best[j]):
+                    best[j] = cand
+    return best[n] if best[n] and len(best[n]) >= 2 else None
+
+
+def _ref_link(text, herb_id):
+    compact = re.sub(r"\s+", "", text)
+    return f'<a href="#" class="ref-link" data-id="{herb_id}" title="{compact} 생약 설명 보기">{text}</a>'
+
+
+def _link_herb_piece(piece, name_to_id):
+    """제법 표 첫 칸에서 쉼표 등으로 나눈 이름 하나(글자 사이 공백이 있을 수 있다: "숙 지 황")에 공정서 생약 링크를 건다."""
+    m = re.match(r"(\s*)(.*?)(\s*)$", piece, re.S)
+    lead, core, trail = m.group(1), m.group(2), m.group(3)
+    chars = [(c, k) for k, c in enumerate(core) if not c.isspace()]
+    compact = "".join(c for c, _ in chars)
+    if not compact:
+        return piece
+    if compact in name_to_id:
+        return lead + _ref_link(core, name_to_id[compact]) + trail
+    seg = _segment_herb_names(compact, name_to_id)
+    if seg is None:
+        return piece
+    out, pos = [], 0
+    for i, j in seg:
+        start, end = chars[i][1], chars[j - 1][1] + 1
+        out.append(core[pos:start])
+        out.append(_ref_link(core[start:end], name_to_id[compact[i:j]]))
+        pos = end
+    out.append(core[pos:])
+    return lead + "".join(out) + trail
+
+
+def _link_recipe_cell(match, name_to_id):
+    head, content, tail = match.group(1), match.group(2), match.group(3)
+    chunks = re.split(r"(<br\s*/?>)", content)  # 줄바꿈(<br>)은 그대로 두고 앞뒤 글을 따로 처리한다
+    if any("<" in c for c in chunks[::2]):  # 첨자 등 다른 표시가 섞인 칸은 건드리지 않는다
+        return match.group(0)
+    for k in range(0, len(chunks), 2):
+        parts = _RECIPE_SPLIT_RE.split(chunks[k])
+        for i in range(0, len(parts), 2):  # 짝수 번째가 이름, 홀수 번째가 구분자
+            parts[i] = _link_herb_piece(parts[i], name_to_id)
+        chunks[k] = "".join(parts)
+    return head + "".join(chunks) + tail
+
+
+_HANGUL_WORD_RE = re.compile(r"[가-힣]+")
+
+
+def _link_amount_text(text, name_to_id):
+    """분량 칸의 글에서 생약 이름에 링크를 건다. "(형개로서 0.88 g)"는 "형개"만, "(또는 건강 0.33 g)"는 "건강"만 건다.
+    낱말이 생약 이름이거나 "이름+로서/으로서"일 때만 걸고, "구아이아콜로서" 같은 생약이 아닌 성분은 그대로 둔다."""
+    def repl(m):
+        w = m.group(0)
+        if w in name_to_id:
+            return _ref_link(w, name_to_id[w])
+        for suf in ("으로서", "로서"):
+            if w.endswith(suf) and w[: -len(suf)] in name_to_id:
+                base = w[: -len(suf)]
+                return _ref_link(base, name_to_id[base]) + suf
+        return w
+
+    return _HANGUL_WORD_RE.sub(repl, text)
+
+
+def _link_amount_cell(match, name_to_id):
+    head, content, tail = match.group(1), match.group(2), match.group(3)
+    chunks = re.split(r"(<br\s*/?>)", content)
+    if any("<" in c for c in chunks[::2]):
+        return match.group(0)
+    for k in range(0, len(chunks), 2):
+        chunks[k] = _link_amount_text(chunks[k], name_to_id)
+    return head + "".join(chunks) + tail
+
+
+def _link_recipe_table(inner, name_to_id):
+    """표 한 개의 행마다 첫 칸은 생약명 목록(_link_recipe_cell), 나머지 칸은 분량 글(_link_amount_cell)로 링크를 건다."""
+    def row(mr):
+        idx = [0]
+
+        def cell(mc):
+            i = idx[0]
+            idx[0] += 1
+            return _link_recipe_cell(mc, name_to_id) if i == 0 else _link_amount_cell(mc, name_to_id)
+
+        return mr.group(1) + re.sub(r"(<td[^>]*>)(.*?)(</td>)", cell, mr.group(2), flags=re.S) + mr.group(3)
+
+    return re.sub(r"(<tr>)(.*?)(</tr>)", row, inner, flags=re.S)
+
+
+def _link_recipe_herbs(obj, name_to_id):
+    """생약제제 제법의 "생약명 | 분량" 표(recipe-table)에서 생약 이름에 공정서 생약 상세로 가는 링크(ref-link)를 건다:
+    첫 칸의 생약명 목록, 그리고 "형개엑스산 | (형개로서 0.88 g)"처럼 분량 칸에 들어 있는 생약 이름.
+    정제수, 전체량, "감초엑스산" 같은 단미엑스, "구아이아콜"처럼 공정서 생약 이름이 아닌 것은 그대로 둔다."""
+    def link_str(s):
+        if '<table class="orig-table recipe-table">' not in s:
+            return s
+        return _RECIPE_TABLE_RE.sub(lambda t: t.group(1) + _link_recipe_table(t.group(2), name_to_id) + t.group(3), s)
+
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            if isinstance(v, str):
+                obj[k] = link_str(v)
+            else:
+                _link_recipe_herbs(v, name_to_id)
+    elif isinstance(obj, list):
+        for i, v in enumerate(obj):
+            if isinstance(v, str):
+                obj[i] = link_str(v)
+            else:
+                _link_recipe_herbs(v, name_to_id)
+
+
 def load_prep_entries(start_id):
     """생약제제 hwpx(PREP_FILE_NAMES)를 파싱한다. 문서마다 품목 제목 아래에 영문명 줄이 오는 형식이라 parse_hwpx(prep=True)
     로 읽는다. 본문의 그림(크로마토그램)은 /api/prep_image 로 보여 준다."""
@@ -244,6 +384,7 @@ def load_prep_entries(start_id):
     for fi, name in enumerate(PREP_FILE_NAMES):
         f = BASE_DIR / name
         if not f.is_file():
+            _warn_missing("생약제제", name)
             continue
         try:
             file_entries = parse_hwpx(f, prep=True)
@@ -287,6 +428,7 @@ def load_prep_methods(start_id):
     entries = []
     by_herb = {"confirm": {}, "quant": {}}
     if not path.is_file():
+        _warn_missing("생약제제 확인시험·함량시험", METHOD_FILE_NAME)
         return entries, by_herb
     try:
         data = parse_method_hwpx(path)
@@ -353,6 +495,8 @@ def load_case_entries():
     직접 매칭한다."""
     case_files = sorted(BASE_DIR.glob("*사례집*.pdf"))
     entries = []
+    if not case_files:
+        _warn_missing("관능검사 사례집", "*사례집*.pdf (예: 관능검사사례집.pdf)")
     for f in case_files:
         try:
             file_entries = parse_case_pdf(f)
@@ -368,6 +512,7 @@ def load_case_entries():
 def load_test_methods():
     path = BASE_DIR / TEST_METHOD_FILE
     if not path.is_file():
+        _warn_missing("생약시험법", TEST_METHOD_FILE)
         return {}
     try:
         return parse_test_methods(path)
@@ -381,6 +526,12 @@ ENTRIES, LOADED_FILES = load_entries()
 SENSORY_ENTRIES, SENSORY_FILES = load_sensory_entries(start_id=len(ENTRIES))
 CASE_ENTRIES, CASE_FILES = load_case_entries()
 PREP_ENTRIES, PREP_FILES = load_prep_entries(PREP_ID_START)
+# 제법 표의 생약명 -> 공정서 생약 id (이름이 같은 것이 여럿이면 먼저 나온 것). 제법 표의 생약명에 상세로 가는 링크를 건다.
+_HERB_NAME_TO_ID = {}
+for _e in ENTRIES:
+    if _e.get("name_only") and _e["name_only"] not in _HERB_NAME_TO_ID:
+        _HERB_NAME_TO_ID[_e["name_only"]] = _e["id"]
+_link_recipe_herbs(PREP_ENTRIES, _HERB_NAME_TO_ID)
 PREP_METHOD_ENTRIES, PREP_METHOD_BY_HERB = load_prep_methods(METHOD_ID_START)
 
 
@@ -1246,4 +1397,5 @@ if __name__ == "__main__":
     print(f"[생약검색] {len(LOADED_FILES)}개 hwpx 파일에서 {len(ENTRIES)}개 품목을 불러왔습니다: {LOADED_FILES}")
     print(f"[생약검색] {len(SENSORY_FILES)}개 pdf 파일에서 {len(SENSORY_ENTRIES)}개 품목을 불러왔습니다: {SENSORY_FILES}")
     print(f"[생약검색] {len(CASE_FILES)}개 pdf 파일에서 {len(CASE_ENTRIES)}개 사례를 불러왔습니다: {CASE_FILES}")
+    print(f"[생약검색] {len(PREP_FILES)}개 hwpx 파일에서 {len(PREP_ENTRIES)}개 생약제제를 불러왔습니다: {PREP_FILES}")
     app.run(debug=True)
