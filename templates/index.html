@@ -437,25 +437,29 @@
   .detail-zoom-btn:disabled { opacity: 0.4; cursor: default; }
   /* 글자 크기 단계(--detail-zoom, 0.8~1.5)는 헤더(생약명/버튼)를 뺀 내용 전체에 적용한다. 관능검사해설서 PDF 화면은 제외 */
   .detail:not(.sensory-mode) > :not(.detail-header) { zoom: var(--detail-zoom, 1); }
-  /* 생약제제 제법 표의 생약명 링크로 연 생약 화면에서, 생약명 앞에 놓이는 "돌아가기" 버튼(글자 ←). 누르면 링크를 누르기 전 화면
-     (그 생약제제)으로 돌아간다. 글자 크기는 생약명(h2, 1.4rem)과 같고 줄 높이를 생약명 한 줄(29px)에 맞춰 첫 줄에 나란히 놓인다 */
+  /* 생약제제 제법 표의 생약명 링크로 연 생약 화면에서, 생약명 앞에 놓이는 "돌아가기" 버튼. 누르면 링크를 누르기 전 화면(그 생약제제)으로
+     돌아간다. 둥근 모서리의 정사각형(26x26px, 모서리 6px) 안 가운데에 가는 ←. 화살표는 글꼴에 따라 모양이 달라지지 않게 SVG 로 그리며,
+     12x8px 정수 크기라 사각형(26px) 안에서 위아래 9px 씩 정확히 떨어져 몸통(가로선)이 사각형 높이의 가운데에 놓인다.
+     화살표 색은 항상 진한 초록이고, 배경만 평소 #f0f5ef, 마우스를 올리면 그보다 5% 진한 #e4e9e3(각 색 성분 x0.95) */
   .detail-back-btn {
     position: relative;
     flex: none;
     align-self: flex-start;
-    margin: 0 8px 0 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    margin: 2px 8px 0 0;  /* 정사각형(26px)을 생약명 첫 줄(29px) 안에 정수 위치로 둔다 */
     padding: 0;
     border: none;
-    border-radius: 4px;
-    background: none;
+    border-radius: 6px;
+    background: #f0f5ef;
     color: var(--main-dark);
-    font: inherit;
-    font-size: 1.4rem;
-    font-weight: 700;
-    line-height: 29px;
     cursor: pointer;
   }
-  .detail-back-btn:hover { color: #2fa862; }  /* 마우스를 올리면 밝은 초록(평소 진한 초록 #234f38). 흰 배경에서 큰 굵은 글자 권장 대비 3:1 을 넘는 가장 밝은 값 */
+  .detail-back-btn svg { display: block; width: 12px; height: 8px; }
+  .detail-back-btn:hover { background: #e4e9e3; }
   .detail-back-btn:focus-visible { outline: 2px solid var(--main); outline-offset: 2px; }
   /* 버튼들을 3개씩 한 줄로 배치한다. 없는 버튼은 건너뛰고 앞에서부터 채워진다. */
   .detail-title-actions {
@@ -2408,7 +2412,7 @@ async function showDetail(id, filterItem, opts = {}) {
   detailBox.dataset.itemName = item.name_only || item.korean_name || '';
   const backTitle = opts.backName ? `${escapeHtml(opts.backName)}(으)로 돌아가기` : '돌아가기';
   const backHtml = opts.backId
-    ? `<button type="button" class="detail-back-btn" title="${backTitle}" aria-label="${backTitle}">←</button>`
+    ? `<button type="button" class="detail-back-btn" title="${backTitle}" aria-label="${backTitle}"><svg viewBox="0 0 12 8" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1.2 4H10.8M4.8 .9 1.2 4 4.8 7.1"/></svg></button>`
     : '';
   detailBox.innerHTML = `
     <div class="detail-header">
