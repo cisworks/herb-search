@@ -55,6 +55,41 @@ def _warn_missing(label, name):
 
 app = Flask(__name__)
 
+# ---- 응답 압축(gzip) -------------------------------------------------------
+# 첫 화면(약 124KB)과 전체 목록 JSON(생약 252KB, 생약제제 204KB)은 글자만 있어 gzip 으로 1/4~1/15 로 줄어든다.
+# 외부 패키지(flask-compress) 없이 표준 라이브러리만 쓴다. 이미 압축된 그림/PDF 는 건드리지 않고, 작은 응답도 그대로 둔다.
+import gzip
+
+_GZIP_TYPES = ("text/html", "application/json", "text/css", "application/javascript", "image/svg+xml")
+
+
+@app.after_request
+def _gzip_response(resp):
+    if (
+        resp.status_code != 200
+        or resp.direct_passthrough
+        or "Content-Encoding" in resp.headers
+        or "gzip" not in request.headers.get("Accept-Encoding", "")
+        or not resp.mimetype.startswith(_GZIP_TYPES)
+    ):
+        return resp
+    data = resp.get_data()
+    if len(data) < 1024:
+        return resp
+    resp.set_data(gzip.compress(data, compresslevel=6))
+    resp.headers["Content-Encoding"] = "gzip"
+    resp.headers.add("Vary", "Accept-Encoding")
+    return resp
+
+
+def _cached_json(payload, max_age=600):
+    """바뀌지 않는 큰 목록 응답: 브라우저가 잠시(기본 10분) 다시 받지 않고, 그 뒤에는 ETag 로 '안 바뀜(304)'만 확인한다.
+    원본 파일을 바꾸고 서버를 다시 켜면 내용이 달라져 ETag 도 바뀌므로 새 목록이 곧 반영된다."""
+    resp = jsonify(payload)
+    resp.headers["Cache-Control"] = f"public, max-age={max_age}"
+    resp.add_etag()
+    return resp.make_conditional(request)
+
 ENTRIES = []  # 공정서(hwpx)에서 파싱된 생약 목록 (앱 시작 시 1회 로드)
 SENSORY_ENTRIES = []  # 관능검사해설서(pdf)에서 파싱된 생약 목록
 CASE_ENTRIES = []  # 관능검사 사례집(pdf)에서 파싱된 부적합/적합 사례 목록
@@ -842,7 +877,7 @@ def index():
 @app.route("/api/prep_list")
 def api_prep_list():
     items = sorted(PREP_ENTRIES, key=lambda e: e["korean_name"])
-    return jsonify([summary(e) for e in items])
+    return _cached_json([summary(e) for e in items])
 
 
 @app.route("/api/prep_search")
@@ -889,7 +924,7 @@ def api_prep_image(file_idx, name):
 @app.route("/api/list")
 def api_list():
     items = sorted(ENTRIES, key=lambda e: e["korean_name"])
-    return jsonify([summary(e) for e in items])
+    return _cached_json([summary(e) for e in items])
 
 
 def _search(entries, q):
