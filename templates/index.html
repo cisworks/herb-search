@@ -727,6 +727,16 @@
   }
   .fam-dialog-head { cursor: move; user-select: none; touch-action: none; }  /* 제목줄을 잡고 창을 옮긴다 */
   .fam-dialog-head button { font-size: 1.3rem; line-height: 1; color: #fff; background: none; border: none; cursor: pointer; }
+  .fam-head-btns { display: inline-flex; align-items: center; gap: 10px; }
+  /* 핀: 고정 전에는 윤곽선만 보이고 비스듬히 눕혀 있고, 고정하면 속을 채우고 바로 세운다 */
+  .fam-pin { display: inline-flex; align-items: center; justify-content: center; padding: 2px; border-radius: 4px; opacity: 0.85; }
+  .fam-pin svg { transform: rotate(0deg); transition: transform 0.15s; }
+  .fam-pin:hover { opacity: 1; background: rgba(255, 255, 255, 0.18); }
+  .fam-pin[aria-pressed="true"] { opacity: 1; background: rgba(255, 255, 255, 0.28); }
+  .fam-pin[aria-pressed="true"] svg { fill: currentColor; transform: rotate(-45deg); }
+  /* 고정된 동안에는 팝업 바깥의 화면을 그대로 쓸 수 있게(누르기·스크롤) 바깥 덮개의 입력을 막지 않는다 */
+  .fam-modal.pinned, .fam-modal.pinned .fam-backdrop { pointer-events: none; }
+  .fam-modal.pinned .fam-dialog { pointer-events: auto; }
   .fam-dialog-body { overflow: auto; scrollbar-gutter: stable; overscroll-behavior: contain; padding: 6px 0; }
   .fam-list { list-style: none; margin: 0; padding: 0; }
   .fam-item {
@@ -745,7 +755,7 @@
   .fam-item:hover, .fam-item:focus-visible { background: #eef4ec; outline: none; }
   /* 생약명 앞 번호: 자릿수가 달라도 생약명 시작 위치가 맞도록 오른쪽 정렬한 고정 폭 칸에 둔다 */
   .fam-no { display: inline-block; margin-right: 0.45em; text-align: right; color: #7a8a7f; font-weight: 400; font-variant-numeric: tabular-nums; }
-  .fam-item.current { font-weight: 700; color: var(--main-dark); }
+  .fam-item.current { font-weight: 700; color: var(--main-dark); background: #eef4ec; }  /* 지금 설명창의 생약: 마우스를 올렸을 때의 배경색으로 고정 */
   .fam-empty { margin: 0; padding: 14px 18px; color: #777; }
   @media (pointer: coarse) {
     html.fam-open, html.fam-open body { overflow: hidden; }  /* 터치 화면에서는 팝업이 열려 있는 동안 뒤 화면을 고정한다 */
@@ -1086,7 +1096,13 @@
 <div id="famModal" class="fam-modal" hidden>
   <div class="fam-backdrop"></div>
   <div class="fam-dialog" role="dialog" aria-modal="true" aria-labelledby="famTitle">
-    <div class="fam-dialog-head"><span id="famTitle"></span><button type="button" id="famClose" aria-label="닫기">×</button></div>
+    <div class="fam-dialog-head">
+      <span id="famTitle"></span>
+      <span class="fam-head-btns">
+        <button type="button" id="famPin" class="fam-pin" aria-pressed="false" aria-label="고정" title="고정: 바깥을 누르거나 생약을 골라 설명창이 바뀌어도 팝업을 닫지 않음"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.2 1.6 14.4 5.8 12.9 6.3 10.8 9.3 11.3 11.1 10.4 12 4 5.6 4.9 4.7 6.7 5.2 9.7 3.1ZM5.6 10.4 1.6 14.4"/></svg></button>
+        <button type="button" id="famClose" aria-label="닫기">×</button>
+      </span>
+    </div>
     <div class="fam-dialog-body" id="famBody"></div>
   </div>
 </div>
@@ -2545,6 +2561,7 @@ async function showDetail(id, filterItem, opts = {}) {
     }));
   }
   _showDetailBox();
+  if (typeof famRefreshCurrent === 'function') famRefreshCurrent();
 }
 
 // 국가생약정보(nifds.go.kr)의 해당 생약 페이지를 새 창으로 여는 버튼("사진정보",
@@ -2908,9 +2925,9 @@ async function openFamily(name) {
       ).join('')}</ul>`
     : '<p class="fam-empty">같은 과의 생약이 없습니다.</p>';
   famBody.scrollTop = 0;
-  setFamOffset(0, 0);  // 지난번에 옮겼더라도 열 때는 가운데에서 시작
+  if (famModal.hidden) setFamOffset(0, 0);  // 새로 열 때는 가운데에서 시작(고정되어 이미 떠 있던 팝업은 옮겨 둔 자리 그대로)
   famModal.hidden = false;
-  document.documentElement.classList.add('fam-open');
+  setFamPinned(famPinned);  // 뒤 화면 고정(fam-open) 여부를 고정 상태에 맞춘다
   const curBtn = famBody.querySelector('.fam-item.current');
   if (curBtn) curBtn.scrollIntoView({ block: 'center' });  // 지금 보고 있는 생약이 목록 아래쪽이면 보이게 한다
 }
@@ -2918,18 +2935,40 @@ async function openFamily(name) {
 function closeFamily() {
   famModal.hidden = true;
   famBody.innerHTML = '';
+  setFamPinned(false);  // 닫으면 고정도 풀린다(다음에 열 때는 고정 안 된 상태)
   document.documentElement.classList.remove('fam-open');
 }
 
-famBody.addEventListener('click', (ev) => {
+// 핀(고정): 고정하면 팝업 바깥을 누르거나 목록에서 생약을 골라 설명창이 바뀌어도 팝업이 닫히지 않고, 팝업 바깥 화면도 그대로
+// 쓸 수 있다(바깥 덮개가 입력을 막지 않는다). ×나 Esc 로는 닫힌다.
+let famPinned = false;
+const famPinBtn = document.getElementById('famPin');
+function setFamPinned(on) {
+  famPinned = on;
+  famModal.classList.toggle('pinned', on);
+  famPinBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
+  famPinBtn.setAttribute('aria-label', on ? '고정 풀기' : '고정');
+  // 터치 화면에서 뒤 화면을 고정하는 것은 고정이 아닐 때, 팝업이 열려 있는 동안만이다
+  document.documentElement.classList.toggle('fam-open', !on && !famModal.hidden);
+}
+
+// 설명창이 바뀌면(목록에서 골랐거나 다른 방법으로 열었을 때) 목록에서 지금 보고 있는 생약 표시를 옮긴다
+function famRefreshCurrent() {
+  if (famModal.hidden) return;
+  const cur = Number(detailBox.dataset.itemId) || 0;
+  famBody.querySelectorAll('.fam-item').forEach(b => b.classList.toggle('current', Number(b.dataset.id) === cur));
+}
+
+famBody.addEventListener('click', async (ev) => {
   const btn = ev.target.closest('.fam-item');
   if (!btn) return;
   const id = Number(btn.dataset.id);
   const curId = Number(detailBox.dataset.itemId) || 0;
   const curName = detailBox.dataset.itemName || '';
-  closeFamily();
-  if (id === curId) return;  // 지금 보고 있는 생약이면 팝업만 닫는다
-  showDetail(id, undefined, curId ? { backId: curId, backName: curName } : undefined);
+  if (!famPinned) closeFamily();
+  if (id === curId) return;  // 지금 보고 있는 생약이면 (고정이 아닐 때) 팝업만 닫는다
+  await showDetail(id, undefined, curId ? { backId: curId, backName: curName } : undefined);
+  famRefreshCurrent();
 });
 // 제목줄을 잡고 끌면 팝업을 옮긴다(생약시험법 창과 같은 방식: 제목줄이 화면 밖으로 나가지 않게 가둔다).
 const famDialog = famModal.querySelector('.fam-dialog');
@@ -2961,7 +3000,8 @@ famDialogHead.addEventListener('pointermove', (ev) => {
   famDialogHead.addEventListener(type, () => { famDrag = null; });
 });
 document.getElementById('famClose').addEventListener('click', closeFamily);
-famModal.querySelector('.fam-backdrop').addEventListener('click', closeFamily);
+famModal.querySelector('.fam-backdrop').addEventListener('click', () => { if (!famPinned) closeFamily(); });
+famPinBtn.addEventListener('click', () => setFamPinned(!famPinned));
 document.addEventListener('keydown', (ev) => {
   if (ev.key === 'Escape' && !famModal.hidden) closeFamily();
 });
