@@ -847,6 +847,27 @@ def herb_flag(e):
     return HERB_FLAGS.get(name) or HERB_FLAGS.get((name.split() or [""])[0], "")  # "사프란 번홍화"는 첫 단어로 찾는다
 
 
+# ---- 과(科) 목록 -----------------------------------------------------------------------
+# 공정서 생약의 기원 문장("이 약은 칡 Pueraria lobata Ohwi (콩과 Leguminosae)의 뿌리로서 ...")에서 "콩과 Leguminosae"처럼
+# 한글 과 이름 + 라틴 과 이름 짝을 찾아, 과 이름별로 생약 목록을 만든다. 설명창의 기원 문장에서 과 이름을 누르면 같은 과의
+# 생약 목록이 뜬다. 기원 문장에 과가 둘 이상(예: 대청엽)이면 그 과마다 목록에 들어간다.
+FAMILY_RE = re.compile(r"([가-힣]+과)\s+([A-Z][a-z]+(?:aceae|idae|ae))")
+FAMILY_INDEX = {}
+for _e in ENTRIES:
+    if _e.get("kind", "official") != "official":
+        continue
+    for _fam in {f for f, _latin in FAMILY_RE.findall(_e.get("definition", ""))}:
+        FAMILY_INDEX.setdefault(_fam, []).append(_e)
+for _lst in FAMILY_INDEX.values():
+    _lst.sort(key=lambda x: x["korean_name"])
+
+
+@app.route("/api/family/<name>")
+def api_family(name):
+    """같은 과(예: 콩과)에 속한 공정서 생약 목록(가나다순)."""
+    return jsonify({"family": name, "items": [summary(e) for e in FAMILY_INDEX.get(name, [])]})
+
+
 def summary(e):
     return {
         "flag": herb_flag(e),

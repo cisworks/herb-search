@@ -688,6 +688,69 @@
     cursor: pointer;
   }
   .tm-link:hover { color: var(--main); }
+  /* 기원 문장의 과 이름(예: 콩과): 누르면 같은 과의 생약 목록 팝업이 뜬다 */
+  .fam-link {
+    color: var(--main-dark);
+    text-decoration: underline;
+    text-decoration-style: dotted;
+    text-underline-offset: 3px;
+    cursor: pointer;
+  }
+  .fam-link:hover { color: var(--main); }
+  .fam-modal[hidden] { display: none; }
+  .fam-modal { position: fixed; inset: 0; z-index: 1250; display: flex; align-items: center; justify-content: center; overscroll-behavior: contain; }
+  .fam-backdrop { position: absolute; inset: 0; background: transparent; touch-action: none; }  /* 창 뒤 화면을 어둡게 하지 않는다 */
+  /* 목록 이름이 줄바꿈되지 않게: 기본 폭(420px)에서 줄바꿈이 생기는 목록만, 가장 긴 이름이 한 줄에 들어갈 만큼(max-content)
+     창 폭을 최소한으로 넓힌다. 화면 폭을 넘는 경우에는 목록을 옆으로 밀어 볼 수 있다. */
+  .fam-dialog {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    width: max-content;
+    min-width: min(420px, calc(100vw - 24px));
+    max-width: calc(100vw - 24px);
+    max-height: 80vh;
+    background: #fff;
+    border-radius: 10px;
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.3);
+  }
+  .fam-dialog-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 16px;
+    font-weight: 700;
+    color: #fff;
+    background: var(--main);
+    border-radius: 10px 10px 0 0;
+  }
+  .fam-dialog-head { cursor: move; user-select: none; touch-action: none; }  /* 제목줄을 잡고 창을 옮긴다 */
+  .fam-dialog-head button { font-size: 1.3rem; line-height: 1; color: #fff; background: none; border: none; cursor: pointer; }
+  .fam-dialog-body { overflow: auto; scrollbar-gutter: stable; overscroll-behavior: contain; padding: 6px 0; }
+  .fam-list { list-style: none; margin: 0; padding: 0; }
+  .fam-item {
+    display: block;
+    width: 100%;
+    padding: 9px 18px 9px 9px;  /* 번호 앞 여백은 처음 값(18px)의 50% */
+    font-family: inherit;
+    font-size: 0.95rem;
+    text-align: left;
+    white-space: nowrap;
+    color: #222;
+    background: none;
+    border: none;
+    cursor: pointer;
+  }
+  .fam-item:hover, .fam-item:focus-visible { background: #eef4ec; outline: none; }
+  /* 생약명 앞 번호: 자릿수가 달라도 생약명 시작 위치가 맞도록 오른쪽 정렬한 고정 폭 칸에 둔다 */
+  .fam-no { display: inline-block; margin-right: 0.45em; text-align: right; color: #7a8a7f; font-weight: 400; font-variant-numeric: tabular-nums; }
+  .fam-item.current { font-weight: 700; color: var(--main-dark); }
+  .fam-empty { margin: 0; padding: 14px 18px; color: #777; }
+  @media (pointer: coarse) {
+    html.fam-open, html.fam-open body { overflow: hidden; }  /* 터치 화면에서는 팝업이 열려 있는 동안 뒤 화면을 고정한다 */
+    .fam-item { padding: 12px 18px 12px 9px; }
+  }
   .tm-modal[hidden] { display: none; }
   .tm-modal { position: fixed; inset: 0; z-index: 1200; display: flex; align-items: center; justify-content: center; }
   .tm-backdrop { position: absolute; inset: 0; background: transparent; }  /* 창 뒤 화면을 어둡게 하지 않는다 */
@@ -1018,6 +1081,13 @@
   <div class="tm-dialog" role="dialog" aria-modal="true" aria-labelledby="tmTitle">
     <div class="tm-dialog-head"><span id="tmTitle"></span><button type="button" id="tmClose" aria-label="닫기">×</button></div>
     <div class="tm-dialog-body" id="tmBody"></div>
+  </div>
+</div>
+<div id="famModal" class="fam-modal" hidden>
+  <div class="fam-backdrop"></div>
+  <div class="fam-dialog" role="dialog" aria-modal="true" aria-labelledby="famTitle">
+    <div class="fam-dialog-head"><span id="famTitle"></span><button type="button" id="famClose" aria-label="닫기">×</button></div>
+    <div class="fam-dialog-body" id="famBody"></div>
   </div>
 </div>
 <script>
@@ -2052,6 +2122,12 @@ detailBox.addEventListener('click', (ev) => {
     history.back();
     return;
   }
+  const fam = ev.target.closest('.fam-link');
+  if (fam) {
+    ev.preventDefault();
+    openFamily(fam.dataset.fam);
+    return;
+  }
   const link = ev.target.closest('.ref-link');
   if (!link) return;
   ev.preventDefault();
@@ -2403,8 +2479,8 @@ async function showDetail(id, filterItem, opts = {}) {
   const sectionsHtml = buildSectionsHtml(item, filterItem);
 
   const definitionHtml = (item.definition_parts && item.definition_parts.length)
-    ? item.definition_parts.map(p => `<p class="${p.small ? 'quantitative' : ''}">${p.html}</p>`).join('')
-    : (item.definition ? `<p>${escapeHtml(item.definition)}</p>` : '');
+    ? item.definition_parts.map(p => `<p class="${p.small ? 'quantitative' : ''}">${familyLinkify(p.html)}</p>`).join('')
+    : (item.definition ? `<p>${familyLinkify(escapeHtml(item.definition))}</p>` : '');
 
   detailBox.classList.remove('sensory-mode');
   // 이 화면이 어떤 항목인지 기억해 둔다: 생약제제 제법 표의 생약명 링크를 누를 때 "돌아갈 곳"(이 항목)으로 쓴다
@@ -2627,6 +2703,12 @@ function renderItemList(items, depth = 0) {
   return `<ol class="item-list">${lis}</ol>`;
 }
 
+// 기원 문장의 "콩과 Leguminosae"에서 한글 과 이름("콩과")을 누를 수 있는 링크로 바꾼다(서버의 FAMILY_RE 와 같은 규칙).
+function familyLinkify(html) {
+  return html.replace(/([가-힣]+과)(\s+[A-Z][a-z]+(?:aceae|idae|ae))/g,
+    (m, fam, latin) => `<span class="fam-link" role="button" tabindex="0" data-fam="${fam}" title="같은 과 생약 목록 보기">${fam}</span>${latin}`);
+}
+
 function renderName(it) {
   const primary = it.name_primary || it.korean_name;
   const synonym = it.synonym_name || '';
@@ -2800,6 +2882,88 @@ detailBox.addEventListener('click', (ev) => {
 document.getElementById('tmClose').addEventListener('click', closeTestMethod);
 document.addEventListener('keydown', (ev) => {
   if (ev.key === 'Escape' && !tmModal.hidden) closeTestMethod();
+});
+
+// ---- 같은 과 생약 목록 ----
+// 기원 문장의 과 이름(예: "콩과")을 누르면 같은 과에 속한 공정서 생약 이름 목록이 팝업으로 뜬다. 목록에서 이름을 누르면 그 생약의
+// 설명창으로 이동하고, 이동한 설명창에는 생약명 앞에 '돌아가기' 화살표가 붙어 지금 보던 생약으로 돌아올 수 있다.
+const famModal = document.getElementById('famModal');
+const famTitle = document.getElementById('famTitle');
+const famBody = document.getElementById('famBody');
+
+async function openFamily(name) {
+  let data;
+  try {
+    const res = await fetch('/api/family/' + encodeURIComponent(name));
+    if (!res.ok) return;
+    data = await res.json();
+  } catch (err) {
+    return;
+  }
+  const cur = Number(detailBox.dataset.itemId) || 0;
+  famTitle.textContent = `${name} 생약 (${data.items.length})`;
+  famBody.innerHTML = data.items.length
+    ? `<ul class="fam-list">${data.items.map((it, i) =>
+        `<li><button type="button" class="fam-item${it.id === cur ? ' current' : ''}" data-id="${it.id}"><span class="fam-no" style="min-width:${String(data.items.length).length + 1}ch">${i + 1}.</span>${renderName(it)}${sourceBadge(it.source_tag, it.part)}${flagBadge(it.flag)}</button></li>`
+      ).join('')}</ul>`
+    : '<p class="fam-empty">같은 과의 생약이 없습니다.</p>';
+  famBody.scrollTop = 0;
+  setFamOffset(0, 0);  // 지난번에 옮겼더라도 열 때는 가운데에서 시작
+  famModal.hidden = false;
+  document.documentElement.classList.add('fam-open');
+  const curBtn = famBody.querySelector('.fam-item.current');
+  if (curBtn) curBtn.scrollIntoView({ block: 'center' });  // 지금 보고 있는 생약이 목록 아래쪽이면 보이게 한다
+}
+
+function closeFamily() {
+  famModal.hidden = true;
+  famBody.innerHTML = '';
+  document.documentElement.classList.remove('fam-open');
+}
+
+famBody.addEventListener('click', (ev) => {
+  const btn = ev.target.closest('.fam-item');
+  if (!btn) return;
+  const id = Number(btn.dataset.id);
+  const curId = Number(detailBox.dataset.itemId) || 0;
+  const curName = detailBox.dataset.itemName || '';
+  closeFamily();
+  if (id === curId) return;  // 지금 보고 있는 생약이면 팝업만 닫는다
+  showDetail(id, undefined, curId ? { backId: curId, backName: curName } : undefined);
+});
+// 제목줄을 잡고 끌면 팝업을 옮긴다(생약시험법 창과 같은 방식: 제목줄이 화면 밖으로 나가지 않게 가둔다).
+const famDialog = famModal.querySelector('.fam-dialog');
+const famDialogHead = famModal.querySelector('.fam-dialog-head');
+let famOffset = { x: 0, y: 0 };
+let famDrag = null;
+function setFamOffset(x, y) {
+  famOffset = { x, y };
+  famDialog.style.transform = x || y ? `translate(${x}px, ${y}px)` : '';
+}
+famDialogHead.addEventListener('pointerdown', (ev) => {
+  if (ev.target.closest('button') || (ev.pointerType === 'mouse' && ev.button !== 0)) return;
+  const r = famDialog.getBoundingClientRect();
+  famDrag = {
+    startX: ev.clientX, startY: ev.clientY, baseX: famOffset.x, baseY: famOffset.y,
+    minDx: -(r.left + r.width) + 40, maxDx: window.innerWidth - r.left - 40,
+    minDy: -r.top, maxDy: window.innerHeight - r.top - 40,
+  };
+  famDialogHead.setPointerCapture(ev.pointerId);
+  ev.preventDefault();
+});
+famDialogHead.addEventListener('pointermove', (ev) => {
+  if (!famDrag) return;
+  const dx = Math.min(Math.max(ev.clientX - famDrag.startX, famDrag.minDx), famDrag.maxDx);
+  const dy = Math.min(Math.max(ev.clientY - famDrag.startY, famDrag.minDy), famDrag.maxDy);
+  setFamOffset(famDrag.baseX + dx, famDrag.baseY + dy);
+});
+['pointerup', 'pointercancel'].forEach(type => {
+  famDialogHead.addEventListener(type, () => { famDrag = null; });
+});
+document.getElementById('famClose').addEventListener('click', closeFamily);
+famModal.querySelector('.fam-backdrop').addEventListener('click', closeFamily);
+document.addEventListener('keydown', (ev) => {
+  if (ev.key === 'Escape' && !famModal.hidden) closeFamily();
 });
 </script>
 </body>
