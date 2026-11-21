@@ -1298,17 +1298,101 @@ def _sensory_entry_for(name_only, hanja):
     return same[0] if len(same) == 1 else None
 
 
-@functools.lru_cache(maxsize=None)
-def _sensory_photo_regions(entry_id):
-    """품목의 [(쪽, 묶음 번호)] 목록(캐시)."""
+# 사진 위치 분석은 PDF 를 열어 이미지를 살펴야 해서 품목 하나에 약 0.2초(최대 0.5초)가 걸린다. 설명창의 "사진정보" 버튼을 보여 줄지
+# 정하려고 생약을 처음 열 때마다 이 분석이 돌므로, 결과 표 {(시작쪽, 끝쪽): ((쪽, 묶음 번호), ...)} 를 .parse_cache/ 에 저장해 두고 쓴다.
+# 표는 build_photo_cache.py 로 미리 만들어 둘 수 있고(전체 약 1~2분), 없는 품목은 요청이 올 때 계산해서 표에 보태 저장한다.
+# 사진 PDF(크기·수정 시각)나 sensory_photos.py 가 바뀌면 표 파일 이름이 달라져 자동으로 새로 만든다.
+_PHOTO_TABLE = None
+_PHOTO_TABLE_FILE = None
+
+
+def _photo_table_file():
+    pdf = BASE_DIR / SENSORY_PHOTO_FILE
+    try:
+        st = pdf.stat()
+        h = hashlib.sha1()
+        h.update(f"{st.st_size}|{st.st_mtime_ns}|py{sys.version_info[:2]}".encode())
+        h.update((BASE_DIR / "sensory_photos.py").read_bytes())
+        return PARSE_CACHE_DIR / f"photo_regions-{h.hexdigest()[:16]}.pkl"
+    except OSError:
+        return None
+
+
+def _photo_table():
+    """디스크에 저장된 사진 위치 표(없거나 깨졌으면 빈 표)를 한 번 읽어 메모리에 둔다."""
+    global _PHOTO_TABLE, _PHOTO_TABLE_FILE
+    if _PHOTO_TABLE is None:
+        _PHOTO_TABLE_FILE = _photo_table_file()
+        _PHOTO_TABLE = {}
+        if _PHOTO_TABLE_FILE is not None and _PHOTO_TABLE_FILE.is_file():
+            try:
+                with open(_PHOTO_TABLE_FILE, "rb") as f:
+                    loaded = pickle.load(f)
+                if isinstance(loaded, dict):
+                    _PHOTO_TABLE = loaded
+            except Exception:  # noqa: BLE001  깨진 표는 버리고 다시 만든다
+                pass
+    return _PHOTO_TABLE
+
+
+def _save_photo_table():
+    if _PHOTO_TABLE_FILE is None:
+        return
+    try:
+        PARSE_CACHE_DIR.mkdir(exist_ok=True)
+        tmp = _PHOTO_TABLE_FILE.with_suffix(".tmp")
+        with open(tmp, "wb") as f:
+            pickle.dump(_PHOTO_TABLE, f, protocol=pickle.HIGHEST_PROTOCOL)
+        os.replace(tmp, _PHOTO_TABLE_FILE)
+        for old in PARSE_CACHE_DIR.glob("photo_regions-*.pkl"):  # 옛 버전 표 정리
+            if old != _PHOTO_TABLE_FILE:
+                old.unlink(missing_ok=True)
+    except Exception as exc:  # noqa: BLE001  저장 실패는 메모리 표만 쓰고 계속
+        print(f"[알림] 사진 위치 표를 저장하지 못했습니다: {exc}")
+
+
+def build_photo_regions_table(progress=None):
+    """관능검사해설서 사진이 있는 모든 품목의 사진 위치를 계산해 표에 채우고 저장한다(build_photo_cache.py 가 쓴다).
+    PDF 를 한 번만 열어 쓰므로 품목마다 여는 것보다 빠르다. 이미 표에 있는 품목은 건너뛴다. (계산한 품목 수, 전체 품목 수)를 돌려준다."""
     import pymupdf as fitz
 
+    table = _photo_table()
+    todo = [e for e in SENSORY_ENTRIES if e.get("source_file") == SENSORY_PHOTO_FILE]
+    pending = [e for e in todo if (int(e["page_start"]), int(e["page_end"])) not in table]
+    if pending:
+        doc = fitz.open(str(BASE_DIR / SENSORY_PHOTO_FILE))
+        try:
+            for n, e in enumerate(pending, 1):
+                ps, pe = int(e["page_start"]), int(e["page_end"])
+                table[(ps, pe)] = tuple(sensory_photos.entry_regions(doc, ps, pe))
+                if n % 100 == 0:
+                    _save_photo_table()  # 중간에 멈춰도(시간 제한 등) 지금까지 계산한 것은 남도록 100개마다 저장
+                if progress:
+                    progress(n, len(pending), e["korean_name"])
+        finally:
+            doc.close()
+        _save_photo_table()
+    return len(pending), len(todo)
+
+
+@functools.lru_cache(maxsize=None)
+def _sensory_photo_regions(entry_id):
+    """품목의 [(쪽, 묶음 번호)] 목록. 저장된 표에 있으면 그것을 쓰고, 없으면 PDF 를 분석해 표에 보탠다."""
     e = ENTRY_BY_ID[entry_id]
+    ps, pe = int(e["page_start"]), int(e["page_end"])
+    table = _photo_table()
+    if (ps, pe) in table:
+        return table[(ps, pe)]
+    import pymupdf as fitz
+
     doc = fitz.open(str(BASE_DIR / SENSORY_PHOTO_FILE))
     try:
-        return tuple(sensory_photos.entry_regions(doc, int(e["page_start"]), int(e["page_end"])))
+        regions = tuple(sensory_photos.entry_regions(doc, ps, pe))
     finally:
         doc.close()
+    table[(ps, pe)] = regions
+    _save_photo_table()
+    return regions
 
 
 def _sensory_photo_entry_id(name_only, hanja):

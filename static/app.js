@@ -1468,10 +1468,40 @@ detailBox.addEventListener('click', (e) => {
 });
 refreshDetailZoomUi();
 
+// ---- 설명 내용 미리 받기 ----
+// 목록의 생약 줄에 마우스를 올리거나(잠깐 머물 때) 손가락을 대는 순간 그 생약의 설명 내용을 미리 받아 둔다. 눌렀을 때는 이미
+// 받아져 있어 바로 뜨고, 서버와의 왕복 시간(PythonAnywhere 에서는 특히 큼)이 가려진다. 한 번 받은 것은 5분 동안 다시 받지 않는다.
+// 글자(JSON 문자열)로 보관하고 쓸 때마다 새로 해석한다(showDetail 이 받은 객체를 고치기 때문에 같은 객체를 돌려쓰면 안 된다).
+const ITEM_PREFETCH_TTL = 5 * 60 * 1000, ITEM_PREFETCH_MAX = 40;
+const itemPrefetch = new Map();  // id -> { t: 받기 시작한 시각, p: Promise<문자열 | null> }
+function fetchItemText(id) {
+  const key = String(id);
+  const hit = itemPrefetch.get(key);
+  if (hit && Date.now() - hit.t < ITEM_PREFETCH_TTL) return hit.p;
+  const p = fetch('/api/item/' + key).then(res => (res.ok ? res.text() : null)).catch(() => null);
+  const entry = { t: Date.now(), p };
+  itemPrefetch.delete(key);
+  itemPrefetch.set(key, entry);
+  if (itemPrefetch.size > ITEM_PREFETCH_MAX) itemPrefetch.delete(itemPrefetch.keys().next().value);
+  p.then(text => { if (text === null && itemPrefetch.get(key) === entry) itemPrefetch.delete(key); });  // 실패는 보관하지 않는다
+  return p;
+}
+const PREFETCH_ROW = '.result-item[data-id], .fam-item[data-id]';
+let prefetchTimer = null;
+document.addEventListener('mouseover', (ev) => {
+  clearTimeout(prefetchTimer);
+  const row = ev.target.closest && ev.target.closest(PREFETCH_ROW);
+  if (row) prefetchTimer = setTimeout(() => fetchItemText(row.dataset.id), 60);  // 줄 위를 스쳐 지나가기만 할 때는 받지 않는다
+});
+document.addEventListener('touchstart', (ev) => {
+  const row = ev.target.closest && ev.target.closest(PREFETCH_ROW);
+  if (row) fetchItemText(row.dataset.id);
+}, { passive: true });
+
 async function showDetail(id, filterItem, opts = {}) {
-  const res = await fetch('/api/item/' + id);
-  if (!res.ok) return;
-  const item = await res.json();
+  const text = await fetchItemText(id);
+  if (text === null) return;
+  const item = JSON.parse(text);
   setShownKey(`id:${item.id}`);
 
   if (item.kind === 'sensory') {
