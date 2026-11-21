@@ -860,12 +860,18 @@ for _e in ENTRIES:
         FAMILY_INDEX.setdefault(_fam, []).append(_e)
 for _lst in FAMILY_INDEX.values():
     _lst.sort(key=lambda x: x["korean_name"])
+# 팝업 제목줄에서 고를 수 있는 전체 과 목록 [[과 이름, 생약 수], ...] (가나다순)
+FAMILY_LIST = [[f, len(v)] for f, v in sorted(FAMILY_INDEX.items())]
 
 
 @app.route("/api/family/<name>")
 def api_family(name):
-    """같은 과(예: 콩과)에 속한 공정서 생약 목록(가나다순)."""
-    return jsonify({"family": name, "items": [summary(e) for e in FAMILY_INDEX.get(name, [])]})
+    """같은 과(예: 콩과)에 속한 공정서 생약 목록(가나다순)과, 고를 수 있는 전체 과 목록."""
+    return jsonify({
+        "family": name,
+        "items": [summary(e) for e in FAMILY_INDEX.get(name, [])],
+        "families": FAMILY_LIST,
+    })
 
 
 def summary(e):

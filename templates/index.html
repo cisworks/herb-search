@@ -698,7 +698,9 @@
   }
   .fam-link:hover { color: var(--main); }
   .fam-modal[hidden] { display: none; }
-  .fam-modal { position: fixed; inset: 0; z-index: 1250; display: flex; align-items: center; justify-content: center; overscroll-behavior: contain; }
+  /* 팝업은 위쪽을 기준으로 놓는다(세로 가운데 정렬이 아님): 과를 바꿔 목록 길이가 달라져도 제목줄 위치가 변하지 않고, 목록이 아무리
+     길어도 제목줄이 화면 위로 밀려 올라가 안 보이는 일이 없다. 위치는 마우스로 옮기기 전까지 그대로다. */
+  .fam-modal { position: fixed; inset: 0; z-index: 1250; display: flex; align-items: flex-start; justify-content: center; overscroll-behavior: contain; }
   .fam-backdrop { position: absolute; inset: 0; background: transparent; touch-action: none; }  /* 창 뒤 화면을 어둡게 하지 않는다 */
   /* 목록 이름이 줄바꿈되지 않게: 기본 폭(420px)에서 줄바꿈이 생기는 목록만, 가장 긴 이름이 한 줄에 들어갈 만큼(max-content)
      창 폭을 최소한으로 넓힌다. 화면 폭을 넘는 경우에는 목록을 옆으로 밀어 볼 수 있다. */
@@ -709,7 +711,10 @@
     width: max-content;
     min-width: min(420px, calc(100vw - 24px));
     max-width: calc(100vw - 24px);
-    max-height: 80vh;
+    margin-top: 8vh;                                   /* 제목줄 위치(화면 위에서 8%). dvh 를 지원하면 주소창을 뺀 실제 보이는 높이 기준 */
+    margin-top: max(12px, 8dvh);
+    max-height: 84vh;                                  /* 위 여백 + 높이 + 아래 여백이 화면 안에 들어오게 */
+    max-height: calc(100dvh - max(12px, 8dvh) - 12px);
     background: #fff;
     border-radius: 10px;
     box-shadow: 0 8px 30px rgba(0, 0, 0, 0.3);
@@ -727,6 +732,59 @@
   }
   .fam-dialog-head { cursor: move; user-select: none; touch-action: none; }  /* 제목줄을 잡고 창을 옮긴다 */
   .fam-dialog-head button { font-size: 1.3rem; line-height: 1; color: #fff; background: none; border: none; cursor: pointer; }
+  /* 제목줄: 전체 과 중 하나를 고르는 버튼(누르면 아래에 과 목록이 펼쳐진다). 제목줄 글자처럼 보이게 배경/테두리를 없애고 오른쪽에 ▾ 만 둔다 */
+  .fam-dialog-head .fam-title {
+    /* 가로폭: 처음(콩과 기준 약 165px)보다 50% 넓힌 248px 로 고정. 가장 긴 과 이름("구멍장이버섯과", 약 226px)도 들어가고, 과를 바꿔도 폭이
+       변하지 않는다. 좁은 화면에서는 줄어들며, 넘치는 글자는 … 로 줄인다 */
+    flex: 0 1 auto;
+    width: 248px;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    padding: 2px 18px 2px 4px;
+    margin-left: -4px;
+    font-family: inherit;
+    font-size: 1rem;
+    font-weight: 700;
+    line-height: 1.3;
+    text-align: left;
+    white-space: nowrap;
+    color: #fff;
+    background: transparent url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23fff' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat right 4px center;
+    border-radius: 4px;
+  }
+  .fam-dialog-head .fam-title:hover, .fam-dialog-head .fam-title:focus-visible, .fam-dialog-head .fam-title[aria-expanded="true"] { background-color: rgba(255, 255, 255, 0.18); outline: none; }
+  /* 과 목록: 제목줄 바로 아래에 펼쳐지는 순번 목록. 순번 앞에 여백(16px)을 두고, 순번은 오른쪽 정렬한 고정 폭 칸에 둔다 */
+  .fam-menu[hidden] { display: none; }
+  .fam-menu {
+    position: absolute;
+    left: 0;
+    right: 0;
+    z-index: 2;
+    max-height: min(55vh, 420px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 4px 0;
+    background: #fff;
+    border-radius: 0 0 10px 10px;
+    box-shadow: 0 8px 18px rgba(0, 0, 0, 0.25);
+  }
+  .fam-menu-item {
+    display: block;
+    width: 100%;
+    padding: 7px 18px 7px 16px;
+    font-family: inherit;
+    font-size: 0.95rem;
+    text-align: left;
+    white-space: nowrap;
+    color: #222;
+    background: none;
+    border: none;
+    cursor: pointer;
+  }
+  .fam-menu-item:hover, .fam-menu-item:focus-visible { background: #eef4ec; outline: none; }
+  .fam-menu-item.selected { font-weight: 700; color: var(--main-dark); background: #eef4ec; }
+  .fam-menu-no { display: inline-block; min-width: 3.4ch; margin-right: 0.45em; text-align: right; color: #7a8a7f; font-weight: 400; font-variant-numeric: tabular-nums; }
   .fam-head-btns { display: inline-flex; align-items: center; gap: 10px; }
   /* 핀: 고정 전에는 윤곽선만 보이고 비스듬히 눕혀 있고, 고정하면 속을 채우고 바로 세운다 */
   .fam-pin { display: inline-flex; align-items: center; justify-content: center; padding: 2px; border-radius: 4px; opacity: 0.85; }
@@ -1097,12 +1155,13 @@
   <div class="fam-backdrop"></div>
   <div class="fam-dialog" role="dialog" aria-modal="true" aria-labelledby="famTitle">
     <div class="fam-dialog-head">
-      <span id="famTitle"></span>
+      <button type="button" id="famTitle" class="fam-title" aria-haspopup="listbox" aria-expanded="false" title="과를 골라 그 과의 생약 목록 보기"></button>
       <span class="fam-head-btns">
         <button type="button" id="famPin" class="fam-pin" aria-pressed="false" aria-label="고정" title="고정: 바깥을 누르거나 생약을 골라 설명창이 바뀌어도 팝업을 닫지 않음"><svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.2 1.6 14.4 5.8 12.9 6.3 10.8 9.3 11.3 11.1 10.4 12 4 5.6 4.9 4.7 6.7 5.2 9.7 3.1ZM5.6 10.4 1.6 14.4"/></svg></button>
         <button type="button" id="famClose" aria-label="닫기">×</button>
       </span>
     </div>
+    <div class="fam-menu" id="famMenu" role="listbox" aria-label="과 목록" hidden></div>
     <div class="fam-dialog-body" id="famBody"></div>
   </div>
 </div>
@@ -2141,7 +2200,7 @@ detailBox.addEventListener('click', (ev) => {
   const fam = ev.target.closest('.fam-link');
   if (fam) {
     ev.preventDefault();
-    openFamily(fam.dataset.fam);
+    openFamily(fam.dataset.fam, fam);
     return;
   }
   const link = ev.target.closest('.ref-link');
@@ -2906,9 +2965,47 @@ document.addEventListener('keydown', (ev) => {
 // 설명창으로 이동하고, 이동한 설명창에는 생약명 앞에 '돌아가기' 화살표가 붙어 지금 보던 생약으로 돌아올 수 있다.
 const famModal = document.getElementById('famModal');
 const famTitle = document.getElementById('famTitle');
+const famMenu = document.getElementById('famMenu');
 const famBody = document.getElementById('famBody');
+let famFamilies = [];   // 고를 수 있는 전체 과 [[과 이름, 생약 수], ...]
+let famCurName = '';    // 지금 목록에 나온 과
 
-async function openFamily(name) {
+// 제목줄을 누르면 제목줄 바로 아래에 전체 과 목록이 펼쳐지고, 하나를 고르면 그 과의 생약 목록으로 바뀐다.
+function openFamMenu() {
+  famMenu.style.top = famDialogHead.offsetHeight + 'px';
+  famMenu.hidden = false;
+  famTitle.setAttribute('aria-expanded', 'true');
+  const sel = famMenu.querySelector('.selected');
+  if (sel) famMenu.scrollTop = Math.max(0, sel.offsetTop - famMenu.clientHeight / 2 + sel.offsetHeight / 2);  // 지금 과가 가운데쯤 보이게
+}
+function closeFamMenu() {
+  famMenu.hidden = true;
+  famTitle.setAttribute('aria-expanded', 'false');
+}
+
+// 처음 열릴 때 팝업을 눌린 과 이름(anchor) 오른쪽에, 제목줄 세로 가운데를 과 이름 높이에 맞춰 놓는다. 오른쪽에 자리가 없으면 왼쪽에,
+// 양쪽 다 없으면(좁은 화면) 화면 안으로 가둔다. 아래로 넘치면 팝업 높이를 줄여(목록은 안에서 스크롤) 제목줄 높이를 유지하되,
+// 너무 아래라서 목록이 240px 도 안 남으면 그만큼만 위로 올린다. 이후 과를 바꿔도 이 자리는 마우스로 옮기기 전까지 그대로다.
+function placeFamilyNear(anchor) {
+  setFamOffset(0, 0);
+  famDialog.style.maxHeight = '';
+  if (!anchor || !anchor.isConnected) return;
+  const a = anchor.getClientRects()[0];
+  if (!a) return;
+  const r0 = famDialog.getBoundingClientRect();
+  const vw = window.innerWidth, vh = window.innerHeight, gap = 8, m = 8, minH = 240;
+  let left = a.right + gap;
+  if (left + r0.width > vw - m) {
+    const l2 = a.left - gap - r0.width;
+    left = l2 >= m ? l2 : Math.max(m, vw - m - r0.width);
+  }
+  let top = a.top + a.height / 2 - famDialogHead.offsetHeight / 2;
+  top = Math.max(m, Math.min(top, vh - m - minH));
+  famDialog.style.maxHeight = (vh - m - top) + 'px';
+  setFamOffset(left - r0.left, top - r0.top);
+}
+
+async function openFamily(name, anchor) {
   let data;
   try {
     const res = await fetch('/api/family/' + encodeURIComponent(name));
@@ -2918,21 +3015,35 @@ async function openFamily(name) {
     return;
   }
   const cur = Number(detailBox.dataset.itemId) || 0;
-  famTitle.textContent = `${name} 생약 (${data.items.length})`;
+  // 제목줄: 지금 과를 "173. 콩과 생약 (29)"로 보여 주고, 누르면 펼쳐지는 과 목록(순번 + 과 이름 + 생약 수)을 채운다
+  famFamilies = data.families || [[name, data.items.length]];
+  famCurName = name;
+  const fi = famFamilies.findIndex(([f]) => f === name);
+  famTitle.textContent = `${fi + 1}. ${name} 생약 (${data.items.length})`;
+  famMenu.innerHTML = famFamilies.map(([f, n], i) =>
+    `<button type="button" class="fam-menu-item${f === name ? ' selected' : ''}" role="option" aria-selected="${f === name}" data-fam="${escapeHtml(f)}"><span class="fam-menu-no">${i + 1}.</span>${escapeHtml(f)} 생약 (${n})</button>`).join('');
+  closeFamMenu();
   famBody.innerHTML = data.items.length
     ? `<ul class="fam-list">${data.items.map((it, i) =>
         `<li><button type="button" class="fam-item${it.id === cur ? ' current' : ''}" data-id="${it.id}"><span class="fam-no" style="min-width:${String(data.items.length).length + 1}ch">${i + 1}.</span>${renderName(it)}${sourceBadge(it.source_tag, it.part)}${flagBadge(it.flag)}</button></li>`
       ).join('')}</ul>`
     : '<p class="fam-empty">같은 과의 생약이 없습니다.</p>';
   famBody.scrollTop = 0;
-  if (famModal.hidden) setFamOffset(0, 0);  // 새로 열 때는 가운데에서 시작(고정되어 이미 떠 있던 팝업은 옮겨 둔 자리 그대로)
+  const fresh = famModal.hidden;
   famModal.hidden = false;
+  if (fresh) placeFamilyNear(anchor);  // 새로 열 때만 자리를 잡는다(고정되어 이미 떠 있던 팝업은 옮겨 둔 자리 그대로)
   setFamPinned(famPinned);  // 뒤 화면 고정(fam-open) 여부를 고정 상태에 맞춘다
+  // 지금 보고 있는 생약이 목록 아래쪽이면 보이게 한다. scrollIntoView 는 바깥 화면까지 움직여 제목줄이 밀릴 수 있어서
+  // 목록(famBody) 안에서만 직접 스크롤한다.
   const curBtn = famBody.querySelector('.fam-item.current');
-  if (curBtn) curBtn.scrollIntoView({ block: 'center' });  // 지금 보고 있는 생약이 목록 아래쪽이면 보이게 한다
+  if (curBtn) {
+    const off = curBtn.getBoundingClientRect().top - famBody.getBoundingClientRect().top;
+    famBody.scrollTop = Math.max(0, off - famBody.clientHeight / 2 + curBtn.offsetHeight / 2);
+  }
 }
 
 function closeFamily() {
+  closeFamMenu();
   famModal.hidden = true;
   famBody.innerHTML = '';
   setFamPinned(false);  // 닫으면 고정도 풀린다(다음에 열 때는 고정 안 된 상태)
@@ -2980,7 +3091,7 @@ function setFamOffset(x, y) {
   famDialog.style.transform = x || y ? `translate(${x}px, ${y}px)` : '';
 }
 famDialogHead.addEventListener('pointerdown', (ev) => {
-  if (ev.target.closest('button') || (ev.pointerType === 'mouse' && ev.button !== 0)) return;
+  if (ev.target.closest('button, select') || (ev.pointerType === 'mouse' && ev.button !== 0)) return;
   const r = famDialog.getBoundingClientRect();
   famDrag = {
     startX: ev.clientX, startY: ev.clientY, baseX: famOffset.x, baseY: famOffset.y,
@@ -3002,8 +3113,22 @@ famDialogHead.addEventListener('pointermove', (ev) => {
 document.getElementById('famClose').addEventListener('click', closeFamily);
 famModal.querySelector('.fam-backdrop').addEventListener('click', () => { if (!famPinned) closeFamily(); });
 famPinBtn.addEventListener('click', () => setFamPinned(!famPinned));
+famTitle.addEventListener('click', () => { if (famMenu.hidden) openFamMenu(); else closeFamMenu(); });
+famMenu.addEventListener('click', (ev) => {
+  const it = ev.target.closest('.fam-menu-item');
+  if (!it) return;
+  closeFamMenu();
+  if (it.dataset.fam !== famCurName) openFamily(it.dataset.fam);  // 다른 과를 고르면 그 과의 생약 목록으로 바꾼다
+});
+// 과 목록이 펼쳐진 상태에서 목록·제목 바깥을 누르면 목록만 접는다(팝업은 그대로)
+document.addEventListener('pointerdown', (ev) => {
+  if (!famMenu.hidden && !ev.target.closest('#famMenu, #famTitle')) closeFamMenu();
+}, true);
 document.addEventListener('keydown', (ev) => {
-  if (ev.key === 'Escape' && !famModal.hidden) closeFamily();
+  if (ev.key === 'Escape' && !famModal.hidden) {
+    if (!famMenu.hidden) closeFamMenu();  // 과 목록이 펼쳐져 있으면 목록만 접는다
+    else closeFamily();
+  }
 });
 </script>
 </body>
