@@ -1486,16 +1486,42 @@ function fetchItemText(id) {
   p.then(text => { if (text === null && itemPrefetch.get(key) === entry) itemPrefetch.delete(key); });  // 실패는 보관하지 않는다
   return p;
 }
+// "사진정보" 버튼에 마우스를 올리거나 손가락을 대면, 새 창이 열리기 전에 사진 화면을 한 번 불러 서버가 사진 정보를 준비하게 하고
+// 목록 맨 위 사진 두 장을 미리 받아 브라우저 저장소(하루 보관)에 넣어 둔다. 눌러서 열리는 새 창은 같은 주소의 그림을 거기서 바로 쓴다.
+// 사진을 그리는 데는 서버가 1초 가까이 쓰므로 두 장으로 제한하고, 같은 버튼은 한 번만 한다.
+const PHOTO_BTN = 'a.link-btn[href^="/photo_info"]';
+const photoWarmed = new Set();
+function warmPhotoInfo(href) {
+  if (photoWarmed.has(href)) return;
+  photoWarmed.add(href);
+  fetch(href).then(res => (res.ok ? res.text() : '')).then(html => {
+    const re = /src="(\/sensory_photos\/[^"]+)"/g;
+    let m, n = 0;
+    while ((m = re.exec(html)) && n < 2) {
+      const img = new Image();
+      img.src = m[1].replace(/&amp;/g, '&');
+      n += 1;
+    }
+  }).catch(() => {});
+}
 const PREFETCH_ROW = '.result-item[data-id], .fam-item[data-id]';
 let prefetchTimer = null;
 document.addEventListener('mouseover', (ev) => {
   clearTimeout(prefetchTimer);
-  const row = ev.target.closest && ev.target.closest(PREFETCH_ROW);
-  if (row) prefetchTimer = setTimeout(() => fetchItemText(row.dataset.id), 60);  // 줄 위를 스쳐 지나가기만 할 때는 받지 않는다
+  const t = ev.target.closest ? ev.target : null;
+  if (!t) return;
+  const row = t.closest(PREFETCH_ROW);
+  if (row) { prefetchTimer = setTimeout(() => fetchItemText(row.dataset.id), 60); return; }  // 줄 위를 스쳐 지나가기만 할 때는 받지 않는다
+  const btn = t.closest(PHOTO_BTN);
+  if (btn) prefetchTimer = setTimeout(() => warmPhotoInfo(btn.getAttribute('href')), 60);
 });
 document.addEventListener('touchstart', (ev) => {
-  const row = ev.target.closest && ev.target.closest(PREFETCH_ROW);
-  if (row) fetchItemText(row.dataset.id);
+  const t = ev.target.closest ? ev.target : null;
+  if (!t) return;
+  const row = t.closest(PREFETCH_ROW);
+  if (row) { fetchItemText(row.dataset.id); return; }
+  const btn = t.closest(PHOTO_BTN);
+  if (btn) warmPhotoInfo(btn.getAttribute('href'));
 }, { passive: true });
 
 async function showDetail(id, filterItem, opts = {}) {

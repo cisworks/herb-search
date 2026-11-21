@@ -1395,6 +1395,25 @@ def _sensory_photo_regions(entry_id):
     return regions
 
 
+def _sensory_native_dpis(entry_id):
+    """품목 사진들의 PDF 원본 해상도 {(쪽, 묶음 번호): dpi}. 사진마다 약 0.13초가 걸려서 사진 위치 표(_photo_table)에 같이 저장해 둔다
+    (키는 ("dpi", 쪽, 묶음 번호)). 표에 없는 것만 PDF 를 한 번 열어 계산해 보태 저장한다."""
+    regions = _sensory_photo_regions(entry_id)
+    table = _photo_table()
+    missing = [(p, i) for p, i in regions if ("dpi", p, i) not in table]
+    if missing:
+        import pymupdf as fitz
+
+        doc = fitz.open(str(BASE_DIR / SENSORY_PHOTO_FILE))
+        try:
+            for p, i in missing:
+                table[("dpi", p, i)] = sensory_photos.native_dpi(doc, p, i)
+        finally:
+            doc.close()
+        _save_photo_table()
+    return {(p, i): table[("dpi", p, i)] for p, i in regions}
+
+
 def _sensory_photo_entry_id(name_only, hanja):
     """사진이 있는 관능검사해설서 품목의 id (없으면 None)."""
     if not (BASE_DIR / SENSORY_PHOTO_FILE).is_file():
@@ -1452,13 +1471,7 @@ def photo_info():
         e = ENTRY_BY_ID.get(sensory)
         if e is None or e.get("source_file") != SENSORY_PHOTO_FILE:
             abort(404)
-        import pymupdf as fitz
-
-        doc = fitz.open(str(BASE_DIR / SENSORY_PHOTO_FILE))
-        try:
-            native = {(p, i): sensory_photos.native_dpi(doc, p, i) for p, i in _sensory_photo_regions(sensory)}
-        finally:
-            doc.close()
+        native = _sensory_native_dpis(sensory)
         columns.append(
             {
                 "title": "관능검사해설서 사진정보",
@@ -1532,6 +1545,73 @@ def indication():
     return render_template("indication.html", groups=groups, title=request.args.get("t", "")[:40])
 
 
+# 사진 그림 파일 캐시: 사진 한 장을 PDF 에서 그리는 데 0.6~1.4초가 걸리고 PNG 가 0.4~1.5MB 라서, 목록에 보이는 그림(원본 해상도 전체 층)은
+# 한 번 그린 뒤 .parse_cache/photos/ 에 저장해 두고 다음부터는 그 파일을 보낸다. 본 사진만 쌓이며, 합계가 PHOTO_IMAGE_CACHE_MAX 를
+# 넘으면 오래 안 본 것부터 지운다(PythonAnywhere 무료 저장 공간을 아끼려고). 확대 화면용 두 층(photo/text)은 드물게 쓰여 저장하지 않는다.
+# 파일 이름은 (사진 PDF 크기·수정 시각 + sensory_photos.py + SENSORY_PHOTO_VER) 서명과 (쪽, 묶음 번호)로 정해서, PDF 나 그리는 코드가
+# 바뀌면 옛 파일은 쓰이지 않고 정리된다. (쪽, 묶음 번호)는 품목 번호와 무관해서 데이터를 다시 만들어도 어긋나지 않는다.
+PHOTO_IMAGE_CACHE_DIR = PARSE_CACHE_DIR / "photos"
+PHOTO_IMAGE_CACHE_MAX = 150 * 1024 * 1024
+_PHOTO_IMAGE_SIG = None
+
+
+def _photo_image_sig():
+    global _PHOTO_IMAGE_SIG
+    if _PHOTO_IMAGE_SIG is None:
+        h = hashlib.sha1()
+        try:
+            st = (BASE_DIR / SENSORY_PHOTO_FILE).stat()
+            h.update(f"{st.st_size}|{st.st_mtime_ns}|v{SENSORY_PHOTO_VER}|py{sys.version_info[:2]}".encode())
+            h.update((BASE_DIR / "sensory_photos.py").read_bytes())
+        except OSError:
+            h.update(b"nofile")
+        _PHOTO_IMAGE_SIG = h.hexdigest()[:12]
+    return _PHOTO_IMAGE_SIG
+
+
+def _photo_image_cache_file(page_no, index):
+    return PHOTO_IMAGE_CACHE_DIR / f"{_photo_image_sig()}-{page_no}-{index}.png"
+
+
+def _photo_image_cache_read(page_no, index):
+    f = _photo_image_cache_file(page_no, index)
+    try:
+        data = f.read_bytes()
+        os.utime(f)  # 방금 본 사진으로 표시(오래 안 본 것부터 지우기 위해)
+        return data
+    except OSError:
+        return None
+
+
+def _photo_image_cache_write(page_no, index, png):
+    try:
+        PHOTO_IMAGE_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        f = _photo_image_cache_file(page_no, index)
+        tmp = f.with_suffix(".tmp")
+        tmp.write_bytes(png)
+        os.replace(tmp, f)
+        # 정리: 서명이 다른 옛 파일은 지우고, 합계가 상한을 넘으면 오래 안 본 것부터 상한의 80% 가 될 때까지 지운다
+        sig = _photo_image_sig()
+        files = []
+        for p in PHOTO_IMAGE_CACHE_DIR.iterdir():
+            if p.suffix == ".tmp":
+                continue
+            if not p.name.startswith(sig + "-"):
+                p.unlink(missing_ok=True)
+                continue
+            st = p.stat()
+            files.append((st.st_mtime, st.st_size, p))
+        total = sum(s for _, s, _ in files)
+        if total > PHOTO_IMAGE_CACHE_MAX:
+            for _, size, p in sorted(files):
+                if total <= PHOTO_IMAGE_CACHE_MAX * 0.8:
+                    break
+                p.unlink(missing_ok=True)
+                total -= size
+    except Exception as exc:  # noqa: BLE001  저장 실패는 캐시 없이 계속
+        print(f"[알림] 사진 그림 캐시를 저장하지 못했습니다: {exc}")
+
+
 @app.route("/sensory_photos/<int:entry_id>/<int:page_no>/<int:index>.png")
 def sensory_photo_image(entry_id, page_no, index):
     import pymupdf as fitz
@@ -1539,18 +1619,24 @@ def sensory_photo_image(entry_id, page_no, index):
     e = ENTRY_BY_ID.get(entry_id)
     if e is None or e.get("source_file") != SENSORY_PHOTO_FILE or (page_no, index) not in _sensory_photo_regions(entry_id):
         abort(404)
+    # 확대해서 볼 때는 ?dpi=native: 그 사진의 PDF 원본 해상도(대체로 380~430dpi)로 그려
+    # 원본 픽셀이 그대로 나온다. 숫자를 주면 그 dpi(72~450)로 그린다.
+    raw = request.args.get("dpi", "")
+    layer = request.args.get("layer", "all")
+    if raw == "native" and layer not in ("all", "photo", "text"):
+        abort(400)
+    headers = {"Cache-Control": "public, max-age=86400"}
+    cacheable = raw == "native" and layer == "all"  # 목록에 보이는 그림만 서버에 저장한다
+    if cacheable:
+        cached = _photo_image_cache_read(page_no, index)
+        if cached is not None:
+            return Response(cached, mimetype="image/png", headers=headers)
     doc = fitz.open(str(BASE_DIR / SENSORY_PHOTO_FILE))
     try:
-        # 확대해서 볼 때는 ?dpi=native: 그 사진의 PDF 원본 해상도(대체로 380~430dpi)로 그려
-        # 원본 픽셀이 그대로 나온다. 숫자를 주면 그 dpi(72~450)로 그린다.
-        raw = request.args.get("dpi", "")
         if raw == "native":
             # PDF 안의 원본 JPEG 픽셀을 다시 그리지 않고 그대로 붙인다(렌더링보다 선명).
             # layer=photo(사진만) / layer=text&k=4(글자와 선만 4배 해상도, 투명 배경)는 확대 화면에서
             # 글자와 선을 PDF 벡터처럼 또렷하게 보이려고 겹쳐 쓰는 두 층이다.
-            layer = request.args.get("layer", "all")
-            if layer not in ("all", "photo", "text"):
-                abort(400)
             k = min(max(request.args.get("k", 4, type=int), 1), 6)
             png = sensory_photos.render_region_original(doc, page_no, index, layer=layer, k=k)
         else:
@@ -1560,7 +1646,9 @@ def sensory_photo_image(entry_id, page_no, index):
         doc.close()
     if png is None:
         abort(404)
-    return Response(png, mimetype="image/png", headers={"Cache-Control": "public, max-age=86400"})
+    if cacheable:
+        _photo_image_cache_write(page_no, index, png)
+    return Response(png, mimetype="image/png", headers=headers)
 
 
 _CASE_PAGE_NOISE_RE = re.compile(r"한약\(생약\)\s*관능검사\s*사례집|Ministry of Food and Drug Safety|\d+")
