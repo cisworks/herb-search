@@ -13,12 +13,16 @@
 """
 
 import functools
+import hashlib
 import json
+import os
+import pickle
 import re
+import sys
 from pathlib import Path
 from urllib.parse import quote, urlencode
 
-from flask import Flask, Response, abort, jsonify, render_template, request
+from flask import Flask, Response, abort, jsonify, render_template, request, url_for
 
 import sensory_photos
 from parse_hwpx import finalize_method_section, parse_hwpx, parse_method_hwpx
@@ -47,6 +51,60 @@ METHOD_FILE_NAME = "7. 생규집(확인, 함량).hwpx"
 METHOD_ID_START = 200000
 
 
+# ---- 원본 파일 파싱 결과 캐시 -------------------------------------------------------
+# hwpx/pdf 를 서버를 켤 때마다 파싱하면 약 45초가 걸린다(관능검사해설서 pdf 약 27초, hwpx 약 14초). 파싱 결과를 .parse_cache/ 에
+# pickle 로 저장해 두고, 원본 파일(크기·수정 시각)과 파서 코드(parse_*.py)가 그대로이면 그 파일을 읽어 쓴다(몇 초).
+# 원본이나 파서가 바뀌면 키가 달라져 자동으로 다시 파싱하고, 같은 파일의 옛 캐시는 지운다. 캐시를 못 쓰거나 깨졌으면 그냥 파싱한다.
+# 강제로 다시 파싱하려면 .parse_cache 폴더를 지우면 된다. 이 폴더는 git 에 올리지 않는다(.gitignore).
+PARSE_CACHE_DIR = BASE_DIR / ".parse_cache"
+_PARSER_FILES = ("parse_hwpx.py", "parse_sensory_pdf.py", "parse_case_pdf.py", "parse_test_methods.py")
+
+
+def _parser_signature():
+    h = hashlib.sha1()
+    h.update(f"py{sys.version_info[:2]}".encode())
+    for name in _PARSER_FILES:
+        try:
+            h.update((BASE_DIR / name).read_bytes())
+        except OSError:
+            h.update(name.encode())
+    return h.hexdigest()
+
+
+_PARSER_SIG = _parser_signature()
+
+
+def _cached_parse(label, path, func, *args, **kwargs):
+    """func(path, *args, **kwargs) 의 결과를 캐시해서 돌려준다. label 은 같은 파일을 다른 방식으로 파싱하는 경우(예: prep=True)를 구분한다.
+    돌려주는 값은 호출마다 새로 만들어진 객체라(캐시를 읽거나 방금 파싱한 것) 호출한 쪽이 마음대로 고쳐도 캐시에는 영향이 없다."""
+    try:
+        st = path.stat()
+        prefix = hashlib.sha1(f"{path.name}|{label}".encode()).hexdigest()[:10]
+        key = hashlib.sha1(f"{st.st_size}|{st.st_mtime_ns}|{_PARSER_SIG}".encode()).hexdigest()[:16]
+        cache_file = PARSE_CACHE_DIR / f"{prefix}-{key}.pkl"
+    except OSError:
+        return func(path, *args, **kwargs)
+    if cache_file.is_file():
+        try:
+            with open(cache_file, "rb") as f:
+                return pickle.load(f)
+        except Exception:  # noqa: BLE001  깨진 캐시는 무시하고 다시 파싱한다
+            pass
+    result = func(path, *args, **kwargs)
+    try:
+        PARSE_CACHE_DIR.mkdir(exist_ok=True)
+        tmp = cache_file.with_suffix(".tmp")
+        with open(tmp, "wb") as f:
+            pickle.dump(result, f, protocol=pickle.HIGHEST_PROTOCOL)
+        os.replace(tmp, cache_file)
+        for old in PARSE_CACHE_DIR.glob(f"{prefix}-*.pkl"):  # 같은 파일의 옛 버전 캐시 정리
+            if old != cache_file:
+                old.unlink(missing_ok=True)
+    except Exception as exc:  # noqa: BLE001  저장 실패(읽기 전용 폴더 등)는 캐시 없이 계속
+        print(f"[알림] 파싱 캐시를 저장하지 못했습니다({path.name}): {exc}")
+    return result
+
+
 def _warn_missing(label, name):
     """서버를 켤 때 필요한 원본 파일(hwpx/pdf)이 폴더에 없으면 콘솔에 알린다. hwpx/pdf 는 .gitignore 에 있어 git 으로
     받아지지 않으므로, 새 컴퓨터에서 서버를 켰을 때 목록이 비는 이유를 바로 알 수 있게 한다.
@@ -60,7 +118,7 @@ app = Flask(__name__)
 # 외부 패키지(flask-compress) 없이 표준 라이브러리만 쓴다. 이미 압축된 그림/PDF 는 건드리지 않고, 작은 응답도 그대로 둔다.
 import gzip
 
-_GZIP_TYPES = ("text/html", "application/json", "text/css", "application/javascript", "image/svg+xml")
+_GZIP_TYPES = ("text/html", "application/json", "text/css", "application/javascript", "text/javascript", "image/svg+xml")
 
 
 @app.after_request
@@ -89,6 +147,19 @@ def _cached_json(payload, max_age=600):
     resp.headers["Cache-Control"] = f"public, max-age={max_age}"
     resp.add_etag()
     return resp.make_conditional(request)
+
+@app.context_processor
+def _asset_helpers():
+    """템플릿에서 {{ asset('app.css') }} 로 static 파일 주소를 얻는다. 파일 수정 시각을 ?v= 로 붙여서, 서버에서 git pull 로 파일이
+    바뀌면 주소가 달라져 브라우저가 옛 CSS/JS 캐시를 쓰지 않고 새 파일을 받는다."""
+    def asset(filename):
+        try:
+            v = int((Path(app.static_folder) / filename).stat().st_mtime)
+        except OSError:
+            v = 0
+        return url_for("static", filename=filename, v=v)
+    return {"asset": asset}
+
 
 ENTRIES = []  # 공정서(hwpx)에서 파싱된 생약 목록 (앱 시작 시 1회 로드)
 SENSORY_ENTRIES = []  # 관능검사해설서(pdf)에서 파싱된 생약 목록
@@ -182,7 +253,7 @@ def load_entries():
         _warn_missing("공정서(생약)", "*.hwpx (예: 1. 약전(각조 제2부).hwpx, 2. 생규집(각조 제1부).hwpx)")
     for f in hwpx_files:
         try:
-            file_entries = parse_hwpx(f)
+            file_entries = _cached_parse("hwpx", f, parse_hwpx)
         except Exception as exc:  # noqa: BLE001
             print(f"[경고] {f} 파싱 실패: {exc}")
             continue
@@ -222,7 +293,7 @@ def load_sensory_entries(start_id):
         _warn_missing("관능검사해설서", "*.pdf (예: 관능검사해설서(2022).pdf)")
     for f in pdf_files:
         try:
-            file_entries = build_sensory_entries(f)
+            file_entries = _cached_parse("sensory", f, build_sensory_entries)
         except Exception as exc:  # noqa: BLE001
             print(f"[경고] {f} 파싱 실패: {exc}")
             continue
@@ -422,7 +493,7 @@ def load_prep_entries(start_id):
             _warn_missing("생약제제", name)
             continue
         try:
-            file_entries = parse_hwpx(f, prep=True)
+            file_entries = _cached_parse("prep", f, parse_hwpx, prep=True)
         except Exception as exc:  # noqa: BLE001
             print(f"[경고] {f} 파싱 실패: {exc}")
             continue
@@ -466,7 +537,7 @@ def load_prep_methods(start_id):
         _warn_missing("생약제제 확인시험·함량시험", METHOD_FILE_NAME)
         return entries, by_herb
     try:
-        data = parse_method_hwpx(path)
+        data = _cached_parse("method", path, parse_method_hwpx)
     except Exception as exc:  # noqa: BLE001
         print(f"[경고] {path} 파싱 실패: {exc}")
         return entries, by_herb
@@ -534,7 +605,7 @@ def load_case_entries():
         _warn_missing("관능검사 사례집", "*사례집*.pdf (예: 관능검사사례집.pdf)")
     for f in case_files:
         try:
-            file_entries = parse_case_pdf(f)
+            file_entries = _cached_parse("case", f, parse_case_pdf)
         except Exception as exc:  # noqa: BLE001
             print(f"[경고] {f} 파싱 실패: {exc}")
             continue
@@ -550,7 +621,7 @@ def load_test_methods():
         _warn_missing("생약시험법", TEST_METHOD_FILE)
         return {}
     try:
-        return parse_test_methods(path)
+        return _cached_parse("testmethods", path, parse_test_methods)
     except Exception as exc:  # noqa: BLE001
         print(f"[경고] {path} 파싱 실패: {exc}")
         return {}

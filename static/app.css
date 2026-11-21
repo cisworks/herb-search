@@ -1,0 +1,1130 @@
+  :root {
+    --main: #2f6f4f;
+    --main-dark: #234f38;
+    --bg: #f6f7f4;
+    --card: #ffffff;
+    --border: #dfe3dc;
+    --text: #2a2a2a;
+    --sub: #6b6b6b;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: "Malgun Gothic", "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+  }
+  header {
+    position: relative;
+    background: var(--main);
+    color: #fff;
+    padding: 22px 20px 8px;
+    text-align: center;
+  }
+  .header-inner {
+    max-width: 1400px;
+    margin: 0 auto;
+  }
+  .org-badge {
+    position: absolute;
+    left: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    z-index: 2;  /* 가운데 안내 문구(전체 폭 문단)에 가려져 눌리지 않는 일이 없게 한다 */
+    color: inherit;  /* 로고와 기관명을 누르면 이 사이트의 홈페이지로 이동 */
+    text-decoration: none;
+    cursor: pointer;
+  }
+  .org-badge img {
+    width: 34px;
+    height: 34px;
+    flex-shrink: 0;
+  }
+  .org-badge .org-name {
+    text-align: left;
+    font-size: 0.72rem;
+    line-height: 1.35;
+    opacity: 0.95;
+  }
+  header h1 { margin: 0 0 4px; font-size: 1.5rem; }
+  .header-meta { text-align: center; }
+  .header-meta p { margin: 0; font-size: 0.85rem; opacity: 0.9; }
+  .header-meta p.header-cite { margin-top: 4px; font-size: 0.72rem; opacity: 0.8; }
+
+  .wrap {
+    margin: 0 auto;
+    padding: 8px 16px 60px;
+    display: flex;
+    align-items: flex-start;
+    gap: 20px;
+  }
+  .left-panel {
+    flex: 0 0 auto;
+    width: max-content;
+    min-width: 150px;
+    position: sticky;
+    top: 24px;
+    /* 내용이 창 높이보다 길면 패널 안에서 세로로 스크롤된다(높이 상한은
+       fitLeftPanelHeight가 창 크기/스크롤에 맞춰 계속 계산해 넣는다). */
+    overflow-y: auto;
+    overflow-x: hidden;
+    /* 스크롤바는 보이지 않게 한다(휠/터치로는 그대로 스크롤된다). 스크롤바가 생겼다 사라지면서
+       탭 버튼과 검색칸의 가로 폭이 변하는 일이 없게 한다. */
+    scrollbar-width: none;
+  }
+  .left-panel::-webkit-scrollbar { display: none; }
+  .left-panel.dropdown-open { overflow: visible; }
+  .right-panel {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+  /* 좌우 패널 사이의 드래그로 너비를 조절하는 핸들. 가운데 2px짜리
+     선만 보이고, 클릭/드래그는 더 넓은 영역(6px)에서 받는다. */
+  .panel-resizer {
+    flex: 0 0 auto;
+    width: 6px;
+    /* 왼쪽 패널(스크롤바)과 이 바 사이 간격(.wrap gap 20px)만 10%(2px) 줄이고,
+       오른쪽 화면 위치는 그대로 두려고 오른쪽 여백을 같은 만큼 늘린다. */
+    margin: 0 2px 0 -2px;
+    align-self: stretch;
+    position: sticky;
+    top: 24px;
+    height: calc(100vh - 48px);
+    cursor: col-resize;
+    z-index: 5;
+  }
+  .panel-resizer::after {
+    content: "";
+    position: absolute;
+    left: 50%;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    transform: translateX(-50%);
+    background: var(--border);
+    transition: background 0.15s;
+  }
+  .panel-resizer:hover::after,
+  .panel-resizer.dragging::after {
+    background: var(--main);
+  }
+  @media (max-width: 860px) {
+    .wrap { flex-direction: column; }
+    .left-panel { position: static; width: 100% !important; overflow: visible; max-height: none !important; }
+    .right-panel { width: 100%; }
+    .panel-resizer { display: none; }
+  }
+
+  .search-box {
+    position: relative;
+    margin-bottom: 8px;
+  }
+  .search-box input {
+    width: 100%;
+    padding: 14px 40px 14px 16px;
+    font-size: 1.05rem;
+    border: 2px solid var(--border);
+    border-radius: 10px;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+  /* 검색칸에 커서가 있어도 테두리는 원래 색(--border) 그대로 둔다(탭을 열면 자동으로 커서가 놓이므로 늘 초록 테두리가 되지 않게) */
+  .search-box input::placeholder { font-size: calc(1.05rem - 1pt); }  /* 세 검색칸의 안내문은 1pt 작게(같은 크기), 입력한 검색어는 원래 크기 */
+  .combo-toggle {
+    position: absolute;
+    right: 6px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 30px;
+    height: 30px;
+    border: none;
+    background: none;
+    color: var(--sub);
+    font-size: 1.5444rem;  /* 화살표(▾) 글자 크기: 원래 0.9rem 의 172% (130% -> 120% -> 110% 로 차례로 키움) */
+    cursor: pointer;
+    border-radius: 6px;
+  }
+  .combo-toggle:hover { color: var(--main-dark); background: #eef3ec; }
+
+  /* 화살표로 여는 공정서 전체 목록 팝업. 검색 결과(#results)와는 완전히
+     별개의 레이어라서, 이 팝업을 열고 닫아도 검색 결과 카드는 그대로
+     남아 있다. */
+  .combo-dropdown {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    right: 0;
+    z-index: 30;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.15);
+    overflow-y: auto;
+    overflow-x: auto;
+    max-height: 60vh;
+  }
+
+  .meta {
+    font-size: 0.8rem;
+    color: var(--sub);
+    margin-bottom: 18px;
+  }
+
+  .results {
+    display: flex;
+    flex-direction: column;
+    gap: 48px;
+    margin-top: 48px;
+    margin-bottom: 24px;
+  }
+  /* 카드 하나가 길어지면(품목이 많으면) 카드 안에서만 스크롤되고, 맨 위
+     "공정서 (숫자)" 라벨은 sticky로 고정되어 스크롤해도 항상 보인다. */
+  .result-group {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow-y: auto;
+    overflow-x: auto;
+    flex: none;
+    max-height: min(480px, 55vh);
+  }
+  .result-item {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 8px;
+    white-space: nowrap;
+  }
+  .result-item:last-child { border-bottom: none; }
+  .result-item:hover,
+  .result-item.kb-active,
+  .result-item.selected { background: #f0f5ef; }  /* kb-active: 방향키로 옮기는 반전(마우스를 올린 것과 같은 색) */  /* selected: 지금 오른쪽 화면에 보이는 생약 */
+  .result-item .rname { font-weight: 600; }
+  .synonym { font-size: 90%; font-weight: 500; }
+  .source-badge {
+    display: inline-block;
+    border: 1.5px solid var(--main-dark);
+    color: var(--main-dark);
+    font-size: 0.68rem;
+    font-weight: 700;
+    padding: 0 4px;
+    border-radius: 3px;
+    margin-left: 6px;
+    line-height: 1.5;
+    vertical-align: middle;
+  }
+  .flag-badge {  /* 생약명 오른쪽의 식약공용/독성주의 표시 */
+    display: inline-block;
+    font-size: 0.68rem;
+    font-weight: 700;
+    padding: 0 5px;
+    border-radius: 3px;
+    margin-left: 6px;
+    line-height: 1.5;
+    vertical-align: middle;
+    white-space: nowrap;
+  }
+  .flag-common { border: 1.5px solid #3a8a5c; color: #25663f; }
+  .flag-toxic { border: 1.5px solid #c0392b; color: #a0281c; }
+  .source-part {  /* 생약제제: KP/KHP 배지 오른쪽의 "각조 제2부" 같은 파일 구분 */
+    margin-left: 4px;
+    font-size: 0.72rem;
+    font-weight: 500;
+    color: var(--sub);
+    vertical-align: middle;
+  }
+  /* 즐겨찾기 / 최근 본 생약 카드: 검색 결과 카드(.result-group)와 같은 모양. 카드가 길어지면 카드 안에서만 스크롤된다 */
+  .quick-box[hidden] { display: none; }
+  .quick-box { gap: 24px; margin-top: 24px; }
+  .quick-box .result-group { max-height: min(260px, 40vh); }
+  .quick-box .group-label { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .quick-clear {  /* 최근 본 생약 라벨 오른쪽의 "모두 지우기" */
+    padding: 0 2px;
+    font-family: inherit;
+    font-size: 0.72rem;
+    font-weight: 500;
+    color: var(--sub);
+    background: none;
+    border: none;
+    cursor: pointer;
+    text-decoration: underline;
+  }
+  .quick-clear:hover { color: var(--main-dark); }
+  .quick-box .result-item { align-items: center; }
+  .quick-fav-off {  /* 즐겨찾기 줄 오른쪽의 별: 누르면 즐겨찾기에서 뺀다 */
+    flex: none;
+    padding: 0 2px;
+    font-family: inherit;
+    font-size: 1rem;
+    line-height: 1;
+    color: #c98a00;
+    background: none;
+    border: none;
+    cursor: pointer;
+  }
+  .quick-fav-off:hover { color: #a06c00; }
+  /* 설명창 생약명 옆의 즐겨찾기 별 버튼: 글자 크기 버튼과 같은 크기/테두리 */
+  .detail-fav-btn {
+    position: relative;
+    top: -3.35px;
+    flex: none;
+    box-sizing: border-box;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 25.2px;
+    height: 20.7px;
+    margin: -6px 0 -6px 6px;
+    padding: 0;
+    font-family: inherit;
+    font-size: 0.85rem;
+    line-height: 1;
+    color: var(--main-dark);
+    background: #fff;
+    border: 1.5px solid var(--main-dark);
+    border-radius: 3px;
+    cursor: pointer;
+  }
+  .detail-fav-btn.fav-in-row { display: none; }  /* 모바일에서만 쓰는 두 번째 별(영문명 줄 오른쪽 끝). 화면 폭 규칙에서 보이게 한다 */
+  .detail-fav-btn:hover { background: #f0f5ef; }
+  .detail-fav-btn.on { color: #c98a00; border-color: #c98a00; }
+  .empty-msg {
+    text-align: center;
+    color: var(--sub);
+    padding: 20px;
+    font-size: 0.9rem;
+  }
+  .empty-msg.left {
+    text-align: left;
+    padding: 12px 16px;
+  }
+  .group-label {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    padding: 3px 16px;
+    font-size: 0.9rem;
+    font-weight: 700;
+    color: var(--main-dark);
+    background: var(--bg);
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+  }
+  /* 관능검사 사례집 카드 안의 카테고리(기원/약용부위·이물/충해·곰팡이/
+     가공방법) 구분 라벨. group-label보다 한 단계 아래 제목이라 sticky는
+     쓰지 않는다. */
+  .case-category-label {
+    padding: 2.4px 16px;
+    font-size: 0.82rem;
+    font-weight: 700;
+    color: var(--sub);
+    background: #fafbf9;
+    border-bottom: 1px solid var(--border);
+  }
+  .detail.sensory-mode {
+    padding: 0;
+    overflow: hidden;
+    position: relative;
+    height: calc(100vh - 48px);
+    max-width: none;
+    margin: 0;
+  }
+  .sensory-frame {
+    display: block;
+    width: 100%;
+    height: 100%;
+    border: none;
+  }
+  .detail {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+    display: none;
+    max-width: 900px;
+    margin: 0 auto;
+  }
+  .detail.show { display: block; }
+  .detail-wrap { position: relative; }
+  /* 생약 내용(.detail)의 왼쪽/오른쪽 모서리를 끌어서 가로 너비를
+     조절하는 핸들. .detail이 보일 때만 보이도록 JS가 detailWrap에
+     show 클래스를 붙이고(왼쪽 핸들은 .detail보다 DOM상 앞에 있어
+     형제 선택자로는 걸 수 없다), 위치(left)는 .detail의 실제 좌우
+     끝에 맞춰 JS가 매번 다시 계산해 넣는다. */
+  .detail-resizer {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 10px;
+    margin-left: -5px;
+    cursor: ew-resize;
+    display: none;
+    z-index: 4;
+  }
+  .detail-wrap.show .detail-resizer { display: block; }
+  .detail-resizer::after {
+    content: "";
+    position: absolute;
+    left: 50%;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    transform: translateX(-50%);
+    background: var(--border);
+    transition: background 0.15s;
+  }
+  .detail-resizer:hover::after,
+  .detail-resizer.dragging::after {
+    background: var(--main);
+  }
+  /* 너비를 끄는 동안 마우스 옆에 뜨는 퍼센트 풍선("100%", "+120%", "-90%"). 모서리에 마우스를 올리면 뜨는
+     "끌어서 너비 조절" 안내 풍선(브라우저 기본 title 풍선)과 비슷한 작은 크기 */
+  .detail-width-tip {
+    display: none;
+    position: fixed;
+    z-index: 1000;
+    padding: 2px 6px;
+    border: 1px solid #767676;
+    background: #fff;
+    color: #111;
+    font: 12px/1.4 "Segoe UI", "Malgun Gothic", system-ui, sans-serif;
+    pointer-events: none;
+    white-space: nowrap;
+    box-shadow: 1px 1px 3px rgba(0, 0, 0, 0.18);
+  }
+  .detail-placeholder {
+    height: calc(100vh - 180px);
+    min-height: 200px;
+    background: var(--card) url("herb_illustration.svg") no-repeat center bottom / contain;
+    border: 1px dashed var(--border);
+    border-radius: 12px;
+  }
+  .detail-placeholder.hide { display: none; }
+  .detail-header {
+    border-bottom: 2px solid var(--main);
+    padding-bottom: 14px;
+    margin-bottom: 16px;
+  }
+  .detail-header h2 {
+    margin: 0 0 4px;
+    color: var(--main-dark);
+    font-size: 1.4rem;
+  }
+  .detail-title-row {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  /* 생약명 아래 영문명/라틴명은 버튼 개수(버튼 줄 수)와 상관없이 생약명 바로 아래에 붙인다:
+     버튼 묶음은 오른쪽 열 전체에 걸치게 하고, 남는 높이는 맨 아래 빈 줄이 가져간다. */
+  .detail-header:has(.detail-title-actions) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-rows: auto auto auto 1fr;
+    column-gap: 12px;
+  }
+  .detail-header:has(.detail-title-actions) .detail-title-row { display: contents; }
+  .detail-header:has(.detail-title-actions) h2 { grid-column: 1; grid-row: 1; }
+  .detail-header:has(.detail-title-actions) .en { grid-column: 1; grid-row: 2; }
+  .detail-header:has(.detail-title-actions) .latin { grid-column: 1; grid-row: 3; }
+  .detail-header:has(.detail-title-actions) .detail-title-actions { grid-column: 2; grid-row: 1 / -1; align-self: start; }
+  /* 생약명 줄: 생약명(h2)과 그 뒤에 붙는 KP/KHP/식약공용/독성주의 배지 바로 오른쪽에 글자 크기 버튼을 나란히 둔다 */
+  .detail-name-line { grid-column: 1; grid-row: 1; display: flex; align-items: baseline; min-width: 0; margin: 0 0 4px; }
+  .detail-name-line h2 { margin: 0; min-width: 0; }
+  /* 마지막 배지와 글자 크기 버튼 사이 간격: 보통 40px. 이름 줄 폭이 모자라 배지가 줄바꿈될 것 같으면, 이 간격이 이름(h2)보다 먼저
+     (flex-shrink 를 아주 크게) 최소 6px 까지 줄어들어 줄바꿈이 생기지 않게 한다. 6px 로 줄여도 모자라면 그때는 배지가 줄바꿈된다 */
+  .detail-name-gap { flex: 0 1000000 40px; min-width: 6px; }
+  /* 글자 크기 버튼('가−' '가+'): 누를 때마다 헤더 아래 내용의 글자 크기를 한 단계씩 줄이거나 키운다 */
+  /* 버튼 아래 모서리를 배지 아래 모서리에 맞추려고 위로 3.35px 올린다(이름 글자 기준선 정렬에서 1.9px + 버튼 높이 20.7px 와 배지 18.3px 의 아래 차이 1.45px).
+     버튼이 줄 높이를 늘려 아래 영문명 줄을 밀지 않도록 위아래 여백을 음수로 둔다 */
+  .detail-zoom { display: flex; flex: none; gap: 4px; position: relative; top: -3.35px; margin: -6px 0; }
+  /* 크기는 처음 만들 때의 가로세로 비율(28 x 23px)에서 10% 줄인 25.2 x 20.7px. 글자 크기/굵기/테두리/모서리/색은 생약명 옆
+     배지(.source-badge/.flag-badge)와 같게 하고, 아래 모서리는 배지의 아래 모서리와 일치시킨다(.detail-zoom 의 top 으로 맞춘다) */
+  .detail-zoom-btn {
+    position: relative;
+    box-sizing: border-box;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 25.2px;
+    height: 20.7px;
+    padding: 0;
+    font-family: inherit;
+    font-size: 0.68rem;
+    font-weight: 700;
+    line-height: 1;
+    color: var(--main-dark);
+    background: #fff;
+    border: 1.5px solid var(--main-dark);
+    border-radius: 3px;
+    cursor: pointer;
+  }
+  /* 두 버튼 사이에 현재 글자 크기(%)를 보여 주는 표시부. 버튼과 같은 높이로 가운데 정렬하고, 숫자 폭이 변해도 버튼이 흔들리지 않게 고정 폭을 쓴다 */
+  .detail-zoom-pct {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+    min-width: 34px;
+    height: 20.7px;
+    font-size: 0.68rem;
+    font-weight: 700;
+    line-height: 1;
+    color: var(--main-dark);
+    font-variant-numeric: tabular-nums;
+    user-select: none;
+  }
+  .detail-zoom-btn:hover:not(:disabled) { color: #fff; background: var(--main); }
+  .detail-zoom-btn:disabled { opacity: 0.4; cursor: default; }
+  /* 글자 크기 단계(--detail-zoom, 0.8~1.5)는 헤더(생약명/버튼)를 뺀 내용 전체에 적용한다. 관능검사해설서 PDF 화면은 제외 */
+  .detail:not(.sensory-mode) > :not(.detail-header) { zoom: var(--detail-zoom, 1); }
+  /* 생약제제 제법 표의 생약명 링크로 연 생약 화면에서, 생약명 앞에 놓이는 "돌아가기" 버튼. 누르면 링크를 누르기 전 화면(그 생약제제)으로
+     돌아간다. 둥근 모서리의 정사각형(26x26px, 모서리 6px) 안 가운데에 가는 ←. 화살표는 글꼴에 따라 모양이 달라지지 않게 SVG 로 그리며,
+     12x8px 정수 크기라 사각형(26px) 안에서 위아래 9px 씩 정확히 떨어져 몸통(가로선)이 사각형 높이의 가운데에 놓인다.
+     화살표 색은 항상 진한 초록이고, 배경만 평소 #f0f5ef, 마우스를 올리면 그보다 5% 진한 #e4e9e3(각 색 성분 x0.95) */
+  .detail-back-btn {
+    position: relative;
+    flex: none;
+    align-self: flex-start;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    margin: 2px 8px 0 0;  /* 정사각형(26px)을 생약명 첫 줄(29px) 안에 정수 위치로 둔다 */
+    padding: 0;
+    border: none;
+    border-radius: 6px;
+    background: #f0f5ef;
+    color: var(--main-dark);
+    cursor: pointer;
+  }
+  .detail-back-btn svg { display: block; width: 12px; height: 8px; }
+  .detail-back-btn:hover { background: #e4e9e3; }
+  .detail-back-btn:focus-visible { outline: 2px solid var(--main); outline-offset: 2px; }
+  /* 버튼들을 3개씩 한 줄로 배치한다. 없는 버튼은 건너뛰고 앞에서부터 채워진다. */
+  .detail-title-actions {
+    flex-shrink: 0;
+    display: grid;
+    grid-template-columns: repeat(3, 5rem);
+    justify-items: end;
+    gap: 5px;
+  }
+  /* 버튼이 2개 이하면 칸 수를 줄여, 버튼 묶음이 생약명 줄의 오른쪽 끝에 붙게 한다. */
+  .detail-title-actions:not(:has(> :nth-child(3))) { grid-template-columns: repeat(2, 5rem); }
+  .detail-title-actions:not(:has(> :nth-child(2))) { grid-template-columns: repeat(1, 5rem); }
+  /* "사진정보"와 "HPTLC" 버튼(▾ 붙은 목록 버튼 포함)은 항상 같은 크기로 보이도록
+     너비를 고정한다. */
+  .link-btn {
+    flex-shrink: 0;
+    display: inline-block;
+    width: 5rem;
+    padding: 4px 0;
+    text-align: center;
+    font-family: inherit;
+    font-size: 0.68rem;
+    line-height: 1.4;
+    color: #fff;
+    background: #447d61;  /* var(--main) #2f6f4f 를 흰색 쪽으로 10% 옅게 */
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    text-decoration: none;
+    white-space: nowrap;
+  }
+  .link-btn:hover { background: var(--main-dark); }
+  .link-menu { position: relative; flex-shrink: 0; width: 5rem; }
+  /* 감싸는 칸 안에서 줄 간격 여백이 생겨 높이가 1px 커지지 않도록 block 으로 둔다. */
+  .link-menu > .link-btn { display: block; }
+  .link-menu-list {
+    display: none;
+    position: absolute;
+    right: 0;
+    top: calc(100% + 4px);
+    z-index: 20;
+    min-width: 200px;
+    max-width: 320px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12);
+    padding: 4px 0;
+  }
+  .link-menu.open .link-menu-list { display: block; }
+  .link-menu-list a {
+    display: block;
+    padding: 8px 14px;
+    color: var(--text);
+    font-size: 0.9rem;
+    text-decoration: none;
+  }
+  .link-menu-list a:hover { background: #f0f5ef; }
+  .detail-header .en {
+    color: var(--sub);
+    font-style: italic;
+    margin: 0 0 2px;
+  }
+  .detail-header .latin {
+    color: var(--sub);
+    font-style: italic;
+    font-size: 0.9rem;
+    margin: 0;
+  }
+  .definition {
+    background: #f0f5ef;
+    border-left: 4px solid var(--main);
+    padding: 12px 14px;
+    border-radius: 6px;
+    margin-bottom: 18px;
+    line-height: 1.6;
+  }
+  .definition p {
+    margin: 0 0 10px;
+    white-space: pre-line;
+  }
+  .definition p:last-child {
+    margin-bottom: 0;
+  }
+  .definition p.quantitative {
+    font-size: 90%;
+    color: var(--sub);
+  }
+  .definition p.quantitative sub {
+    font-size: 80%;
+  }
+  .section {
+    margin-bottom: 16px;
+  }
+  .section .section-header {
+    display: inline-flex;
+    align-items: center;
+    gap: 5.3px;
+    margin-bottom: 6px;
+    cursor: pointer;
+    user-select: none;
+  }
+  .section .label {
+    display: inline-block;
+    background: var(--main);
+    color: #fff;
+    font-size: 0.85rem;
+    font-weight: 600;
+    padding: 4px 10px;
+    border-radius: 6px;
+  }
+  .section .section-header:hover .label { background: var(--main-dark); }
+  .section .toggle-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 14.58px;
+    height: 14.58px;
+    border: 1px solid var(--main);
+    border-radius: 4px;
+    color: var(--main-dark);
+    font-size: 0.648rem;
+    font-weight: 700;
+    line-height: 1;
+    flex: none;
+  }
+  .section .section-header:hover .toggle-icon { border-color: var(--main-dark); }
+  .section .section-note {  /* 항목명 배지 오른쪽의 보조 표시, 예: 확인시험 (생약제제에 적용) */
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--main-dark);
+  }
+  .section.collapsed .section-content { display: none; }
+  .section .body {
+    white-space: pre-line;
+    line-height: 1.7;
+    padding-left: 2px;
+  }
+  .orig-table {
+    border-collapse: collapse;
+    margin: 8px 0;
+    font-size: 0.92rem;
+  }
+  .orig-table td {
+    border: 1px solid var(--border);
+    padding: 4px 10px;
+    text-align: center;
+  }
+  .orig-table tr:first-child td {
+    background: var(--bg);
+    font-weight: 600;
+  }
+  .formula-line {
+    text-align: center;
+    margin: 4px 0;
+    font-size: 95%;
+  }
+  /* 수식: 위아래로 쌓은 분수, 윗 막대(평균), 제곱근 */
+  .eq-frac {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    vertical-align: middle;
+    margin: 0 0.25em;
+    line-height: 1.35;
+  }
+  .eq-num { padding: 0 0.35em 0.1em; border-bottom: 1px solid currentColor; }
+  .eq-den { padding: 0.1em 0.35em 0; }
+  .eq-bar { display: inline-block; border-top: 1px solid currentColor; line-height: 1.1; }
+  .eq-sqrt { white-space: nowrap; }
+  .eq-sqrt-in { display: inline-block; border-top: 1px solid currentColor; padding: 0 0.15em; }
+  .item-list {
+    list-style: none;
+    margin: 0;
+    padding-left: 0;
+  }
+  .item-list .item-list {
+    margin-top: 4px;
+    padding-left: 22px;
+  }
+  .item-list > li {
+    margin-bottom: 8px;
+    line-height: 1.7;
+  }
+  .item-marker {
+    display: inline-block;
+    min-width: 1.6em;
+    font-weight: 600;
+    color: var(--main-dark);
+  }
+  .item-list .item-list .item-marker {
+    color: var(--sub);
+    font-weight: 500;
+  }
+  .ref-link {
+    color: var(--main-dark);
+    text-decoration: underline;
+    text-decoration-style: dotted;
+    cursor: pointer;
+  }
+  .ref-link:hover {
+    color: var(--main);
+  }
+  /* 생약시험법(3. 생약시험법.hwpx) 연결: "생약시험법" 버튼, 단어 링크, 이물 팝업, 항목 창 */
+  .tm-btn {
+    display: inline-block;
+    margin: 0 4px;
+    padding: 1px 3px;  /* 가로 여백을 줄여 버튼 폭을 글자 길이에 맞춘다 */
+    width: fit-content;
+    font-family: inherit;
+    font-size: 0.68rem;
+    line-height: 1.5;
+    color: var(--main-dark);
+    background: #fff;
+    border: 1px solid var(--main);
+    border-radius: 5px;
+    cursor: pointer;
+    vertical-align: middle;
+    white-space: nowrap;
+  }
+  .tm-btn:hover { color: #fff; background: var(--main); }
+  .tm-link {
+    color: var(--main-dark);
+    text-decoration: underline;
+    text-decoration-style: dotted;
+    cursor: pointer;
+  }
+  .tm-link:hover { color: var(--main); }
+  /* 기원 문장의 과 이름(예: 콩과): 누르면 같은 과의 생약 목록 팝업이 뜬다 */
+  .fam-link {
+    color: var(--main-dark);
+    text-decoration: underline;
+    text-decoration-style: dotted;
+    text-underline-offset: 3px;
+    cursor: pointer;
+  }
+  .fam-link:hover { color: var(--main); }
+  .fam-modal[hidden] { display: none; }
+  /* 팝업은 위쪽을 기준으로 놓는다(세로 가운데 정렬이 아님): 과를 바꿔 목록 길이가 달라져도 제목줄 위치가 변하지 않고, 목록이 아무리
+     길어도 제목줄이 화면 위로 밀려 올라가 안 보이는 일이 없다. 위치는 마우스로 옮기기 전까지 그대로다. */
+  .fam-modal { position: fixed; inset: 0; z-index: 1250; display: flex; align-items: flex-start; justify-content: center; overscroll-behavior: contain; }
+  .fam-backdrop { position: absolute; inset: 0; background: transparent; touch-action: none; }  /* 창 뒤 화면을 어둡게 하지 않는다 */
+  /* 목록 이름이 줄바꿈되지 않게: 기본 폭(420px)에서 줄바꿈이 생기는 목록만, 가장 긴 이름이 한 줄에 들어갈 만큼(max-content)
+     창 폭을 최소한으로 넓힌다. 화면 폭을 넘는 경우에는 목록을 옆으로 밀어 볼 수 있다. */
+  .fam-dialog {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    width: max-content;
+    min-width: min(420px, calc(100vw - 24px));
+    max-width: calc(100vw - 24px);
+    margin-top: 8vh;                                   /* 제목줄 위치(화면 위에서 8%). dvh 를 지원하면 주소창을 뺀 실제 보이는 높이 기준 */
+    margin-top: max(12px, 8dvh);
+    max-height: 84vh;                                  /* 위 여백 + 높이 + 아래 여백이 화면 안에 들어오게 */
+    max-height: calc(100dvh - max(12px, 8dvh) - 12px);
+    background: #fff;
+    border-radius: 10px;
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.3);
+  }
+  .fam-dialog-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 16px;
+    font-weight: 700;
+    color: #fff;
+    background: var(--main);
+    border-radius: 10px 10px 0 0;
+  }
+  .fam-dialog-head { cursor: move; user-select: none; touch-action: none; }  /* 제목줄을 잡고 창을 옮긴다 */
+  .fam-dialog-head button { font-size: 1.3rem; line-height: 1; color: #fff; background: none; border: none; cursor: pointer; }
+  /* 제목줄: 전체 과 중 하나를 고르는 버튼(누르면 아래에 과 목록이 펼쳐진다). 제목줄 글자처럼 보이게 배경/테두리를 없애고 오른쪽에 ▾ 만 둔다 */
+  .fam-dialog-head .fam-title {
+    /* 가로폭: 처음(콩과 기준 약 165px)보다 50% 넓힌 248px 로 고정. 가장 긴 과 이름("구멍장이버섯과", 약 226px)도 들어가고, 과를 바꿔도 폭이
+       변하지 않는다. 좁은 화면에서는 줄어들며, 넘치는 글자는 … 로 줄인다 */
+    flex: 0 1 auto;
+    width: 248px;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    padding: 2px 18px 2px 4px;
+    margin-left: -4px;
+    font-family: inherit;
+    font-size: 1rem;
+    font-weight: 700;
+    line-height: 1.3;
+    text-align: left;
+    white-space: nowrap;
+    color: #fff;
+    background: transparent url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23fff' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat right 4px center;
+    border-radius: 4px;
+  }
+  .fam-dialog-head .fam-title:hover, .fam-dialog-head .fam-title:focus-visible, .fam-dialog-head .fam-title[aria-expanded="true"] { background-color: rgba(255, 255, 255, 0.18); outline: none; }
+  /* 과 목록: 제목줄 바로 아래에 펼쳐지는 순번 목록. 순번 앞에 여백(16px)을 두고, 순번은 오른쪽 정렬한 고정 폭 칸에 둔다 */
+  .fam-menu[hidden] { display: none; }
+  .fam-menu {
+    position: absolute;
+    left: 0;
+    right: 0;
+    z-index: 2;
+    max-height: min(55vh, 420px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 4px 0;
+    background: #fff;
+    border-radius: 0 0 10px 10px;
+    box-shadow: 0 8px 18px rgba(0, 0, 0, 0.25);
+  }
+  .fam-menu-item {
+    display: block;
+    width: 100%;
+    padding: 7px 18px 7px 16px;
+    font-family: inherit;
+    font-size: 0.95rem;
+    text-align: left;
+    white-space: nowrap;
+    color: #222;
+    background: none;
+    border: none;
+    cursor: pointer;
+  }
+  .fam-menu-item:hover, .fam-menu-item:focus-visible { background: #eef4ec; outline: none; }
+  .fam-menu-item.selected { font-weight: 700; color: var(--main-dark); background: #eef4ec; }
+  .fam-menu-no { display: inline-block; min-width: 3.4ch; margin-right: 0.45em; text-align: right; color: #7a8a7f; font-weight: 400; font-variant-numeric: tabular-nums; }
+  .fam-head-btns { display: inline-flex; align-items: center; gap: 10px; }
+  /* 핀: 고정 전에는 윤곽선만 보이고 비스듬히 눕혀 있고, 고정하면 속을 채우고 바로 세운다 */
+  .fam-pin { display: inline-flex; align-items: center; justify-content: center; padding: 2px; border-radius: 4px; opacity: 0.85; }
+  .fam-pin svg { transform: rotate(0deg); transition: transform 0.15s; }
+  .fam-pin:hover { opacity: 1; background: rgba(255, 255, 255, 0.18); }
+  .fam-pin[aria-pressed="true"] { opacity: 1; background: rgba(255, 255, 255, 0.28); }
+  .fam-pin[aria-pressed="true"] svg { fill: currentColor; transform: rotate(-45deg); }
+  /* 고정된 동안에는 팝업 바깥의 화면을 그대로 쓸 수 있게(누르기·스크롤) 바깥 덮개의 입력을 막지 않는다 */
+  .fam-modal.pinned, .fam-modal.pinned .fam-backdrop { pointer-events: none; }
+  .fam-modal.pinned .fam-dialog { pointer-events: auto; }
+  .fam-dialog-body { overflow: auto; scrollbar-gutter: stable; overscroll-behavior: contain; padding: 6px 0; }
+  .fam-list { list-style: none; margin: 0; padding: 0; }
+  .fam-item {
+    display: block;
+    width: 100%;
+    padding: 9px 18px 9px 9px;  /* 번호 앞 여백은 처음 값(18px)의 50% */
+    font-family: inherit;
+    font-size: 0.95rem;
+    text-align: left;
+    white-space: nowrap;
+    color: #222;
+    background: none;
+    border: none;
+    cursor: pointer;
+  }
+  .fam-item:hover, .fam-item:focus-visible { background: #eef4ec; outline: none; }
+  /* 생약명 앞 번호: 자릿수가 달라도 생약명 시작 위치가 맞도록 오른쪽 정렬한 고정 폭 칸에 둔다 */
+  .fam-no { display: inline-block; margin-right: 0.45em; text-align: right; color: #7a8a7f; font-weight: 400; font-variant-numeric: tabular-nums; }
+  .fam-item.current { font-weight: 700; color: var(--main-dark); background: #eef4ec; }  /* 지금 설명창의 생약: 마우스를 올렸을 때의 배경색으로 고정 */
+  .fam-empty { margin: 0; padding: 14px 18px; color: #777; }
+  @media (pointer: coarse) {
+    html.fam-open, html.fam-open body { overflow: hidden; }  /* 터치 화면에서는 팝업이 열려 있는 동안 뒤 화면을 고정한다 */
+    .fam-item { padding: 12px 18px 12px 9px; }
+  }
+  .tm-modal[hidden] { display: none; }
+  .tm-modal { position: fixed; inset: 0; z-index: 1200; display: flex; align-items: center; justify-content: center; }
+  .tm-backdrop { position: absolute; inset: 0; background: transparent; }  /* 창 뒤 화면을 어둡게 하지 않는다 */
+  .tm-dialog {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    width: min(900px, calc(100vw - 24px));
+    max-height: 88vh;
+    background: #fff;
+    border-radius: 10px;
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.3);
+  }
+  .tm-dialog-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 16px;
+    font-weight: 700;
+    color: #fff;
+    background: var(--main);
+    border-radius: 10px 10px 0 0;
+  }
+  .tm-dialog-head { cursor: move; user-select: none; touch-action: none; }  /* 제목줄을 잡고 창을 옮긴다 */
+  .tm-dialog-head button {
+    font-size: 1.3rem;
+    line-height: 1;
+    color: #fff;
+    background: none;
+    border: none;
+    cursor: pointer;
+  }
+  .tm-dialog-body { padding: 14px 18px 20px; overflow-y: auto; font-size: 0.92rem; overscroll-behavior: contain; }
+  .tm-modal { overscroll-behavior: contain; }
+  .tm-backdrop { touch-action: none; }  /* 창 바깥을 문질러도 뒤 화면이 움직이지 않게 한다 */
+  @media (pointer: coarse) {
+    html.tm-open, html.tm-open body { overflow: hidden; }  /* 터치 화면에서는 창이 열려 있는 동안 뒤 화면을 고정한다 */
+  }
+  .tm-node { margin: 8px 0; }
+  .tm-node .tm-node { margin-left: 1.3rem; padding-left: 0.7rem; border-left: 2px solid #e3ebe1; }
+  .tm-head, .tm-body { line-height: 1.75; }
+  .tm-body { margin: 3px 0; }
+  .tm-mk { font-weight: 700; color: var(--main-dark); }
+  .tm-imgwrap { margin: 8px 0; text-align: center; }
+  .tm-img { max-width: 100%; max-height: 420px; height: auto; }
+  .tm-eq { margin: 8px 0; text-align: center; }
+  .tm-eq-inline { display: inline-block; vertical-align: middle; }
+  .tm-body .orig-table, .tm-head .orig-table { max-width: 100%; display: block; overflow-x: auto; }
+  /* 첫 행이 제목 행이 아닌 표(곰팡이독소의 기호 설명표) */
+  .orig-table.no-head tr:first-child td { background: none; font-weight: 400; }
+  /* 기호(1열)는 오른쪽, 설명(3열)은 왼쪽 정렬하고 테두리는 흰색으로 한다. */
+  .orig-table.no-head td { border-color: #fff; }
+  .orig-table.no-head td:nth-child(1) { text-align: right; }
+  .orig-table.no-head td:nth-child(3) { text-align: left; }
+  /* 생약제제 제법의 "생약명 | 분량" 표: 첫 행도 제목 행이 아니다(생약명은 왼쪽, 분량은 오른쪽 정렬). */
+  .orig-table.recipe-table tr:first-child td { background: none; font-weight: 400; }
+  .orig-table.recipe-table td:nth-child(1) { text-align: left; }
+  .orig-table.recipe-table td:nth-child(n+2) { text-align: right; white-space: nowrap; }  /* 분량이 여러 칸(1일3회/1일2회 등)이어도 모두 오른쪽 정렬 */
+  /* 제법 표의 생약명 링크: 평소에는 밑줄을 숨기고, 마우스를 올렸을 때만 밑줄을 보인다(커서는 손가락 모양 그대로) */
+  .orig-table.recipe-table .ref-link { text-decoration: none; }
+  .orig-table.recipe-table .ref-link:hover { text-decoration: underline; text-decoration-style: dotted; }
+  .tab-bar {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 14px;
+  }
+  .tab-btn {
+    flex: 1 1 0;
+    min-width: 0;
+    padding: 10px 4px;
+    white-space: nowrap;  /* 탭이 셋이라 "시험항목 검 / 색"처럼 한 글자만 다음 줄로 넘어가지 않게 한 줄로 둔다 */
+    font-size: 0.85rem;
+    font-weight: 600;
+    border: 2px solid var(--border);
+    background: #fff;
+    color: var(--sub);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s, color 0.15s;
+  }
+  .tab-btn:hover { border-color: var(--main); color: var(--main-dark); }
+  .tab-btn.active {
+    background: var(--main);
+    border-color: var(--main);
+    color: #fff;
+  }
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
+  /* 생약제제 본문 속 그림(크로마토그램 등) */
+  .detail img.prep-fig { display: block; max-width: 100%; height: auto; margin: 10px 0; }
+
+  .collapse-btn {
+    flex: 0 0 auto;
+    width: 15.2px;  /* 가로 폭: 원래 19px 의 80% */
+    height: 45px;
+    padding: 0;
+    font-size: 0.5508rem;  /* 화살표(◀ ▶) 글자 크기: 원래 0.85rem 의 65% (90% -> 80% -> 90% 로 차례로 줄임) */
+    border: 2px solid var(--border);
+    background: #fff;
+    color: var(--sub);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s, color 0.15s;
+  }
+  .collapse-btn:hover { border-color: var(--main); color: var(--main-dark); }
+
+  /* 접힌 상태: 탭 버튼/본문은 숨기고 접기 버튼만 남겨 좁은 세로 띠로
+     만든다(너비는 JS에서 원래 접힘 너비(44px)의 30%로 계산해서 넣는다).
+     그 너비가 접기 버튼(15.2px)보다 좁아 버튼이 살짝 삐져나오므로
+     overflow는 visible로 둔다. 오른쪽 패널은 flex: 1 1 0이라 자동으로
+     남은 폭을 채운다. */
+  .left-panel.collapsed { min-width: 0; overflow: visible; max-height: none !important; }
+  .left-panel.collapsed .tab-bar { margin-bottom: 0; justify-content: center; }
+  .left-panel.collapsed .tab-bar .tab-btn { display: none; }
+  .left-panel.collapsed .tab-panel { display: none; }
+
+  /* 접힌 상태에서 ▶ 버튼에 마우스를 올리면(peek) 왼쪽 화면이 오른쪽 화면 위로 임시로 펼쳐진다. 접힌 띠의 폭(오른쪽 화면 위치)은 그대로 두고
+     탭 줄과 본문만 접기 전 너비(--peek-width)로 겹쳐 보여 주며, 마우스가 왼쪽 화면을 벗어나면 다시 접힌다. */
+  .left-panel.collapsed.peek { z-index: 60; }
+  .left-panel.collapsed.peek .tab-bar {
+    width: var(--peek-width);
+    box-sizing: border-box;
+    margin-bottom: 0;
+    padding: 0 0 14px;
+    justify-content: flex-start;
+    background: var(--bg);
+  }
+  .left-panel.collapsed.peek .tab-bar .tab-btn { display: block; }
+  /* 펼치기 버튼은 접힌 띠에 있던 자리(맨 왼쪽)에 그대로 두고, 탭 버튼들이 그 오른쪽에 놓인다 */
+  .left-panel.collapsed.peek .tab-bar .collapse-btn { order: -1; position: relative; left: -1.1px; }
+  .left-panel.collapsed.peek .tab-panel.active {
+    display: block;
+    width: var(--peek-width);
+    box-sizing: border-box;
+    padding: 0 0 16px;
+    background: var(--bg);
+    box-shadow: 0 14px 26px rgba(0, 0, 0, 0.16);
+    border-radius: 0 0 12px 12px;
+  }
+
+  /* ===== 모바일(화면 폭 860px 이하) 보정: 위쪽 규칙들보다 뒤에 두어 같은 우선순위에서 이기게 한다. PC 폭에서는 적용되지 않는다. ===== */
+  .pdf-open-link { display: none; }  /* "PDF 새 창으로 열기": 모바일에서만 보인다 */
+  .cite-short { display: none; }  /* 안내 문구의 짧은 공정서 이름: 모바일에서만 보인다 */
+  .org-short { display: none; }  /* 기관명의 짧은 두 줄: 모바일에서만 보인다 */
+  @media (max-width: 860px) {
+    /* 1) 헤더: 로고/기관명이 제목·안내 문구와 겹치지 않게 맨 위 가운데 한 줄로 올린다 */
+    header { padding: 10px 12px 8px; display: flex; flex-wrap: wrap; justify-content: center; align-items: center; }
+    .header-inner { display: contents; }  /* h1 과 안내 문구가 header 의 줄 배치에 직접 참여한다 */
+    /* 로고와 기관명은 화면 왼쪽에 붙이고(위쪽 줄), 글자 크기는 20% 줄인다(34px -> 27.2px, 0.72rem -> 0.576rem) */
+    .org-badge { position: absolute; left: 10px; top: 10px; transform: none; gap: 6.4px; margin: 0; }
+    .org-badge img { width: 1.5552rem; height: 1.5552rem; }  /* 기관명 두 줄 높이(0.576rem x 줄높이 1.35 x 2)에 맞춘다 */
+    .org-badge .org-name { font-size: 0.576rem; }
+    .org-full { display: none; }
+    .org-short { display: block; }  /* 첫줄 '강북농수산물', 둘째줄 '검사소' */
+    header h1 { flex: 0 0 100%; text-align: center; font-size: 1.3rem; margin: 0; }  /* '생약 검색'은 화면 가운데 */
+    .header-meta { flex: 0 0 100%; margin-top: 6px; }
+    .header-meta p { font-size: 0.8rem; }
+    .header-meta p.header-cite { font-size: 0.68rem; }
+    /* 2) 긴 공정서 이름을 짧게 */
+    .cite-full { display: none; }
+    .cite-short { display: inline; }
+
+    /* 2) 생약명/영문명/라틴명 위, 버튼 묶음 아래로 쌓는다(이름이 한 글자씩 줄바꿈되지 않게) */
+    .detail { padding: 16px; }
+    .detail-header:has(.detail-title-actions) { grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: none; }
+    .detail-header:has(.detail-title-actions) .detail-name-line { grid-column: 1 / -1; }
+    /* 즐겨찾기 별: 이름 줄은 이미 빠듯해서(배지가 줄바꿈되지 않게 간격을 줄여 놓았다) 이름 옆 별은 숨기고, 영문명 줄 오른쪽 끝에 둔다 */
+    .detail-fav-btn.fav-in-name { display: none; }
+    .detail-fav-btn.fav-in-row { display: inline-flex; grid-column: 2; grid-row: 2 / span 2; align-self: start; justify-self: end; top: 0; margin: 2px 0 0; }
+    /* 이름 칸이 좁아 배지가 둘 달린 이름(예: 감초 KP 식약공용)이 글자 크기 버튼과 40px 간격이면 두 줄로 꺾이므로, 모바일은 원래 간격(10px) */
+    .detail-name-gap { flex-basis: 10px; min-width: 4px; }  /* 모바일은 배지와 버튼 사이 간격 10px(최소 4px) */
+    .detail-header:has(.detail-title-actions) .detail-title-actions {
+      grid-column: 1 / -1;
+      grid-row: auto;
+      margin-top: 10px;
+      justify-items: stretch;
+      grid-template-columns: repeat(4, minmax(0, 1fr));  /* 버튼을 가로 4열로(칸 폭에 맞춰 늘어난다) */
+      gap: 4px;
+      width: 100%;
+      max-width: 26rem;
+    }
+    .detail-title-actions .link-btn,
+    .detail-title-actions .link-menu { width: 100%; }
+    /* 버튼 글자는 가장 긴 라벨("생약감별자료집", 7글자 = 7em)이 4열 칸에 딱 들어가는 최대 크기로 한다:
+       칸 폭 = (버튼 묶음 폭 - 간격 12px) / 4, 글자 크기 = 칸 폭 / 7 (0.3px 여유). 버튼 묶음 폭은 min(26rem, 내용 폭).
+       기본값은 화면 폭(vw)으로 근사하고, 컨테이너 단위(cqw)를 지원하는 브라우저는 실제 내용 폭으로 계산한다 */
+    /* 7글자 라벨("품질표준화연구", "생약감별자료집": .link-btn-long)은 칸에 딱 맞는 크기 그대로 두고, 나머지 버튼은 한 단계(1pt) 키운다
+       (6글자 이하는 1pt를 키워도 칸에 들어간다). */
+    .detail-title-actions .link-btn { --fs-fit: calc((min(26rem, 100vw - 66px) - 12px) / 28 - 0.3px); font-size: calc(var(--fs-fit) + 1pt); }
+    @supports (width: 1cqw) {
+      .detail-header:has(.detail-title-actions) { container-type: inline-size; }
+      .detail-title-actions .link-btn { --fs-fit: calc((min(26rem, 100cqw) - 12px) / 28 - 0.3px); }
+    }
+    .detail-title-actions .link-btn.link-btn-long { font-size: var(--fs-fit); }
+
+    /* 3) 검색결과 간격(원래 값에서 차례로 줄인 값):
+       - 카드 사이: 48px -> 33.6px(-30%) -> 23.5px(-30%)
+       - 생약명 한 줄 세로폭: 약 46px -> 41.4px(-10%) -> 35.2px(-15%), 위아래 여백 12px -> 9.7px -> 6.6px
+       - 검색칸과 첫 카드 사이: 48px -> 24px(-50%)
+       - 마지막 카드와 생약 상세 화면 사이: 44px -> 22px(-50%) (카드 아래 여백 24px -> 12px, 왼쪽/오른쪽 화면 사이 간격 20px -> 10px) */
+    .results { gap: 23.5px; margin-top: 24px; margin-bottom: 12px; }
+    .result-item { padding-top: 6.6px; padding-bottom: 6.6px; }
+    .wrap { gap: 10px; }
+    /* 카드 안의 '검색 결과가 없습니다.' 칸도 15% 줄인다(위아래 여백: 왼쪽 정렬 12px -> 8.8px, 가운데 정렬 20px -> 15.6px) */
+    .result-group .empty-msg { padding-top: 15.6px; padding-bottom: 15.6px; }
+    .result-group .empty-msg.left { padding-top: 8.8px; padding-bottom: 8.8px; }
+
+    /* 4) 접기 버튼은 모바일에서 쓰지 않는다. PC에서 접은 채 창을 좁혀도 갇히지 않게 접힌 모양도 풀어 둔다 */
+    .collapse-btn { display: none; }
+    .left-panel.collapsed { width: 100% !important; }
+    .left-panel.collapsed .tab-bar { margin-bottom: 14px; justify-content: flex-start; }
+    .left-panel.collapsed .tab-bar .tab-btn { display: block; }
+    .left-panel.collapsed .tab-panel.active { display: block; }
+    .tab-bar { flex-wrap: wrap; }
+    /* 탭 버튼('생약 검색', '시험항목 검색', '생약제제 검색') 글자를 검색칸 글자(1.05rem)와 같은 크기로. 가장 긴 라벨(약 5.8em)이
+       탭 칸에 안 들어가는 좁은 화면에서는 칸 폭에 맞춰 줄인다(칸 폭 = (화면 폭 - 좌우 여백 32px - 간격 12px) / 3, 안쪽 여백 4px + 테두리 4px) */
+    .tab-bar .tab-btn {
+      padding-left: 2px;
+      padding-right: 2px;
+      font-size: min(1.05rem, calc(((100vw - 44px) / 3 - 8px) / 5.9));
+    }
+
+    /* 5) 관능검사해설서 PDF: 브라우저 내장 PDF 뷰어가 약한 모바일을 위해 새 창으로 여는 링크를 위에 둔다 */
+    .detail.sensory-mode.show { display: flex; flex-direction: column; }
+    .pdf-open-link {
+      display: block;
+      flex: 0 0 auto;
+      padding: 10px 14px;
+      text-align: center;
+      font-size: 0.9rem;
+      font-weight: 600;
+      color: #fff;
+      background: var(--main);
+      text-decoration: none;
+    }
+    .sensory-frame { flex: 1 1 auto; min-height: 0; height: auto; }
+  }
+
+  @media (max-width: 370px) {
+    /* 아주 좁은 화면: 왼쪽 로고가 가운데 제목('생약 검색')과 겹치지 않게 제목 위 줄 왼쪽에 둔다 */
+    .org-badge { position: static; flex: 0 0 100%; margin-bottom: 4px; }
+  }
+
+  /* 6) 손가락으로 누르는 화면(pointer: coarse)에서만 작은 버튼의 누르는 영역을 키운다. 마우스를 쓰는 PC에는 적용되지 않는다 */
+  @media (pointer: coarse) {
+    /* 글자 크기 버튼의 눈에 보이는 크기(25.2 x 20.7px)는 그대로 두고, 손가락으로 누르는 영역만 눈에 안 보게 높이 약 36px로 넓힌다 */
+    .detail-back-btn::after { content: ""; position: absolute; inset: -8px; }  /* 눈에 보이는 크기는 그대로 두고, 손가락으로 누르는 영역만 위아래·양옆 8px씩 넓힌다 */
+    .detail-fav-btn::after { content: ""; position: absolute; inset: -8px -5px; }  /* 즐겨찾기 별도 누르는 영역만 넓힌다 */
+    .detail-zoom-btn::after { content: ""; position: absolute; top: -9.2px; bottom: -9.2px; left: -3.5px; right: -3.5px; }  /* 테두리(1.5px) 안쪽 기준이라 보정한 값 */
+    .link-btn { padding: 10px 0; }  /* 글자 크기는 그대로(5rem 폭에 "생약감별자료집"이 들어가야 한다), 누르는 높이만 키운다 */
+    .link-menu-list a { padding: 12px 14px; }
+    .section .toggle-icon { width: 26px; height: 26px; font-size: 0.95rem; }
+    /* 성상/확인시험 등 시험항목 버튼(.label)과 생약명 아래 사진정보 등 버튼(.link-btn)의 세로폭을 같게 한다:
+       둘 다 줄 높이를 18px 로 고정하고 위아래 8px 여백을 둔다(= 34px). 글자 크기가 달라도(.link-btn 은 칸에 맞춰 변한다) 높이는 같다 */
+    .section .section-header .label { padding: 8px 12px; line-height: 18px; }
+    .detail-title-actions .link-btn { padding: 8px 0; line-height: 18px; }
+    .tm-btn { padding: 6px 8px; font-size: 0.78rem; }
+    .combo-toggle { width: 40px; height: 40px; right: 2px; }
+    .tab-btn { padding: 13px 4px; }
+  }
