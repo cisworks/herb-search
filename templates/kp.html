@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>대한민국약전 검색</title>
+<link rel="stylesheet" href="{{ asset('app.css') }}">
+<link rel="stylesheet" href="{{ asset('kp.css') }}">
+</head>
+<body class="kp-site">
+<header>
+  <a class="org-badge" href="{{ url_for('kp.index') }}" title="대한민국약전 검색 홈">
+    <img src="{{ url_for('static', filename='seoul_logo.png') }}" alt="서울시 휘장">
+    <div class="org-name">
+      <div class="org-full">서울시보건환경연구원</div>
+      <div class="org-full">강북농수산물검사소</div>
+      <div class="org-short">강북농수산물</div>
+      <div class="org-short">검사소</div>
+    </div>
+  </a>
+  <a class="site-link" href="{{ url_for('index') }}" title="생약 검색 홈페이지로 이동">생약 검색</a>
+  <div class="header-inner">
+    <h1>대한민국약전 검색</h1>
+    <div class="header-meta">
+      <p>의약품각조 {{ drug_count }}품목, 통칙·제제총칙·일반시험법·일반정보 {{ ref_count }}항목</p>
+      <p class="header-cite"><span class="cite-full">대한민국약전 제13개정</span><span class="cite-short">대한약전</span>(제2026-44호, 2026. 6. 29.) │ 통칙 · 제제총칙 · 의약품각조 제1부·제2부 · 일반시험법 · 일반정보</p>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+  <div class="left-panel">
+    <div class="tab-bar">
+      <button type="button" class="tab-btn active" id="drugTabBtn" data-tab="drugTab">의약품등 검색</button>
+      <button type="button" class="tab-btn" id="refTabBtn" data-tab="refTab">통칙·제제·시험법·정보</button>
+      <button type="button" class="tab-btn" id="textTabBtn" data-tab="textTab">본문 검색</button>
+      <button type="button" class="collapse-btn" id="leftPanelCollapseBtn" title="왼쪽 화면 접기" aria-label="왼쪽 화면 접기">◀</button>
+    </div>
+
+    <div class="tab-panel active" id="drugTab">
+      <div class="search-box">
+        <input type="text" id="drugInput" placeholder="의약품명을 입력하거나 목록에서 선택하세요." autocomplete="off">
+        <button type="button" class="combo-toggle" id="drugToggle" aria-label="의약품 전체 목록 보기" title="의약품 전체 목록 보기">▾</button>
+        <div class="combo-dropdown" id="drugDropdown" style="display:none;"></div>
+      </div>
+      <div class="results" id="drugResults" style="display:none;"></div>
+      <!-- 검색어가 없을 때 보여 주는 최근 본 항목 -->
+      <div class="results quick-box" id="quickBox" hidden></div>
+    </div>
+
+    <div class="tab-panel" id="refTab">
+      <div class="search-box">
+        <input type="text" id="refInput" placeholder="항목을 선택하세요." autocomplete="off" readonly inputmode="none">
+        <button type="button" class="combo-toggle" id="refToggle" aria-label="통칙·제제총칙·일반시험법·일반정보 항목 목록 보기" title="통칙·제제총칙·일반시험법·일반정보 항목 목록 보기">▾</button>
+        <div class="combo-dropdown" id="refDropdown" style="display:none;"></div>
+      </div>
+      <div class="results" id="refResults" style="display:none;"></div>
+    </div>
+
+    <div class="tab-panel" id="textTab">
+      <div class="search-box">
+        <input type="text" id="textInput" placeholder="본문에서 찾을 말을 입력하세요. (2글자 이상)" autocomplete="off">
+      </div>
+      <div class="results" id="textResults" style="display:none;"></div>
+    </div>
+  </div>
+  <div class="panel-resizer" id="panelResizer"></div>
+  <div class="right-panel">
+    <div class="detail-placeholder" id="detailPlaceholder"></div>
+    <div class="detail-wrap" id="detailWrap">
+      <div class="detail-resizer" id="detailResizerLeft" aria-label="끌어서 너비 조절"></div>
+      <div class="detail" id="detail"></div>
+      <div class="detail-resizer" id="detailResizerRight" aria-label="끌어서 너비 조절"></div>
+    </div>
+  </div>
+</div>
+
+<script src="{{ asset('kp.js') }}"></script>
+</body>
+</html>

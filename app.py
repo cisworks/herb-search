@@ -245,8 +245,11 @@ def _resolve_purity_references(entries):
 
 def load_entries():
     # 3. 생약시험법.hwpx 는 생약 품목이 아니라 시험법 본문이라(아래 TEST_METHODS) 제외한다.
+    # "[별표 N] ... (제2026-44호).hwpx" 는 대한민국약전 전체(통칙·각조·시험법) 문서로 약전 검색(/kp)에서만 쓰므로 제외한다.
     hwpx_files = sorted(
-        p for p in BASE_DIR.glob("*.hwpx") if p.name not in (TEST_METHOD_FILE, METHOD_FILE_NAME) and p.name not in PREP_FILE_NAMES
+        p
+        for p in BASE_DIR.glob("*.hwpx")
+        if p.name not in (TEST_METHOD_FILE, METHOD_FILE_NAME) and p.name not in PREP_FILE_NAMES and not p.name.startswith("[별표")
     )
     entries = []
     if not hwpx_files:
@@ -1770,6 +1773,18 @@ def api_sensory_pdf():
     finally:
         src.close()
     return Response(pdf_bytes, mimetype="application/pdf")
+
+
+# ---- 대한민국약전 검색(/kp) ------------------------------------------------------------------
+# "[별표 N] ... (제2026-44호).hwpx" 6개 파일로 만드는 별도 화면(파란 테마). 데이터는 처음 접속할 때 읽고, 서버를 켠 직후에는
+# 백그라운드에서 미리 읽어 둔다(디버그 재시작의 부모 프로세스에서는 읽지 않는다).
+import threading
+
+from kp_site import kp as _kp_blueprint, warm as _kp_warm
+
+app.register_blueprint(_kp_blueprint)
+if __name__ != "__main__" or os.environ.get("WERKZEUG_RUN_MAIN") is not None:
+    threading.Thread(target=_kp_warm, daemon=True).start()
 
 
 if __name__ == "__main__":

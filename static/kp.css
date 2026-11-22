@@ -1,0 +1,131 @@
+/* 대한민국약전 검색(/kp): 생약 검색(app.css)을 그대로 쓰고, 색 테마(초록 -> 파랑)와 약전 본문 전용 스타일만 덧붙인다. */
+:root {
+  --main: #1f5fa8;
+  --main-dark: #17467d;
+  --bg: #f3f6fb;
+  --card: #ffffff;
+  --border: #d6dfec;
+  --text: #25292f;
+  --sub: #66717f;
+}
+
+/* app.css 에 초록 계열 색을 직접 써 둔 곳들을 파랑 계열로 */
+.kp-site .combo-toggle:hover { background: #e8f0fa; }
+.kp-site .result-item:hover,
+.kp-site .result-item.kb-active,
+.kp-site .result-item.selected { background: #edf3fb; }
+.kp-site .definition { background: #edf3fb; }
+.kp-site .quick-del { color: #8d9aab; }
+.kp-site .case-category-label { background: #f7f9fc; }
+.kp-site .detail-width-tip { border-color: #6f7c8c; }
+.kp-site .link-menu-list a:hover { background: #edf3fb; }
+
+/* 링크로 연 항목의 "돌아가기" 버튼(app.css 의 초록 배경을 파랑으로) */
+.kp-site .detail-back-btn { background: #edf3fb; }
+.kp-site .detail-back-btn:hover { background: #dce8f6; }
+
+/* 최근 본 항목의 삭제(×) 버튼: 배경(마우스를 올렸을 때)이 원형 */
+.kp-site .quick-del {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 24px; height: 24px; padding: 0; margin: -2px -4px -2px 0;
+  border-radius: 50%; line-height: 1;
+}
+.kp-site .quick-del svg { display: block; pointer-events: none; }  /* × 는 글자가 아니라 그림이라 원의 한가운데에 놓인다 */
+
+/* 통칙·제제·시험법·정보 목록: 이름 뒤의 "[별표 N] n항목"은 이탤릭체로 쓰지 않는다 */
+.kp-site #refDropdown .ren { font-style: normal; }
+
+/* 오른쪽 화면의 처음 배경 그림 */
+/* 그림은 원래 크기(칸에 꽉 차게)의 50%: 가로세로 절반 크기의 칸 안에 같은 방식(contain)으로 넣어 아래쪽 가운데에 둔다 */
+.kp-site .detail-placeholder { position: relative; background: var(--card); }
+.kp-site .detail-placeholder::after {
+  content: "";
+  position: absolute;
+  left: 25%;
+  top: 25%;  /* 높이 50% 칸을 세로 가운데에 둔다 */
+  width: 50%;
+  height: 50%;
+  background: url("kp_illustration.svg") no-repeat center center / contain;
+}
+
+@media (max-width: 860px) {
+  /* 대한민국약전 검색 제목이 길어 로고/링크와 겹치므로, 첫 줄에 로고(왼쪽)와 링크(오른쪽)를 두고 제목은 그 아래 줄에 둔다 */
+  .kp-site header { padding-top: 8px; }
+  .kp-site .org-badge { position: static; order: 1; margin: 0 auto 4px 0; }
+  .kp-site .site-link { position: static; order: 2; margin: 0 0 4px auto; }
+  .kp-site header h1 { order: 3; }
+  .kp-site .header-meta { order: 4; }
+}
+@media (max-width: 370px) {
+  .kp-site .org-badge { flex: 0 0 auto; margin-bottom: 4px; }
+}
+
+/* 탭 이름 길이에 맞춰 폭을 나눠 쓴다("통칙·제제·시험법·정보"가 가장 길다) */
+.kp-site .tab-bar { align-items: stretch; }
+.kp-site .tab-btn { flex: 1 0 auto; line-height: 1.3; padding-left: 8px; padding-right: 8px; }  /* PC: 글자 길이만큼(한 줄) 폭을 잡고, 남는 폭은 나눠 가진다. 왼쪽 패널은 탭 폭에 맞게 넓어진다 */
+@media (max-width: 860px) {
+  .kp-site .tab-btn { flex: 1 1 0; white-space: normal; padding: 6px 2px; }  /* 모바일: 좁으면 줄바꿈 */
+  .kp-site .tab-bar .tab-btn { font-size: min(0.95rem, calc(((100vw - 44px) / 3.75 - 8px) / 5.2)); }
+}
+/* 읽기 전용 선택칸(통칙·제제·시험법·정보): 눌러서 목록을 연다 */
+.kp-site #refInput { cursor: pointer; caret-color: transparent; user-select: none; }  /* 글자를 칠 수 없다: 깜빡이는 커서도 안 보인다 */
+
+/* 본문 검색 결과: 파일(별표)별 카드, 요약 줄, 더 보기 */
+.kp-site .text-summary { font-size: 0.85rem; font-weight: 600; color: var(--main-dark); margin-bottom: -20px; padding-left: 2px; }
+.kp-site .text-more { display: block; width: 100%; padding: 9px; font-family: inherit; font-size: 0.82rem; font-weight: 600; color: var(--main-dark); background: #f7f9fc; border: none; border-top: 1px solid var(--border); cursor: pointer; }
+.kp-site .text-more:hover:not(:disabled) { background: #edf3fb; }
+.kp-site .text-more:disabled { opacity: 0.6; cursor: default; }
+
+/* 목록/결과 줄: 한글명 + 영문명(작은 회색). 긴 이름은 줄바꿈한다 */
+.kp-site .result-item { flex-wrap: wrap; white-space: normal; justify-content: flex-start; column-gap: 10px; row-gap: 0; align-items: baseline; }
+.kp-site .result-item .rname { flex: 0 1 auto; }
+.kp-site .ren { font-size: 0.8rem; color: var(--sub); font-style: italic; }
+/* 통칙·제제·시험법·정보 하위 항목 줄: [번호][이름 + 영문명] 두 칸. 이름 칸은 단어 단위로 줄바꿈되고 둘째 줄부터 첫 줄의 이름 글자 위치에 맞는다 */
+.kp-site .ref-row { flex-wrap: nowrap; column-gap: 6px; align-items: baseline; }
+.kp-site .ref-row .rno { flex: none; margin-right: 0; }
+.kp-site .ref-row .rtext { flex: 1 1 0; min-width: 0; word-break: keep-all; overflow-wrap: break-word; }
+.kp-site .ref-row .ren { margin-left: 8px; }
+.kp-site .result-item.no-link { cursor: default; }  /* 링크 없는 줄(Ⅱ. 제제 각조): 눌러지지 않고 마우스를 올려도 색이 바뀌지 않는다 */
+.kp-site .result-item.no-link:hover { background: transparent; }
+.kp-site .rno { margin-right: 5px; color: var(--main-dark); font-weight: 700; font-variant-numeric: tabular-nums; }
+.kp-site .case-subgroup-label { padding: 2px 16px 2px 22px; font-size: 0.8rem; font-weight: 600; color: var(--sub); background: #fbfcfe; border-bottom: 1px solid var(--border); }
+.kp-site .result-item.text-hit { display: block; }
+.kp-site .rcount { margin-left: 8px; font-size: 0.72rem; font-weight: 600; color: var(--sub); }
+.kp-site .rsnip { display: block; margin-top: 3px; font-size: 0.82rem; font-weight: 400; color: #444c57; line-height: 1.5; }
+.kp-site mark { background: #ffe58a; color: inherit; border-radius: 2px; padding: 0 1px; }
+.kp-site .quick-box .group-label button + * { margin-left: 0; }
+.kp-site .quick-box .result-item .quick-del { margin-left: auto; align-self: center; }
+
+/* 설명창 본문 */
+.kp-body { line-height: 1.75; }
+.kp-body .kp-p { margin: 0 0 0.5em; overflow-wrap: break-word; }
+.kp-body .kp-c { text-align: center; }
+.kp-body .kp-r { text-align: right; }
+/* 계층 기호(1), 가), ① ...)는 고정 폭 칸에 넣어, 원문에서 기호 뒤를 몇 칸 띄웠든 본문이 같은 위치에서 시작한다 */
+.kp-body .kp-mk { display: inline-block; text-indent: 0; white-space: nowrap; }
+.kp-body .kp-h { font-weight: 700; margin-top: 0.9em; color: var(--main-dark); }
+/* 제제총칙: 투여 경로 항목 안의 제형 소제목(1.1. 정제 ...) */
+.kp-body .kp-p.kp-h2 { font-size: 1.08em; margin: 1.6em 0 0.6em; padding-bottom: 3px; border-bottom: 1px solid var(--border); }
+.kp-body .kp-p.kp-h2:first-child { margin-top: 0.3em; }
+.kp-body .kp-tab { display: inline-block; width: 2em; }
+.kp-body .kp-img { max-width: 100%; height: auto; vertical-align: middle; }
+.kp-body .kp-eq { display: inline-block; vertical-align: middle; }
+.kp-body .kp-cap { font-size: 0.86em; color: var(--sub); }
+.kp-body .kp-definition .kp-p { white-space: normal; margin: 0 0 6px; }
+.kp-body .kp-definition .kp-p:last-child { margin-bottom: 0; }
+.kp-body .section-content > .kp-p:last-child { margin-bottom: 0; }
+.kp-body .ref-link { color: var(--main-dark); }
+
+/* 표 */
+.kp-body .kp-tblwrap { max-width: 100%; overflow-x: auto; margin: 8px 0; }
+.kp-body .kp-tbl { border-collapse: collapse; font-size: 0.92em; line-height: 1.5; }
+.kp-body .kp-tbl td { padding: 3px 7px; vertical-align: middle; }
+.kp-body .kp-cp { margin: 0; }
+.kp-body sub, .kp-body sup { line-height: 0; }
+/* 분수: 분수선(분자 아래 줄)이 분자·분모 중 넓은 쪽 폭 전체에 그려지게 한다(분모가 더 길어도 선이 분모만큼 길어진다). 분자/분모는 가운데 정렬 */
+.kp-body .eq-frac { align-items: stretch; }
+.kp-body .eq-num, .kp-body .eq-den { text-align: center; }
+
+@media (max-width: 860px) {
+  .kp-body .kp-tbl { font-size: 0.86em; }
+}

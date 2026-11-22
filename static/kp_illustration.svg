@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 420" fill="none">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#e6effa"/>
+      <stop offset="1" stop-color="#f7faff"/>
+    </linearGradient>
+  </defs>
+  <ellipse cx="320" cy="388" rx="270" ry="18" fill="#e3ecf8"/>
+  <!-- 펼친 책 -->
+  <path d="M110 120c60-22 130-22 210 8v200c-80-30-150-30-210-8z" fill="#fff" stroke="#8fb0d9" stroke-width="3"/>
+  <path d="M530 120c-60-22-130-22-210 8v200c80-30 150-30 210-8z" fill="#fff" stroke="#8fb0d9" stroke-width="3"/>
+  <path d="M120 150c52-16 112-14 190 8M120 180c52-16 112-14 190 8M120 210c52-16 112-14 190 8M120 240c52-16 112-14 190 8" stroke="#b9cde8" stroke-width="3" stroke-linecap="round"/>
+  <path d="M520 150c-52-16-112-14-190 8M520 180c-52-16-112-14-190 8M520 210c-52-16-112-14-190 8" stroke="#b9cde8" stroke-width="3" stroke-linecap="round"/>
+  <path d="M320 128v200" stroke="#8fb0d9" stroke-width="3"/>
+  <!-- 오른쪽 쪽: 분자 구조 -->
+  <g stroke="#2f6fb7" stroke-width="3.5" stroke-linejoin="round" stroke-linecap="round">
+    <path d="M395 250l20-12 20 12v24l-20 12-20-12z"/>
+    <path d="M435 250l20-12 20 12v24l-20 12-20-12z"/>
+    <path d="M415 238v-22M455 238v-22"/>
+  </g>
+  <circle cx="415" cy="214" r="6" fill="#2f6fb7"/>
+  <circle cx="455" cy="214" r="6" fill="#2f6fb7"/>
+  <!-- 알약과 캡슐 -->
+  <g transform="rotate(-28 190 312)">
+    <rect x="150" y="296" width="80" height="34" rx="17" fill="#2f6fb7"/>
+    <path d="M190 296h22a17 17 0 0 1 0 34h-22z" fill="#9cc2ef"/>
+    <path d="M165 305h30" stroke="#fff" stroke-opacity=".55" stroke-width="4" stroke-linecap="round"/>
+  </g>
+  <circle cx="262" cy="338" r="17" fill="#fff" stroke="#2f6fb7" stroke-width="3.5"/>
+  <path d="M250 338h24" stroke="#2f6fb7" stroke-width="3.5" stroke-linecap="round"/>
+  <!-- 플라스크 -->
+  <g transform="translate(468 292)">
+    <path d="M-12-70h24v36l36 62a12 12 0 0 1-10 18h-76a12 12 0 0 1-10-18l36-62z" fill="url(#g)" stroke="#2f6fb7" stroke-width="3.5" stroke-linejoin="round"/>
+    <path d="M-30 12h60l18 30a6 6 0 0 1-5 9h-86a6 6 0 0 1-5-9z" fill="#9cc2ef" fill-opacity=".8"/>
+    <path d="M-16-70h32" stroke="#2f6fb7" stroke-width="5" stroke-linecap="round"/>
+  </g>
+  <!-- 십자 -->
+  <g fill="#2f6fb7">
+    <rect x="304" y="58" width="32" height="10" rx="3"/>
+    <rect x="315" y="47" width="10" height="32" rx="3"/>
+  </g>
+  <circle cx="320" cy="63" r="30" stroke="#8fb0d9" stroke-width="3"/>
+</svg>
