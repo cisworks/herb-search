@@ -1776,14 +1776,15 @@ def api_sensory_pdf():
 
 
 # ---- 대한민국약전 검색(/kp) ------------------------------------------------------------------
-# "[별표 N] ... (제2026-44호).hwpx" 6개 파일로 만드는 별도 화면(파란 테마). 데이터는 처음 접속할 때 읽고, 서버를 켠 직후에는
-# 백그라운드에서 미리 읽어 둔다(디버그 재시작의 부모 프로세스에서는 읽지 않는다).
-import threading
-
+# "[별표 N] ... (제2026-44호).hwpx" 6개 파일로 만드는 별도 화면(파란 테마). 약전 데이터는 /kp 에 처음 들어올 때 읽는다.
+# 서버를 켤 때(생약 검색 첫 화면이 뜨는 동안)는 약전 데이터를 읽지 않는다 - 읽는 일이 생약 쪽 첫 응답과 CPU/메모리를 나눠 써서 느려지기 때문이다.
+# 미리 읽어 두고 싶으면 환경변수 KP_WARM=1 (서버를 켠 직후 백그라운드에서 읽는다).
 from kp_site import kp as _kp_blueprint, warm as _kp_warm
 
 app.register_blueprint(_kp_blueprint)
-if __name__ != "__main__" or os.environ.get("WERKZEUG_RUN_MAIN") is not None:
+if os.environ.get("KP_WARM") == "1" and (__name__ != "__main__" or os.environ.get("WERKZEUG_RUN_MAIN") is not None):
+    import threading
+
     threading.Thread(target=_kp_warm, daemon=True).start()
 
 

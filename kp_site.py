@@ -121,8 +121,8 @@ def get_data():
                 e["n_ko"] = _normalize(e["ko"])
                 e["n_en"] = _normalize(e["en"])
                 e["n_head"] = _normalize(e.get("head", ""))
-                e["n_text"] = _normalize(e["text"])
-                d.entries.append(e)
+                d.entries.append(e)  # n_text(본문 검색용 정규화 본문)는 본문 검색을 처음 쓸 때 만든다(ensure_text_index)
+        d.text_ready = False
         d.by_id = d.entries
         d.drug = [e for e in d.entries if e["kind"] == "drug"]
         d.ref = [e for e in d.entries if e["kind"] == "ref"]
@@ -144,6 +144,21 @@ def get_data():
             d.drug_by_name.setdefault(_normalize(re.sub(r"\(.*?\)", "", e["ko"])), e["id"])
         _data = d
         return d
+
+
+_text_lock = threading.Lock()
+
+
+def ensure_text_index(d):
+    """본문 검색에 쓰는 정규화 본문(공백 제거·소문자, 약 500만 글자)을 처음 한 번만 만든다. 서버를 켤 때나 약전 첫 화면을 열 때는 만들지 않는다."""
+    if d.text_ready:
+        return
+    with _text_lock:
+        if d.text_ready:
+            return
+        for e in d.entries:
+            e["n_text"] = _normalize(e["text"])
+        d.text_ready = True
 
 
 def warm():
@@ -257,6 +272,7 @@ def api_text():
     q = _normalize(q_raw)
     if len(q) < 2:
         return jsonify({"groups": []})
+    ensure_text_index(d)
     only_doc = request.args.get("doc", type=int)
     offset = max(0, request.args.get("offset", 0, type=int))
     by_doc = {}
