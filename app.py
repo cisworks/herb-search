@@ -1546,13 +1546,16 @@ def indication():
 
 
 # 사진 그림 파일 캐시: 사진 한 장을 PDF 에서 그리는 데 0.6~1.4초가 걸리고 PNG 가 0.4~1.5MB 라서, 목록에 보이는 그림(원본 해상도 전체 층)은
-# 한 번 그린 뒤 .parse_cache/photos/ 에 저장해 두고 다음부터는 그 파일을 보낸다. 본 사진만 쌓이며, 합계가 PHOTO_IMAGE_CACHE_MAX 를
-# 넘으면 오래 안 본 것부터 지운다(PythonAnywhere 무료 저장 공간을 아끼려고). 확대 화면용 두 층(photo/text)은 드물게 쓰여 저장하지 않는다.
+# 한 번 그린 뒤 .parse_cache/photos/ 에 저장해 두고 다음부터는 그 파일을 보낸다. 확대 화면용 두 층(photo/text)은 드물게 쓰여 저장하지 않는다.
+# build_photo_cache.py 로 PDF 전체 사진을 미리 그려 둘 수 있고, 안 해 둔 사진은 처음 볼 때 그려서 보탠다.
+# 저장 공간 상한: 기본은 없음(None). 공간이 모자라면 바이트 수를 넣으면(예: 500 * 1024 * 1024) 합계가 그것을 넘을 때 오래 안 본 것부터
+# 상한의 80% 가 될 때까지 지운다. 상한이 없을 때는 지우는 일이 없다(서명이 달라진 옛 파일만 정리).
 # 파일 이름은 (사진 PDF 크기·수정 시각 + sensory_photos.py + SENSORY_PHOTO_VER) 서명과 (쪽, 묶음 번호)로 정해서, PDF 나 그리는 코드가
 # 바뀌면 옛 파일은 쓰이지 않고 정리된다. (쪽, 묶음 번호)는 품목 번호와 무관해서 데이터를 다시 만들어도 어긋나지 않는다.
 PHOTO_IMAGE_CACHE_DIR = PARSE_CACHE_DIR / "photos"
-PHOTO_IMAGE_CACHE_MAX = 150 * 1024 * 1024
+PHOTO_IMAGE_CACHE_MAX = None
 _PHOTO_IMAGE_SIG = None
+_PHOTO_IMAGE_PRUNED = False  # 이 서버 실행에서 옛 서명 파일 정리를 이미 했는지
 
 
 def _photo_image_sig():
@@ -1577,30 +1580,39 @@ def _photo_image_cache_read(page_no, index):
     f = _photo_image_cache_file(page_no, index)
     try:
         data = f.read_bytes()
-        os.utime(f)  # 방금 본 사진으로 표시(오래 안 본 것부터 지우기 위해)
-        return data
     except OSError:
         return None
+    if PHOTO_IMAGE_CACHE_MAX is not None:
+        try:
+            os.utime(f)  # 방금 본 사진으로 표시(상한이 있을 때 오래 안 본 것부터 지우기 위해)
+        except OSError:
+            pass
+    return data
 
 
-def _photo_image_cache_write(page_no, index, png):
-    try:
-        PHOTO_IMAGE_CACHE_DIR.mkdir(parents=True, exist_ok=True)
-        f = _photo_image_cache_file(page_no, index)
-        tmp = f.with_suffix(".tmp")
-        tmp.write_bytes(png)
-        os.replace(tmp, f)
-        # 정리: 서명이 다른 옛 파일은 지우고, 합계가 상한을 넘으면 오래 안 본 것부터 상한의 80% 가 될 때까지 지운다
-        sig = _photo_image_sig()
-        files = []
-        for p in PHOTO_IMAGE_CACHE_DIR.iterdir():
-            if p.suffix == ".tmp":
-                continue
-            if not p.name.startswith(sig + "-"):
-                p.unlink(missing_ok=True)
-                continue
+def _photo_image_cache_store(page_no, index, png):
+    """그림 한 장을 저장한다(정리는 하지 않는다). 실패하면 예외가 난다."""
+    PHOTO_IMAGE_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    f = _photo_image_cache_file(page_no, index)
+    tmp = f.with_suffix(".tmp")
+    tmp.write_bytes(png)
+    os.replace(tmp, f)
+
+
+def _photo_image_cache_prune():
+    """서명이 다른 옛 파일을 지우고, 상한(PHOTO_IMAGE_CACHE_MAX)이 있으면 넘는 만큼 오래 안 본 것부터 지운다."""
+    sig = _photo_image_sig()
+    files = []
+    for p in PHOTO_IMAGE_CACHE_DIR.iterdir():
+        if p.suffix == ".tmp":
+            continue
+        if not p.name.startswith(sig + "-"):
+            p.unlink(missing_ok=True)
+            continue
+        if PHOTO_IMAGE_CACHE_MAX is not None:
             st = p.stat()
             files.append((st.st_mtime, st.st_size, p))
+    if PHOTO_IMAGE_CACHE_MAX is not None:
         total = sum(s for _, s, _ in files)
         if total > PHOTO_IMAGE_CACHE_MAX:
             for _, size, p in sorted(files):
@@ -1608,8 +1620,70 @@ def _photo_image_cache_write(page_no, index, png):
                     break
                 p.unlink(missing_ok=True)
                 total -= size
+
+
+def _photo_image_cache_write(page_no, index, png):
+    global _PHOTO_IMAGE_PRUNED
+    try:
+        _photo_image_cache_store(page_no, index, png)
+        # 상한이 없으면 폴더 정리는 서버가 켜진 뒤 처음 저장할 때 한 번만, 있으면 저장할 때마다 한다
+        if PHOTO_IMAGE_CACHE_MAX is not None or not _PHOTO_IMAGE_PRUNED:
+            _PHOTO_IMAGE_PRUNED = True
+            _photo_image_cache_prune()
     except Exception as exc:  # noqa: BLE001  저장 실패는 캐시 없이 계속
         print(f"[알림] 사진 그림 캐시를 저장하지 못했습니다: {exc}")
+
+
+def build_photo_images(progress=None, limit=None):
+    """관능검사해설서 PDF 전체의 사진 그림(목록에 보이는 원본 해상도 전체 층)과 원본 해상도(dpi) 값을 미리 만들어 저장한다
+    (build_photo_cache.py 가 쓴다). 이미 저장된 그림은 건너뛰므로 중간에 멈췄다가 다시 실행하면 이어서 한다.
+    PDF 는 일정 개수마다 다시 열어 메모리가 불어나지 않게 한다. (새로 그린 수, 건너뛴 수, 전체 수)를 돌려준다."""
+    import pymupdf as fitz
+
+    table = _photo_table()
+    pairs = []
+    seen = set()
+    for e in SENSORY_ENTRIES:
+        if e.get("source_file") != SENSORY_PHOTO_FILE:
+            continue
+        for pi in table.get((int(e["page_start"]), int(e["page_end"])), ()):
+            if pi not in seen:
+                seen.add(pi)
+                pairs.append(pi)
+    pairs.sort()
+    total = len(pairs)
+    pending = [(p, i) for p, i in pairs if not _photo_image_cache_file(p, i).is_file() or ("dpi", p, i) not in table]
+    skipped = total - len(pending)
+    todo = pending[:limit] if limit is not None else pending
+    done = 0
+    doc = None
+    try:
+        for n, (p, i) in enumerate(todo, 1):
+            if doc is None or n % 150 == 1:
+                if doc is not None:
+                    doc.close()
+                doc = fitz.open(str(BASE_DIR / SENSORY_PHOTO_FILE))
+            if ("dpi", p, i) not in table:
+                table[("dpi", p, i)] = sensory_photos.native_dpi(doc, p, i)
+            if not _photo_image_cache_file(p, i).is_file():
+                png = sensory_photos.render_region_original(doc, p, i, layer="all", k=4)
+                if png is not None:
+                    _photo_image_cache_store(p, i, png)
+            done += 1
+            if n % 50 == 0:
+                _save_photo_table()  # 중간에 멈춰도 dpi 값은 남도록
+            if progress:
+                progress(n, len(todo), f"{p}쪽 {i}번")
+    finally:
+        if doc is not None:
+            doc.close()
+        _save_photo_table()
+    if not _PHOTO_IMAGE_PRUNED:
+        try:
+            _photo_image_cache_prune()
+        except Exception:  # noqa: BLE001
+            pass
+    return done, skipped, total
 
 
 @app.route("/sensory_photos/<int:entry_id>/<int:page_no>/<int:index>.png")
