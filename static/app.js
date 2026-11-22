@@ -454,22 +454,29 @@ function comboRowHtml(it) {
 // 화살표로 여는 전체 목록 팝업(comboDropdown)은 검색 결과(#results)와
 // 완전히 분리된 레이어다. 그래서 팝업을 열고 닫아도 이미 표시된 검색
 // 결과 카드는 절대 사라지지 않는다.
+// 전체 목록이 펼쳐진 상태에서 검색칸에 검색어를 치면 목록이 닫히고, 검색 결과 카드가 보인다(생약제제 검색칸도 같다).
+function dropdownListHtml(title, items) {
+  return `<div class="group-label">${title} 전체 목록 (${items.length})</div>${items.map(comboRowHtml).join('')}`;
+}
+
+let comboItemsAll = null;  // 전체 목록
+
 async function showAllOfficial() {
   const seq = ++requestSeq;
   const items = await getOfficialList();
   if (seq !== requestSeq) return;
-  const rows = items.map(comboRowHtml).join('');
-  comboDropdown.innerHTML = `
-    <div class="group-label">공정서 전체 목록 (${items.length})</div>
-    ${rows}
-  `;
-  comboDropdown.querySelectorAll('.result-item').forEach(el => {
-    el.addEventListener('click', () => {
-      const it = items.find(x => String(x.id) === el.dataset.id);
-      if (it) selectComboItem(it);
-    });
-  });
+  comboItemsAll = items;
+  comboDropdown.innerHTML = dropdownListHtml('공정서', items);
+  comboDropdown.scrollTop = 0;
 }
+
+// 목록 항목을 누르면 그 생약을 고른다
+comboDropdown.addEventListener('click', (ev) => {
+  const row = ev.target.closest('.result-item');
+  if (!row || !comboItemsAll) return;
+  const it = comboItemsAll.find(x => String(x.id) === row.dataset.id);
+  if (it) selectComboItem(it);
+});
 
 function openComboDropdown() {
   showAllOfficial();
@@ -749,7 +756,11 @@ async function getPrepList() {
   return prepListCache;
 }
 
+let prepItemsAll = null;  // 생약제제 전체 목록
+let prepOpenToken = 0;    // 목록을 받아 오는 동안 닫기/검색어 입력이 있으면 그 열기를 취소하려고
+
 function closePrepDropdown() {
+  prepOpenToken += 1;
   prepDropdown.style.display = 'none';
   syncDropdownOpenClass();
 }
@@ -771,21 +782,23 @@ function fitPrepResultsHeight() {
 window.addEventListener('resize', fitPrepResultsHeight);
 
 async function openPrepDropdown() {
+  const token = ++prepOpenToken;
   const items = await getPrepList();
-  prepDropdown.innerHTML = `
-    <div class="group-label">생약제제 전체 목록 (${items.length})</div>
-    ${items.map(comboRowHtml).join('')}
-  `;
-  prepDropdown.querySelectorAll('.result-item').forEach(el => {
-    el.addEventListener('click', () => {
-      const it = items.find(x => String(x.id) === el.dataset.id);
-      if (it) selectPrepItem(it);
-    });
-  });
+  if (token !== prepOpenToken) return;  // 기다리는 사이에 닫았거나 검색어를 쳤다
+  prepItemsAll = items;
+  prepDropdown.innerHTML = dropdownListHtml('생약제제', items);
+  prepDropdown.scrollTop = 0;
   prepDropdown.style.display = 'block';
   syncDropdownOpenClass();
   fitPrepDropdownHeight();
 }
+
+prepDropdown.addEventListener('click', (ev) => {
+  const row = ev.target.closest('.result-item');
+  if (!row || !prepItemsAll) return;
+  const it = prepItemsAll.find(x => String(x.id) === row.dataset.id);
+  if (it) selectPrepItem(it);
+});
 
 function renderPrepResults(items, q) {
   prepResultsBox.style.display = 'flex';
@@ -830,6 +843,7 @@ prepToggle.addEventListener('click', () => {
 prepInput.addEventListener('input', () => {
   prepDone = false;
   clearTimeout(prepTimer);
+  closePrepDropdown();  // 검색어를 치면 펼쳐 둔 전체 목록은 닫고 검색 결과를 보여 준다(목록을 받아 오는 중이었다면 그 열기도 취소)
   const q = prepInput.value.trim();
   if (!q) {
     prepResultsBox.style.display = 'none';
@@ -845,6 +859,7 @@ prepInput.addEventListener('keydown', async (ev) => {
   clearTimeout(prepTimer);
   const q = prepInput.value.trim();
   if (!q) return;
+  closePrepDropdown();  // 펼쳐 둔 전체 목록은 닫고 검색 결과를 보여 준다
   dismissKeyboard(prepInput);
   const items = await doPrepSearch(q);
   prepDone = true;
@@ -1081,6 +1096,7 @@ prepInput.addEventListener('click', () => {
 searchInput.addEventListener('input', () => {
   searchDone = false;
   clearTimeout(debounceTimer);
+  closeComboDropdown();  // 검색어를 치면 펼쳐 둔 전체 목록은 닫고 검색 결과를 보여 준다
   const q = searchInput.value.trim();
   if (!q) {
     resultsBox.style.display = 'none';
@@ -1097,6 +1113,7 @@ searchInput.addEventListener('keydown', async (ev) => {
   clearTimeout(debounceTimer);
   const q = searchInput.value.trim();
   if (!q) return;
+  closeComboDropdown();  // 펼쳐 둔 전체 목록은 닫고 검색 결과를 보여 준다
   dismissKeyboard(searchInput);
   const data = await doSearch(q);
   searchDone = true;
@@ -1174,9 +1191,13 @@ function recordRecent(item) {
   saveQuick(RECENT_KEY, list.slice(0, RECENT_MAX));
   refreshQuickBox();
 }
+// 별 그림: 글자(★/☆)는 글꼴마다 상자 안에서 위치가 달라서, 상자 정가운데에 오도록 그림(SVG)으로 그린다.
+// 별 꼭짓점을 계산한 뒤 그림 전체(가로·세로 최대 범위)의 가운데가 viewBox(24 x 24)의 가운데(12, 12)에 오게 옮겨 둔 값이다.
+// 즐겨찾기가 아니면 윤곽선만, 즐겨찾기이면 속을 채운다(CSS .detail-fav-btn.on).
+const FAV_STAR_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12.00 2.95 L14.53 9.48 L21.51 9.86 L16.09 14.28 L17.88 21.05 L12.00 17.25 L6.12 21.05 L7.91 14.28 L2.49 9.86 L9.47 9.48 Z"/></svg>';
 function favButtonHtml(id, where) {
   const on = isFavorite(id);
-  return `<button type="button" class="detail-fav-btn ${where}${on ? ' on' : ''}" aria-pressed="${on}" aria-label="${on ? '즐겨찾기에서 빼기' : '즐겨찾기에 넣기'}" title="${on ? '즐겨찾기에서 빼기' : '즐겨찾기에 넣기'}">${on ? '★' : '☆'}</button>`;
+  return `<button type="button" class="detail-fav-btn ${where}${on ? ' on' : ''}" aria-pressed="${on}" aria-label="${on ? '즐겨찾기에서 빼기' : '즐겨찾기에 넣기'}" title="${on ? '즐겨찾기에서 빼기' : '즐겨찾기에 넣기'}">${FAV_STAR_SVG}</button>`;
 }
 const quickBox = document.getElementById('quickBox');
 function quickCardHtml(label, rows, extra = '') {
@@ -1191,14 +1212,16 @@ function refreshQuickBox() {
     quickBox.innerHTML = '';
     return;
   }
-  const row = (it, star) => `
+  // 줄 오른쪽 끝 버튼: 즐겨찾기 줄은 ★(누르면 즐겨찾기에서 뺌), 최근 본 생약 줄은 ×(누르면 그 줄만 기록에서 지움)
+  const row = (it, kind) => `
     <div class="result-item" data-id="${it.id}">
       <span class="rname">${escapeHtml(it.name_primary || it.korean_name)}${sourceBadge(it.source_tag, it.part)}${flagBadge(it.flag)}</span>
-      ${star ? '<button type="button" class="quick-fav-off" title="즐겨찾기에서 빼기" aria-label="즐겨찾기에서 빼기">★</button>' : ''}
+      ${kind === 'fav' ? '<button type="button" class="quick-fav-off" title="즐겨찾기에서 빼기" aria-label="즐겨찾기에서 빼기">★</button>' : ''}
+      ${kind === 'recent' ? '<button type="button" class="quick-del" title="최근 본 생약에서 지우기" aria-label="최근 본 생약에서 지우기">×</button>' : ''}
     </div>`;
   quickBox.innerHTML =
-    (favs.length ? quickCardHtml('즐겨찾기', favs.map(f => row(f, true)).join('')) : '') +
-    (recents.length ? quickCardHtml('최근 본 생약', recents.map(r => row(r, false)).join(''),
+    (favs.length ? quickCardHtml('즐겨찾기', favs.map(f => row(f, 'fav')).join('')) : '') +
+    (recents.length ? quickCardHtml('최근 본 생약', recents.map(r => row(r, 'recent')).join(''),
       '<button type="button" class="quick-clear" title="최근 본 생약 기록 지우기">모두 지우기</button>') : '');
   quickBox.hidden = false;
   applyShownHighlight();
@@ -1206,6 +1229,14 @@ function refreshQuickBox() {
 quickBox.addEventListener('click', (ev) => {
   if (ev.target.closest('.quick-clear')) {
     saveQuick(RECENT_KEY, []);
+    refreshQuickBox();
+    return;
+  }
+  const del = ev.target.closest('.quick-del');
+  if (del) {
+    ev.stopPropagation();  // 줄을 눌러 설명창을 여는 동작으로 번지지 않게
+    const id = Number(del.closest('.result-item').dataset.id);
+    saveQuick(RECENT_KEY, loadQuick(RECENT_KEY).filter(x => x.id !== id));
     refreshQuickBox();
     return;
   }
@@ -1231,7 +1262,6 @@ function syncFavButton() {
   detailBox.querySelectorAll('.detail-fav-btn').forEach(btn => {  // 이름 옆 별과 모바일용 별 둘 다
     btn.classList.toggle('on', on);
     btn.setAttribute('aria-pressed', String(on));
-    btn.textContent = on ? '★' : '☆';
     btn.title = t;
     btn.setAttribute('aria-label', t);
   });

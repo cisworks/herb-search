@@ -269,28 +269,43 @@
     cursor: pointer;
   }
   .quick-fav-off:hover { color: #a06c00; }
-  /* 설명창 생약명 옆의 즐겨찾기 별 버튼: 글자 크기 버튼과 같은 크기/테두리 */
+  .quick-del {  /* 최근 본 생약 줄 오른쪽 끝의 ×: 누르면 그 줄만 지운다 */
+    flex: none;
+    margin: -2px -4px -2px 0;
+    padding: 0 6px;
+    font-family: inherit;
+    font-size: 1.15rem;
+    line-height: 1;
+    color: #9aa59d;
+    background: none;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+  }
+  .quick-del:hover, .quick-del:focus-visible { color: #a0281c; background: #f3e4e1; outline: none; }
+  /* 설명창 생약명 옆의 즐겨찾기 별 버튼: 글자 크기 버튼(가−/가+)과 같은 높이(20.7px)의 정사각형. 별은 그림(SVG)이라 정가운데에 놓인다 */
   .detail-fav-btn {
     position: relative;
-    top: -3.35px;
+    /* 아래 모서리를 옆의 글자 크기 버튼('가−')·KP 배지의 아래 모서리와 맞춘다. 이름 줄은 baseline 정렬인데, 별 버튼은 글자가 없는
+       그림(SVG)뿐이라 baseline 이 상자 아래에 잡혀서 글자 있는 버튼(top: -3.35px)보다 2.94px 위에 놓인다. 그 차이를 더해 -0.41px */
+    top: -0.41px;
     flex: none;
     box-sizing: border-box;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 25.2px;
+    width: 20.7px;
     height: 20.7px;
     margin: -6px 0 -6px 6px;
     padding: 0;
-    font-family: inherit;
-    font-size: 0.85rem;
-    line-height: 1;
     color: var(--main-dark);
     background: #fff;
     border: 1.5px solid var(--main-dark);
     border-radius: 3px;
     cursor: pointer;
   }
+  .detail-fav-btn svg { display: block; width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linejoin: round; }
+  .detail-fav-btn.on svg { fill: currentColor; }
   .detail-fav-btn.fav-in-row { display: none; }  /* 모바일에서만 쓰는 두 번째 별(영문명 줄 오른쪽 끝). 화면 폭 규칙에서 보이게 한다 */
   .detail-fav-btn:hover { background: #f0f5ef; }
   .detail-fav-btn.on { color: #c98a00; border-color: #c98a00; }
@@ -1021,8 +1036,7 @@
     .org-badge img { width: 1.5552rem; height: 1.5552rem; }  /* 기관명 두 줄 높이(0.576rem x 줄높이 1.35 x 2)에 맞춘다 */
     .org-badge .org-name { font-size: 0.576rem; }
     .org-full { display: none; }
-    .org-short { display: block; }  /* 첫줄 '강북농수산물', 둘째줄 '검사소' */
-    header h1 { flex: 0 0 100%; text-align: center; font-size: 1.3rem; margin: 0; }  /* '생약 검색'은 화면 가운데 */
+    .org-short { display: block; }  /* 첫줄 '강북농수산물', 둘째줄 '검사소' */    header h1 { flex: 0 0 100%; text-align: center; font-size: 1.3rem; margin: 0; }  /* '생약 검색'은 화면 가운데 */
     .header-meta { flex: 0 0 100%; margin-top: 6px; }
     .header-meta p { font-size: 0.8rem; }
     .header-meta p.header-cite { font-size: 0.68rem; }
