@@ -107,6 +107,8 @@
 /* 제제총칙: 투여 경로 항목 안의 제형 소제목(1.1. 정제 ...) */
 .kp-body .kp-p.kp-h2 { font-size: 1.08em; margin: 1.6em 0 0.6em; padding-bottom: 3px; border-bottom: 1px solid var(--border); }
 .kp-body .kp-p.kp-h2:first-child { margin-top: 0.3em; }
+/* 제제총칙의 3단계 제목줄(1.1.1. 트로키제 ...): 왼쪽 정렬 */
+.kp-body .kp-p.kp-h3 { text-align: left; margin-top: 1.1em; color: #000; }
 .kp-body .kp-tab { display: inline-block; width: 2em; }
 .kp-body .kp-img { max-width: 100%; height: auto; vertical-align: middle; }
 .kp-body .kp-eq { display: inline-block; vertical-align: middle; }
@@ -118,7 +120,7 @@
 
 /* 표 */
 .kp-body .kp-tblwrap { max-width: 100%; overflow-x: auto; margin: 8px 0; }
-.kp-body .kp-tbl { border-collapse: collapse; font-size: 0.92em; line-height: 1.5; }
+.kp-body .kp-tbl { border-collapse: collapse; font-size: 0.92em; line-height: 1.5; margin-left: auto; margin-right: auto; }  /* 표는 가운데 정렬(폭이 칸보다 넓으면 왼쪽부터 밀어 볼 수 있다) */
 .kp-body .kp-tbl td { padding: 3px 7px; vertical-align: middle; }
 .kp-body .kp-cp { margin: 0; }
 .kp-body sub, .kp-body sup { line-height: 0; }

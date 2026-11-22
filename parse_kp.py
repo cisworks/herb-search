@@ -45,6 +45,7 @@ DOCS = {
 }
 
 IMG_URL = "/kp/img/{doc}/{name}"
+_TBL_HEAD_BG = "#ebebeb"  # 표 머리 행의 밝은 회색 배경
 
 _HANGUL_RE = re.compile(r"[가-힣]")
 _LATIN_RE = re.compile(r"[A-Za-z]")
@@ -397,12 +398,19 @@ class _Ctx:
                 va = (sub.get("vertAlign") if sub is not None else "CENTER") or "CENTER"
                 inner_html, inner_plain = self._cell_content(sub)
                 sides, fill = self.h.borders.get(tc.get("borderFillIDRef"), ((1, 1, 1, 1), ""))
-                cells.append((col, cs, rs, inner_html, va, sides, fill))
+                cells.append((col, cs, rs, inner_html, va, sides, fill, tc.get("header") == "1", inner_plain))
                 if inner_plain:
                     plain_parts.append(inner_plain)
             rows.append(cells)
         if not rows:
             return "", ""
+        # 머리 행: 원문에서 머리 칸(header)으로 지정한 행. 지정이 없으면, 테두리가 있는 2열 이상 표의 첫 행(칸마다 글이 있을 때)을 머리 행으로 본다.
+        hdr_rows = {i for i, cs_ in enumerate(rows) if any(c[7] for c in cs_)}
+        if not hdr_rows and len(rows) >= 2 and len(rows[0]) >= 2:
+            first = rows[0]
+            # 칸의 절반 이상에 글이 있으면 머리 행으로 본다(왼쪽 위 귀퉁이 칸이 비어 있는 표가 많다). 테두리 없는 표(처방 배치 등)는 제외된다.
+            if any(sum(c[5]) > 0 for c in first) and sum(1 for c in first if c[8].strip()) * 2 >= len(first):
+                hdr_rows = {0}
         total = sum(widths.values())
         tw = 0
         szt = tbl.find(HP + "sz")
@@ -412,9 +420,11 @@ class _Ctx:
         out = [f'<div class="kp-tblwrap"><table class="kp-tbl" style="width:{pct:.1f}%">']
         if widths and total:
             out.append("<colgroup>" + "".join(f'<col style="width:{widths.get(c, 0) * 100.0 / total:.1f}%">' for c in range(max(widths) + 1)) + "</colgroup>")
-        for cells in rows:
+        for ri, cells in enumerate(rows):
             out.append("<tr>")
-            for col, cs, rs, inner, va, sides, fill in cells:
+            for col, cs, rs, inner, va, sides, fill, _hd, _pl in cells:
+                if ri in hdr_rows and not fill:
+                    fill = _TBL_HEAD_BG  # 머리 행은 밝은 회색 배경
                 attrs = ""
                 if cs > 1:
                     attrs += f' colspan="{cs}"'
@@ -495,6 +505,8 @@ def block_html(b, heading=False):
         cls += " kp-h"
     if b.get("h2"):
         cls += " kp-h2"
+    if b.get("h3"):
+        cls += " kp-h3"
     st =f' style="{";".join(style)}"' if style else ""
     return f'<p class="{cls}"{st}>{b["html"]}</p>'
 
@@ -659,6 +671,31 @@ def _is_definition_block(b):
     return bool(_DEF_START_RE.match(b["plain"].strip()))
 
 
+# 그림/표 설명 줄: 문단 스타일이 그림제목·표제목·캡션이거나, "그림 1. 용적계", "표 3 ..." 처럼 그림/표 번호로 시작하는 짧은 줄(문장이 아닌 것)
+_CAPTION_STYLE_RE = re.compile(r"그림제목|표제목|캡션")
+_CAPTION_TEXT_RE = re.compile(r"^(그림|표)\s*\d+(?:\.\d+)?(?:\s*[.:)]|\s{1,3}(?=\S)|$)")
+
+
+def _is_caption(b):
+    sty = (b.get("sty") or "").lstrip("* ")
+    if _CAPTION_STYLE_RE.search(sty):
+        return True
+    pl = b["plain"].strip()
+    return bool(pl) and len(pl) <= 150 and bool(_CAPTION_TEXT_RE.match(pl)) and not pl.endswith(("다.", "한다", "된다"))
+
+
+def _center_figures_captions(blocks):
+    """그림(그림만 있는 문단)과 그림 설명, 표 설명 줄을 가운데 정렬로 바꾼다(표 자체는 CSS 로 가운데에 놓는다)."""
+    out = []
+    for b in blocks:
+        if b["k"] == "p" and b.get("al") != "c":
+            figure_only = "<img" in b["html"] and not b["plain"].strip()
+            if figure_only or _is_caption(b):
+                b = dict(b, al="c")
+        out.append(b)
+    return out
+
+
 _FORMULA_MERGE_MAX = 70  # 합친 줄의 글자 수 상한(생약 검색의 정량법 계산식과 같다). 넘으면 두 줄 그대로 둔다
 
 
@@ -730,6 +767,7 @@ def _sections_html(blocks):
         else:
             head.append(b)
     out = []
+    head = _center_figures_captions(head)
     if head:
         # 구조식 그림과 정의문("이 약은 ...") 사이의 줄들(별명, 분자식, 화학명, CAS 번호)은 가운데 정렬한다
         first_def = next((k for k, b in enumerate(head) if b["k"] == "p" and _is_definition_block(b)), None)
@@ -742,7 +780,7 @@ def _sections_html(blocks):
             ]
         out.append('<div class="definition kp-definition">' + "".join(block_html(b) for b in head) + "</div>")
     for lab, bs in secs:
-        body = "".join(block_html(b) for b in _space_formula_lines(_apply_hierarchy(_merge_formula_lines(bs))))
+        body = "".join(block_html(b) for b in _space_formula_lines(_apply_hierarchy(_merge_formula_lines(_center_figures_captions(bs)))))
         out.append(
             f'<div class="section"><div class="section-header"><div class="label">{html.escape(lab)}</div>'
             f'<span class="toggle-icon">−</span></div><div class="section-content">{body}</div></div>'
@@ -751,7 +789,7 @@ def _sections_html(blocks):
 
 
 def _flat_html(blocks):
-    return "".join(block_html(b, heading=bool(b.get("hd"))) for b in _apply_hierarchy(blocks))
+    return "".join(block_html(b, heading=bool(b.get("hd"))) for b in _apply_hierarchy(_center_figures_captions(blocks)))
 
 
 # ---- 항목 나누기 ------------------------------------------------------------------------------
@@ -953,6 +991,9 @@ def _segment_preparations(docno, blocks):
                 cur = _new_entry(docno, ko, en, no=no, group=group)
                 entries.append(cur)
                 continue
+        if b["k"] == "p" and len(pl) < 90 and re.match(r"^\d{1,2}\.\d{1,2}\.\d{1,2}\.\s*[가-힣]", pl):
+            # "1.1.1. 트로키제" 같은 3단계 제목줄: 왼쪽 정렬 소제목(원문에서 가운데 정렬이거나 들여써 있어도)
+            b = dict(b, hd=True, h3=True, al="l", left=0, ind=0)
         if cur is not None:
             cur["blocks"].append(b)
     return entries  # 내용이 없는 "Ⅱ. 제제 각조"도 목록에는 남긴다(parse_doc 이 nolink 로 표시해 화면에서 누를 수 없는 줄로 보인다)

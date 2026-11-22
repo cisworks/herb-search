@@ -26,18 +26,10 @@
     <path d="M190 296h22a17 17 0 0 1 0 34h-22z" fill="#9cc2ef"/>
     <path d="M165 305h30" stroke="#fff" stroke-opacity=".55" stroke-width="4" stroke-linecap="round"/>
   </g>
-  <circle cx="262" cy="338" r="17" fill="#fff" stroke="#2f6fb7" stroke-width="3.5"/>
-  <path d="M250 338h24" stroke="#2f6fb7" stroke-width="3.5" stroke-linecap="round"/>
   <!-- 플라스크 -->
   <g transform="translate(468 292)">
     <path d="M-12-70h24v36l36 62a12 12 0 0 1-10 18h-76a12 12 0 0 1-10-18l36-62z" fill="url(#g)" stroke="#2f6fb7" stroke-width="3.5" stroke-linejoin="round"/>
     <path d="M-30 12h60l18 30a6 6 0 0 1-5 9h-86a6 6 0 0 1-5-9z" fill="#9cc2ef" fill-opacity=".8"/>
     <path d="M-16-70h32" stroke="#2f6fb7" stroke-width="5" stroke-linecap="round"/>
   </g>
-  <!-- 십자 -->
-  <g fill="#2f6fb7">
-    <rect x="304" y="58" width="32" height="10" rx="3"/>
-    <rect x="315" y="47" width="10" height="32" rx="3"/>
-  </g>
-  <circle cx="320" cy="63" r="30" stroke="#8fb0d9" stroke-width="3"/>
 </svg>
