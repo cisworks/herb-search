@@ -7,6 +7,8 @@
   --border: #d6dfec;
   --text: #25292f;
   --sub: #66717f;
+  --kp-tbl-line: #7ea3d0;  /* 표 테두리(파란 테마) */
+  --kp-tbl-head: #e4eef9;  /* 표 머리 행 배경(옅은 파랑) */
 }
 
 /* app.css 에 초록 계열 색을 직접 써 둔 곳들을 파랑 계열로 */
@@ -123,6 +125,7 @@
 .kp-body .kp-tbl { border-collapse: collapse; font-size: 0.92em; line-height: 1.5; margin-left: auto; margin-right: auto; }  /* 표는 가운데 정렬(폭이 칸보다 넓으면 왼쪽부터 밀어 볼 수 있다) */
 .kp-body .kp-tbl td { padding: 3px 7px; vertical-align: middle; }
 .kp-body .kp-cp { margin: 0; }
+.kp-body .kp-th { color: var(--main-dark); font-weight: 600; }  /* 표 머리 행 글자: 진한 파랑, 굵게 */
 .kp-body sub, .kp-body sup { line-height: 0; }
 /* 분수: 분수선(분자 아래 줄)이 분자·분모 중 넓은 쪽 폭 전체에 그려지게 한다(분모가 더 길어도 선이 분모만큼 길어진다). 분자/분모는 가운데 정렬 */
 .kp-body .eq-frac { align-items: stretch; }

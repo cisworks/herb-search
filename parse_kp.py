@@ -423,8 +423,9 @@ class _Ctx:
         for ri, cells in enumerate(rows):
             out.append("<tr>")
             for col, cs, rs, inner, va, sides, fill, _hd, _pl in cells:
-                if ri in hdr_rows and not fill:
-                    fill = _TBL_HEAD_BG  # 머리 행은 밝은 회색 배경
+                is_head = ri in hdr_rows
+                if is_head and not fill:
+                    fill = f"var(--kp-tbl-head,{_TBL_HEAD_BG})"  # 머리 행 배경: 테마색(kp.css 의 --kp-tbl-head), 없으면 밝은 회색
                 attrs = ""
                 if cs > 1:
                     attrs += f' colspan="{cs}"'
@@ -432,12 +433,12 @@ class _Ctx:
                     attrs += f' rowspan="{rs}"'
                 st = []
                 for nm, w in zip(("left", "right", "top", "bottom"), sides):
-                    st.append(f"border-{nm}:{w}px solid #555" if w else f"border-{nm}:none")
+                    st.append(f"border-{nm}:{w}px solid var(--kp-tbl-line,#555)" if w else f"border-{nm}:none")  # 테두리 색: 테마색(kp.css 의 --kp-tbl-line)
                 if fill:
                     st.append(f"background:{fill}")
                 if va in ("TOP", "BOTTOM"):
                     st.append(f"vertical-align:{va.lower()}")
-                out.append(f'<td{attrs} style="{";".join(st)}">{inner}</td>')
+                out.append(f'<td{attrs}{" class=kp-th" if is_head else ""} style="{";".join(st)}">{inner}</td>')
             out.append("</tr>")
         out.append("</table></div>")
         return "".join(out), _WS_RE.sub(" ", " ".join(plain_parts)).strip()

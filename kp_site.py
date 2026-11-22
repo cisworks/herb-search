@@ -49,6 +49,12 @@ def _signature():
     return h.hexdigest()
 
 
+# 캐시 이름에 들어가는 코드 값은 이 모듈을 불러올 때(웹앱이 시작해 parse_kp.py 를 메모리에 올리는 순간) 한 번만 정하고 계속 쓴다.
+# 데이터를 읽을 때마다 디스크의 파일을 다시 읽어 정하면, git pull 뒤 Reload 전에 /kp 를 처음 연 경우 "옛 코드로 파싱한 결과"가 "새 코드의
+# 이름"으로 저장돼 Reload 후에도 옛 결과가 쓰인다. 시작 때 정해 두면 옛 코드는 옛 이름으로만 저장해 새 코드와 섞이지 않는다.
+_SIG = _signature()
+
+
 def hwpx_path(docno):
     head = parse_kp.DOCS[docno][0]
     for p in sorted(BASE_DIR.glob("*.hwpx")):
@@ -102,7 +108,7 @@ def get_data():
         d = _Data()
         d.entries = []
         d.files = {}
-        sig = _signature()
+        sig = _SIG
         for docno in sorted(parse_kp.DOCS):
             path = hwpx_path(docno)
             if path is None:
