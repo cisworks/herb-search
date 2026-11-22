@@ -1217,7 +1217,7 @@ function refreshQuickBox() {
     <div class="result-item" data-id="${it.id}">
       <span class="rname">${escapeHtml(it.name_primary || it.korean_name)}${sourceBadge(it.source_tag, it.part)}${flagBadge(it.flag)}</span>
       ${kind === 'fav' ? '<button type="button" class="quick-fav-off" title="즐겨찾기에서 빼기" aria-label="즐겨찾기에서 빼기">★</button>' : ''}
-      ${kind === 'recent' ? '<button type="button" class="quick-del" title="최근 본 생약에서 지우기" aria-label="최근 본 생약에서 지우기">×</button>' : ''}
+      ${kind === 'recent' ? '<button type="button" class="quick-del" title="최근 본 생약에서 지우기" aria-label="최근 본 생약에서 지우기"><svg viewBox="0 0 10 10" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M1.5 1.5 8.5 8.5M8.5 1.5 1.5 8.5"/></svg></button>' : ''}
     </div>`;
   quickBox.innerHTML =
     (favs.length ? quickCardHtml('즐겨찾기', favs.map(f => row(f, 'fav')).join('')) : '') +

@@ -291,17 +291,23 @@
   .quick-fav-off:hover { color: #a06c00; }
   .quick-del {  /* 최근 본 생약 줄 오른쪽 끝의 ×: 누르면 그 줄만 지운다 */
     flex: none;
+    /* 배경(마우스를 올렸을 때)은 24px 원이고, × 는 글자가 아니라 그림(SVG)이라 원의 정가운데에 놓인다(글자 ×는 폰트에 따라 치우친다) */
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
     margin: -2px -4px -2px 0;
-    padding: 0 6px;
+    padding: 0;
     font-family: inherit;
-    font-size: 1.15rem;
     line-height: 1;
     color: #9aa59d;
     background: none;
     border: none;
-    border-radius: 4px;
+    border-radius: 50%;
     cursor: pointer;
   }
+  .quick-del svg { display: block; pointer-events: none; }
   .quick-del:hover, .quick-del:focus-visible { color: #a0281c; background: #f3e4e1; outline: none; }
   /* 설명창 생약명 옆의 즐겨찾기 별 버튼: 글자 크기 버튼(가−/가+)과 같은 높이(20.7px)의 정사각형. 별은 그림(SVG)이라 정가운데에 놓인다 */
   .detail-fav-btn {
