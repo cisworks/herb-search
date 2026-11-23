@@ -114,18 +114,61 @@ def _strip_markup_with_map(s: str):
     return "".join(stripped_chars), index_map
 
 
-_EQ_FONT_WORDS = {"rm", "it", "bold", "sf", "tt"}  # 글꼴 지정 키워드(화면에 나오지 않음)
+_EQ_FONT_WORDS = {"rm", "it", "bold", "sf", "tt", "RM", "IT", "BOLD", "SF", "TT", "UNDEROVER"}  # 글꼴 지정 키워드(화면에 나오지 않음). "RM T"처럼 대문자로 쓴 것도 같다
 _EQ_SYMBOLS = {  # 그리스 문자/기호 키워드
     "alpha": "α", "beta": "β", "gamma": "γ", "delta": "δ", "epsilon": "ε", "zeta": "ζ",
-    "SUM": "∑", "sum": "∑", "times": "×", "TIMES": "×", "cdot": "·", "pm": "±",
+    "eta": "η", "theta": "θ", "iota": "ι", "kappa": "κ", "lambda": "λ", "mu": "μ",
+    "nu": "ν", "xi": "ξ", "omicron": "ο", "pi": "π", "rho": "ρ", "sigma": "σ",
+    "tau": "τ", "upsilon": "υ", "phi": "φ", "chi": "χ", "psi": "ψ", "omega": "ω",
+    "varepsilon": "ε", "vartheta": "ϑ", "varpi": "ϖ", "varrho": "ϱ", "varsigma": "ς", "varphi": "ϕ",
+    # 그리스 대문자: 라틴 대문자와 모양이 다른 것은 그리스 문자로 쓴다
+    "GAMMA": "Γ", "DELTA": "Δ", "THETA": "Θ", "LAMBDA": "Λ", "XI": "Ξ", "PI": "Π",
+    "SIGMA": "Σ", "UPSILON": "Υ", "PHI": "Φ", "PSI": "Ψ", "OMEGA": "Ω",
+    "SUM": "∑", "sum": "∑", "times": "×", "TIMES": "×", "Times": "×", "cdot": "·", "CDOT": "·", "pm": "±",
     "leq": "≤", "geq": "≥", "LEQ": "≤", "GEQ": "≥",
+    # 점/화살표/기호 키워드(화면에 글자 그대로 "CDOT", "RARROW" 로 나오던 것들)
+    "cdots": "⋯", "CDOTS": "⋯", "ldots": "…", "LDOTS": "…",
+    "rarrow": "→", "RARROW": "→", "larrow": "←", "LARROW": "←",
+    "sim": "∼", "SIM": "∼", "approx": "≈", "APPROX": "≈", "inf": "∞", "INF": "∞",
+    "TRIANGLE": "Δ", "triangle": "Δ", "BULLET": "∙", "bullet": "∙", "DIVIDE": "÷", "divide": "÷", "DIV": "÷",
+    "SMALLSUM": "∑", "SUCC": "≻", "PREC": "≺", "imath": "ı", "jmath": "ȷ",
+    "int": "∫", "INT": "∫", "iint": "∬", "oint": "∮",
     # "ALPHA"는 그리스 대문자 알파(Α)인데 이 서체에서는 라틴 "A"와 똑같이 보이므로
-    # 원문 의도대로 "A"로 쓴다(그대로 두면 "AT" 앞에 글자 그대로 "ALPHA"가 붙어 나온다).
-    "ALPHA": "A",
+    # 원문 의도대로 "A"로 쓴다(그대로 두면 "AT" 앞에 글자 그대로 "ALPHA"가 붙어 나온다). 라틴 대문자와 같은 모양의 다른 대문자도 같다.
+    "ALPHA": "A", "BETA": "B", "EPSILON": "E", "ZETA": "Z", "ETA": "H", "IOTA": "I",
+    "KAPPA": "K", "MU": "M", "NU": "N", "OMICRON": "O", "RHO": "P", "TAU": "T", "CHI": "X",
 }
+_EQ_PRIME = "′"  # ′ : 수식 키워드 "prime"
 _EQ_WORD_RE = re.compile(r"[A-Za-z]+")
 _EQ_NUM_RE = re.compile(r"\d+(?:\.\d+)?")
 _EQ_HANGUL_RE = re.compile(r"[가-힣]+")
+
+
+_GLUE_KEYWORDS = sorted(
+    {k for k in _EQ_SYMBOLS if len(k) >= 3} | {"over", "OVER", "bar", "BAR", "sqrt", "SQRT"},
+    key=len, reverse=True,
+)
+_GLUE_FUNCS = {"log", "sin", "cos", "tan", "exp", "lim"}
+
+
+def _split_glued(word: str):
+    """띄어 쓰지 않아 한 단어로 붙은 수식 키워드를 나눈다: "betacdotlog" -> [beta, cdot, log], "SUMwx" -> [SUM, wx], "barX" -> [bar, X].
+    맨 앞이 키워드이고, 끝에 남는 글이 짧은 변수(3글자 이하, 또는 대문자로 시작하는 4글자 이하, 또는 log/sin 같은 함수)일 때만 나눈다.
+    나눌 게 없으면 None."""
+    pieces, w = [], word
+    while w:
+        for k in _GLUE_KEYWORDS:
+            if w.startswith(k) and (len(w) > len(k) or pieces):
+                pieces.append(k)
+                w = w[len(k):]
+                break
+        else:
+            break
+    if not pieces:
+        return None
+    if w and not (len(w) <= 3 or (len(w) <= 4 and w[0].isupper()) or w in _GLUE_FUNCS):
+        return None
+    return pieces + ([w] if w else [])
 
 
 class _EquationParser:
@@ -189,13 +232,13 @@ class _EquationParser:
             if word in _EQ_FONT_WORDS:
                 self.i = m.end()
                 return self.parse_operand()
-            if word in ("bar", "sqrt", "eqalign", "over", "LEFT", "RIGHT"):
+            if word in ("bar", "BAR", "sqrt", "SQRT", "eqalign", "over", "OVER", "LEFT", "RIGHT"):
                 # 단독 피연산자 자리에서도 같은 규칙으로 해석하도록 한 항목만 읽는다.
                 out = []
                 self._parse_one(out)
                 return "".join(out)
             self.i = m.end()
-            return self._strip_font_prefix(word)
+            return self._word_text(word)
         m = _EQ_NUM_RE.match(self.s, self.i)
         if m:
             self.i = m.end()
@@ -210,9 +253,22 @@ class _EquationParser:
 
     @staticmethod
     def _strip_font_prefix(word: str) -> str:
-        while len(word) > 2 and word[:2] in ("rm", "it") and word not in _EQ_SYMBOLS:
+        while len(word) > 2 and word[:2].lower() in ("rm", "it") and word not in _EQ_SYMBOLS:
             word = word[2:]
         return word
+
+    @classmethod
+    def _word_text(cls, word: str) -> str:
+        """영문 단어 하나를 화면에 보일 글로 바꾼다: 기호 키워드(mu, pi ...)는 기호로, 글꼴 키워드가 붙은 것(itbeta, rmmu)도 기호로,
+        "prime"이 끝에 붙은 것(dtprime)은 글자 + ′ 로, 그 밖에는 글꼴 키워드만 뗀 단어."""
+        w = cls._strip_font_prefix(word)
+        if w in _EQ_SYMBOLS:
+            return _EQ_SYMBOLS[w]
+        if w == "prime":
+            return _EQ_PRIME
+        if w.endswith("prime") and len(w) > 5:
+            return w[:-5] + _EQ_PRIME
+        return w
 
     # -- 한 항목 --
     def _parse_one(self, out):
@@ -232,8 +288,14 @@ class _EquationParser:
         m = _EQ_WORD_RE.match(s, self.i)
         if m:
             word = m.group()
+            if word not in _EQ_SYMBOLS and word not in _EQ_FONT_WORDS and self._word_text(word) == word:
+                parts = _split_glued(word)
+                if parts:  # 띄어 쓰지 않아 붙은 키워드("betacdotlog", "SUMwx")는 띄어 쓴 것처럼 고쳐 다시 읽는다
+                    self.s = s[: self.i] + " ".join(parts) + s[m.end():]
+                    self.n = len(self.s)
+                    return True
             self.i = m.end()
-            if word == "over":
+            if word in ("over", "OVER"):
                 while out and out[-1].strip() == "":
                     out.pop()
                 numerator = out.pop() if out else ""
@@ -252,16 +314,20 @@ class _EquationParser:
                     self.i += 1
             elif word in _EQ_FONT_WORDS:
                 pass
-            elif word == "bar":
+            elif word in ("bar", "BAR"):
                 out.append(_BAR_L + self.parse_operand() + _BAR_R)
-            elif word == "sqrt":
+            elif word in ("sqrt", "SQRT"):
                 out.append(_SQRT_L + self.parse_operand() + _SQRT_R)
             elif word == "eqalign":
                 out.append(self.parse_operand())
             elif word in _EQ_SYMBOLS:
                 out.append(_EQ_SYMBOLS[word])
             else:
-                out.append(self._strip_font_prefix(word))
+                text = self._word_text(word)
+                if text.endswith(_EQ_PRIME):  # 프라임(′)은 앞 글자에 붙여 쓴다("V prime" -> "V′")
+                    while out and out[-1].strip() == "":
+                        out.pop()
+                out.append(text)
             return True
         m = _EQ_NUM_RE.match(s, self.i) or _EQ_HANGUL_RE.match(s, self.i)
         if m:
@@ -284,12 +350,17 @@ class _EquationParser:
         return self._collapse(out)
 
 
+_MU_UNIT_RE = re.compile(r"μ\s+(?=(?:g|L|mL|mol|m)(?![A-Za-z가-힣]))")
+
+
 def _convert_equation(script_text: str) -> str:
     """hwpx 수식 스크립트를 마커(아래/윗첨자, 분수, 막대, 제곱근)가 포함된 텍스트로 변환한다.
     예: "{A  _{rm Ta}} over {A  _{rm Sa}}" -> "\\x0eA\\x02Ta\\x03\\x0fA\\x02Sa\\x03\\x10"
     (분수는 나중에 _apply_subscript_markup 이 위아래로 쌓은 분수 HTML 로 바꾼다.)
     """
-    return _EquationParser(script_text or "").parse_seq(False)
+    out = _EquationParser(script_text or "").parse_seq(False)
+    # 단위 접두어 "mu g", "mu L" 은 수식 편집기에서 띄어 써도 "μg", "μL" 로 붙어 보인다
+    return _MU_UNIT_RE.sub("μ", out)
 
 
 _FRAC_RE = re.compile(f"{_FR_L}([^{_FR_L}{_FR_M}{_FR_R}]*){_FR_M}([^{_FR_L}{_FR_M}{_FR_R}]*){_FR_R}")
