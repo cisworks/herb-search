@@ -46,6 +46,7 @@ DOCS = {
 
 IMG_URL = "/kp/img/{doc}/{name}"
 _TBL_HEAD_BG = "#ebebeb"  # 표 머리 행의 밝은 회색 배경
+_TBL_TITLE_RE = re.compile(r"^(?:표|Table)\s*\d+")  # 표 안의 표 번호·설명 줄("표 1. ...")
 
 
 def _is_neutral_gray(color):
@@ -224,13 +225,74 @@ class _Ctx:
             h = "".join(cur["html"])
             plain = _WS_RE.sub(" ", "".join(cur["plain"])).strip()
             if plain or "<img" in h or "kp-eq" in h:
-                blocks.append(self._p_block(p, h, plain, cur["lab"]))
-            cur["html"], cur["plain"], cur["lab"], cur["started"] = [], [], None, False
+                blk = self._p_block(p, h, plain, cur["lab"])
+                blk["lead"] = cur.get("lead", 0)  # 문단 맨 앞의 공백 수(원문에서 들여 쓴 정도)
+                blocks.append(blk)
+            cur["html"], cur["plain"], cur["lab"], cur["started"], cur["lead"] = [], [], None, False, 0
+
+        figs = []  # 이어서 나온 그림 개체들(같은 그림의 여러 장, 또는 설명이 달린 그림)
+        floating = self._floating_items(p) if self.docno in (5, 6) else None  # 떠 있는 그림 + 글상자(알코올수측정법): 위치를 원문대로
+        floating_done = False
+
+        def emit_figs():
+            """모인 그림들을 "그림(가운데 정렬) + 설명 줄" 블록으로 내보낸다. 글 한가운데에 얹힌 그림이 글과 한 문단으로 섞이지 않게 하고,
+            그림 개체에 딸린 설명(caption: "그림 1. 브래그의 법칙 ...")이 빠지지 않게 한다."""
+            if not figs:
+                return
+            fig = self._p_block(p, "".join(f["img"] for f in figs), "", None)
+            fig.update(al="c", left=0, ind=0)
+            caps = [f["cap"] for f in figs if f["cap"]]
+            for c in [c for c in caps if c["top"]]:
+                blocks.extend(dict(x) for x in c["blocks"])
+            blocks.append(fig)
+            for c in [c for c in caps if not c["top"]]:
+                blocks.extend(dict(x) for x in c["blocks"])
+            figs.clear()
 
         for run in p.findall(HP + "run"):
             cp = run.get("charPrIDRef")
             for ch in run:
                 tag = _local(ch.tag)
+                if floating and ch in floating[1]:
+                    if not floating_done:
+                        floating_done = True
+                        emit_figs()
+                        flush()
+                        fl_html = self._figure_from_items(floating[0])
+                        if fl_html:
+                            blocks.append({"k": "fig", "html": fl_html[0], "plain": fl_html[1]})
+                    continue
+                if figs and tag != "pic":
+                    emit_figs()
+                if tag == "pic":
+                    pos = ch.find(HP + "pos")
+                    tac = pos.get("treatAsChar") if pos is not None else None
+                    # 설명이 딸린 그림, 또는 글자처럼 놓이지 않고 떠 있는 그림(일반시험법/일반정보)은 글 사이에서 따로 한 줄로 놓는다
+                    if ch.find(HP + "caption") is not None or (tac != "1" and self.docno in (5, 6)):
+                        img = self._pic_img(ch)
+                        if img:
+                            flush()
+                            figs.append({"img": img, "cap": self._pic_caption(ch)})
+                            continue
+                if tag == "container" and self.docno in (5, 6):
+                    fig_html = self._container_figure(ch)
+                    if fig_html:
+                        flush()
+                        fcap = self._pic_caption(ch) if ch.find(HP + "caption") is not None else None
+                        if fcap and fcap["top"]:
+                            blocks.extend(dict(x) for x in fcap["blocks"])
+                        blocks.append({"k": "fig", "html": fig_html[0], "plain": fig_html[1]})  # 블록 HTML 을 그대로 쓰는 종류(<p> 안에 <div> 를 넣지 않는다)
+                        if fcap and not fcap["top"]:
+                            blocks.extend(dict(x) for x in fcap["blocks"])
+                        continue
+                if tag in ("container", "rect", "ellipse") and ch.find(HP + "caption") is not None:
+                    tmp = {"html": [], "plain": [], "lab": None, "started": False}
+                    self._shape(ch, tmp)  # 묶음 안의 그림/글을 같은 방식으로 꺼낸다
+                    img = "".join(tmp["html"])
+                    if img:
+                        flush()
+                        figs.append({"img": img, "cap": self._pic_caption(ch)})
+                        continue
                 if tag == "t":
                     self._text(ch, cp, cur)
                 elif tag == "tbl":
@@ -249,8 +311,181 @@ class _Ctx:
                         cur["started"] = True
                 elif tag in ("container", "rect", "ellipse", "line", "polygon", "curve", "arc", "connectLine", "textart", "ole", "compose", "dutmal"):
                     self._shape(ch, cur)
+        emit_figs()
         flush()
         return blocks
+
+    # ---- 그림 묶음(그림 + 글상자)을 원문 위치대로 ------------------------------------------------------
+    @staticmethod
+    def _mmul(a, b):
+        return [[sum(a[i][k] * b[k][j] for k in range(3)) for j in range(3)] for i in range(3)]
+
+    @classmethod
+    def _obj_matrix(cls, el):
+        """개체의 renderingInfo 에 차례로 적힌 변환 행렬(transMatrix, 그다음 scaMatrix/rotMatrix 쌍이 바깥 묶음부터 자기 자신까지)을 모두 곱한
+        3x3 행렬. 바깥 묶음의 이동·크기가 이미 들어 있어서, 개체 자기 좌표(0..원래 크기)를 이 행렬로 옮기면 그림 묶음 맨 바깥 기준 위치와 크기가 된다."""
+        m = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
+        ri = next((c for c in el if _local(c.tag) == "renderingInfo"), None)  # hc: 이름 공간이라 이름(local)으로 찾는다
+        if ri is None:
+            return m
+        for mx in ri:
+            try:
+                e = [float(mx.get(k)) for k in ("e1", "e2", "e3", "e4", "e5", "e6")]
+            except (TypeError, ValueError):
+                continue
+            m = cls._mmul(m, [[e[0], e[1], e[2]], [e[3], e[4], e[5]], [0.0, 0.0, 1.0]])
+        return m
+
+    def _fig_items(self, el, items):
+        """그림 묶음(container) 안의 그림과 글상자를 (종류, x, y, 폭, 높이, 내용) 으로 모은다(좌표는 묶음 맨 바깥 기준)."""
+        for ch in el:
+            tag = _local(ch.tag)
+            if tag == "container":
+                self._fig_items(ch, items)
+                continue
+            org = ch.find(HP + "orgSz")
+            if tag not in ("pic", "rect", "ellipse", "polygon", "textart") or org is None:
+                continue
+            m = self._obj_matrix(ch)
+            try:
+                ow, oh = float(org.get("width")), float(org.get("height"))
+            except (TypeError, ValueError):
+                continue
+            x, y, w, h = m[0][2], m[1][2], abs(m[0][0] * ow), abs(m[1][1] * oh)
+            if w <= 0 or h <= 0:
+                continue
+            if tag == "pic":
+                img = self._pic_img(ch)
+                if img:
+                    items.append(("img", x, y, w, h, img))
+                continue
+            dt = ch.find(HP + "drawText")
+            if dt is None:
+                continue
+            lines = []
+            for dp in (dt.find(HP + "subList") if dt.find(HP + "subList") is not None else dt).findall(HP + "p"):
+                bl = [b for b in self.para(dp) if b["k"] == "p"]
+                raw = next(("".join(tt.itertext()) for tt in dp.iter(HP + "t") if "".join(tt.itertext()).strip()), "")
+                lead = len(raw) - len(raw.lstrip(" \u3000"))  # 원문 문단 맨 앞의 공백(이어지는 줄을 앞 글자에 맞춰 들여 쓴 것)
+                lines.append((bl[0]["al"] if bl else "j", "".join(b["html"] for b in bl), " ".join(b["plain"] for b in bl), lead))
+            if any(t[2].strip() for t in lines):
+                items.append(("box", x, y, w, h, lines))
+
+    def _container_figure(self, cont):
+        """그림과 글상자(범례, 치수, "그림 1. ..." 설명)가 같이 든 그림 묶음 -> (HTML, 평문). 글상자 위치를 원문대로 배치해, 설명이 그림 옆·아래의
+        제자리에 오게 한다. 그림만 있거나 글상자만 있는 묶음은 None (기존 방식으로 그린다)."""
+        items = []
+        self._fig_items(cont, items)
+        return self._figure_from_items(items)
+
+    def _floating_items(self, p):
+        """문단에 글자처럼 놓이지 않고 떠 있는(treatAsChar=0) 그림과 글상자가 같이 있으면(알코올수측정법의 장치 그림 + 범례 상자) 문단 기준 위치(pos)와
+        크기(sz)로 항목을 모은다. (항목 목록, 쓴 요소 집합) 또는 None. 위치 기준이 서로 다르면 쓰지 않는다."""
+        items, els, refs = [], set(), set()
+        for run in p.findall(HP + "run"):
+            for ch in run:
+                tag = _local(ch.tag)
+                if tag not in ("pic", "rect"):
+                    continue
+                pos, sz = ch.find(HP + "pos"), ch.find(HP + "sz")
+                if pos is None or sz is None or pos.get("treatAsChar") == "1":
+                    continue
+                try:
+                    def sg(v):
+                        v = int(v)
+                        return v - 2 ** 32 if v > 2 ** 31 else v
+                    x, y, w, h = sg(pos.get("horzOffset") or 0), sg(pos.get("vertOffset") or 0), float(sz.get("width")), float(sz.get("height"))
+                except (TypeError, ValueError):
+                    continue
+                if w <= 0 or h <= 0:
+                    continue
+                if tag == "pic":
+                    img = self._pic_img(ch)
+                    if img:
+                        items.append(("img", x, y, w, h, img))
+                        els.add(ch)
+                        refs.add((pos.get("horzRelTo"), pos.get("vertRelTo")))
+                    continue
+                dt = ch.find(HP + "drawText")
+                if dt is None:
+                    continue
+                lines = []
+                for dp in (dt.find(HP + "subList") if dt.find(HP + "subList") is not None else dt).findall(HP + "p"):
+                    bl = [b for b in self.para(dp) if b["k"] == "p"]
+                    raw = next(("".join(tt.itertext()) for tt in dp.iter(HP + "t") if "".join(tt.itertext()).strip()), "")
+                    lead = len(raw) - len(raw.lstrip(" \u3000"))
+                    lines.append((bl[0]["al"] if bl else "j", "".join(b["html"] for b in bl), " ".join(b["plain"] for b in bl), lead))
+                if any(t[2].strip() for t in lines):
+                    items.append(("box", x, y, w, h, lines))
+                    els.add(ch)
+                    refs.add((pos.get("horzRelTo"), pos.get("vertRelTo")))
+        if len(refs) != 1 or not any(i[0] == "img" for i in items) or not any(i[0] == "box" for i in items):
+            return None
+        return items, els
+
+    def _figure_from_items(self, items):
+        """(종류, x, y, 폭, 높이, 내용) 항목들 -> 그림 상자 (HTML, 평문). 위치와 크기는 상자 전체 크기에 대한 %."""
+        if not any(i[0] == "img" for i in items) or not any(i[0] == "box" for i in items):
+            return None
+        x0 = min(i[1] for i in items)
+        y0 = min(i[2] for i in items)
+        x1 = max(i[1] + i[3] for i in items)
+        y1 = max(i[2] + i[4] for i in items)
+        W, H = x1 - x0, y1 - y0
+        if W <= 0 or H <= 0:
+            return None
+        out, plains = [], []
+        for kind, x, y, w, h, content in items:
+            pos = f"left:{(x - x0) * 100 / W:.2f}%;top:{(y - y0) * 100 / H:.2f}%;width:{w * 100 / W:.2f}%;height:{h * 100 / H:.2f}%"
+            if kind == "img":
+                out.append(re.sub(r' style="[^"]*"', "", content).replace("<img ", f'<img style="{pos}" ', 1))
+            else:
+                lines = []
+                for al, lh, lp, lead in content:
+                    cls = "kp-fl" + (" kp-fc" if al == "c" else "")
+                    pad = f' style="padding-left:{min(lead, 12) * 0.3:.1f}em"' if lead >= 2 and al != "c" else ""
+                    if '<span class="kp-tab"></span>' in lh:  # 탭으로 벌린 "시험기 ... 보조판": 칸 양끝에 놓는다
+                        segs = lh.split('<span class="kp-tab"></span>')
+                        lines.append(f'<div class="{cls} kp-fsplit">' + "".join(f"<span>{sg}</span>" for sg in segs if sg.strip()) + "</div>")
+                    else:
+                        lines.append(f'<div class="{cls}"{pad}>{lh.strip() or "&nbsp;"}</div>')
+                    if lp.strip():
+                        plains.append(lp.strip())
+                out.append(f'<div class="kp-fbox" style="{pos}">' + "".join(lines) + "</div>")
+        html_ = f'<div class="kp-fig" style="width:min({W / 900:.2f}em,100%);aspect-ratio:{W:.0f}/{H:.0f}">' + "".join(out) + "</div>"
+        return html_, _WS_RE.sub(" ", " ".join(plains)).strip()
+
+    def _pic_caption(self, el):
+        """그림(또는 그림 묶음) 개체에 딸린 설명(caption) -> {"blocks": [설명 블록 ...], "top": 그림 위인지} 또는 None.
+        설명 안에 범례 표와 제목 줄이 같이 있어도(그림 3) 순서대로 모두 가져온다. 빈 줄은 버린다."""
+        cap = el.find(HP + "caption")
+        if cap is None:
+            # 설명 개체는 없지만 그림 위에 얹힌 글상자 글자가 있으면 그것을 그림 아래 설명 줄로 쓴다
+            dt = " ".join(_WS_RE.sub(" ", "".join(x.itertext())).strip() for x in el.iter(HP + "drawText")).strip()
+            if not dt:
+                return None
+            txt = _fix_text(dt)
+            return {"blocks": [{"k": "p", "html": html.escape(txt, quote=False), "plain": txt, "lab": None, "al": "c", "left": 0, "ind": 0}], "top": False}
+        blocks_out = []
+        for cp_ in (cap.find(HP + "subList") if cap.find(HP + "subList") is not None else cap).findall(HP + "p"):
+            for cb in self.para(cp_):
+                if cb["k"] == "p":
+                    if cb["plain"].strip():
+                        cb = dict(cb, al="c", left=0, ind=0, lab=None, html=re.sub(r"[  ]{2,}", " ", cb["html"]).strip())
+                        blocks_out.append(cb)
+                elif cb.get("html"):
+                    blocks_out.append(cb)
+        if not blocks_out:
+            return None
+        # 이어진 표(범례 표 둘 이상, 그림 3의 "A~E" 와 "F~K")는 원문처럼 한 줄에 나란히 놓는다
+        merged = []
+        for blk in blocks_out:
+            if blk["k"] == "tbl" and merged and merged[-1]["k"] == "tbl":
+                merged[-1] = {"k": "tbl", "html": merged[-1]["html"] + blk["html"], "plain": (merged[-1]["plain"] + " " + blk.get("plain", "")).strip(), "row": True}
+            else:
+                merged.append(dict(blk, row=False))
+        blocks_out = [dict(x, html='<div class="kp-tblrow">' + x["html"] + "</div>") if x.get("row") else x for x in merged]
+        return {"blocks": blocks_out, "top": (cap.get("side") or "BOTTOM").upper() == "TOP"}
 
     def _p_block(self, p, h, plain, lab):
         al, left, intent = self.h.parapr.get(p.get("paraPrIDRef"), ("JUSTIFY", 0, 0))
@@ -291,7 +526,9 @@ class _Ctx:
                     cur["html"].append(html.escape(tail, quote=False))
                 return
         if not cur["started"]:
-            text = text.lstrip()  # 문단 맨 앞의 공백/탭(전각 공백 포함)은 내어쓰기로 대신하므로 버린다
+            raw_text = text
+            text = text.lstrip()  # 문단 맨 앞의 공백/탭(전각 공백 포함)은 내어쓰기로 대신하므로 버린다(버린 개수는 cur["lead"] 에 남긴다)
+            cur["lead"] = cur.get("lead", 0) + len(raw_text) - len(text)
             if text == "":
                 return
             # 항목명 문자 스타일이 빠진 문단("성 상", "확인시험  이 약은 ..."): 문서에서 배운 항목명 어휘로 알아본다
@@ -325,7 +562,13 @@ class _Ctx:
         cur["html"].append(esc)
 
     # ---- 그림 / 도형 ---------------------------------------------------
-    def _pic(self, pic, cur):
+    def _pic_img(self, pic):
+        """그림 개체 -> <img> HTML (이미지가 없으면 빈 문자열)."""
+        tmp = {"html": [], "plain": [], "started": False}
+        self._pic(pic, tmp, with_caption=False)
+        return "".join(tmp["html"])
+
+    def _pic(self, pic, cur, with_caption=True):
         img = pic.find(HC + "img")
         bid = img.get("binaryItemIDRef") if img is not None else None
         if not bid:
@@ -349,7 +592,7 @@ class _Ctx:
         cur["html"].append(f'<img class="kp-img" src="{src}"{style} alt="" loading="lazy" data-ext="{ext}">')
         cur["started"] = True
         # 그림 위에 얹힌 글상자 글자는 그림 아래 줄로 붙인다
-        cap = " ".join(_WS_RE.sub(" ", "".join(x.itertext())).strip() for x in pic.iter(HP + "drawText")).strip()
+        cap = " ".join(_WS_RE.sub(" ", "".join(x.itertext())).strip() for x in pic.iter(HP + "drawText")).strip() if with_caption else ""
         if cap:
             cur["html"].append(f'<br><span class="kp-cap">{html.escape(_fix_text(cap), quote=False)}</span>')
             cur["plain"].append(cap)
@@ -462,9 +705,13 @@ class _Ctx:
             out.append("<tr>")
             for col, cs, rs, inner, va, sides, fill, _hd, _pl in cells:
                 is_head = ri in hdr_rows
-                if fill and _is_neutral_gray(fill):
+                # 표 안의 첫 줄이 "표 1. 절단제의 예시" 같은 표 번호·설명 한 칸이면 그 줄은 표 이름이지 열 머리가 아니므로 배경색을 칠하지 않는다(글자는 굵게 그대로)
+                title_row = len(cells) == 1 and bool(_TBL_TITLE_RE.match(_pl.strip()))
+                if title_row:
+                    fill = ""
+                elif fill and _is_neutral_gray(fill):
                     fill = f"var(--kp-tbl-head,{fill})"  # 원문의 회색 배경칸(머리 칸 등)도 테마색(옅은 파랑)으로
-                if is_head and not fill:
+                if is_head and not fill and not title_row:
                     fill = f"var(--kp-tbl-head,{_TBL_HEAD_BG})"  # 머리 행 배경: 테마색(kp.css 의 --kp-tbl-head), 없으면 밝은 회색
                 attrs = ""
                 if cs > 1:
@@ -481,11 +728,131 @@ class _Ctx:
                 out.append(f'<td{attrs}{" class=kp-th" if is_head else ""} style="{";".join(st)}">{inner}</td>')
             out.append("</tr>")
         out.append("</table></div>")
+        # 표 개체에 딸린 설명(caption: "표 1  배지성능시험 ... 시험용 균주")은 표 칸이 아니라 표 개체의 별도 요소라서 위 줄들에는 안 들어온다.
+        # 원문의 위치(위/아래)대로 표 위/아래에 가운데 정렬한 줄로 보인다(위쪽은 "표 1. ..." 줄처럼 굵게).
+        cap = tbl.find(HP + "caption")
+        if cap is not None:
+            ph, pp = [], []
+            for cp_ in (cap.find(HP + "subList") if cap.find(HP + "subList") is not None else cap).findall(HP + "p"):
+                for cb in self.para(cp_):
+                    if cb["k"] == "p" and cb["plain"].strip():
+                        ph.append(re.sub(r"[  ]{2,}", " ", cb["html"]).strip())
+                        pp.append(_WS_RE.sub(" ", cb["plain"]).strip())
+            if ph:
+                top = (cap.get("side") or "TOP").upper() != "BOTTOM"
+                cap_html = f'<p class="kp-p kp-c{" kp-h" if top else ""}">{"<br>".join(ph)}</p>'
+                out = [cap_html] + out if top else out + [cap_html]
+                plain_parts.insert(0 if top else len(plain_parts), " ".join(pp))
         return "".join(out), _WS_RE.sub(" ", " ".join(plain_parts)).strip()
+
+    @staticmethod
+    def _tab_items(pp):
+        """글만 있는 문단이 탭으로 항목을 늘어놓은 줄이면 [(항목 글, 그 뒤 탭 폭), ...], 아니면 None.
+        그림/수식/도형이 든 문단, 탭이 없는 문단, 항목이 하나뿐인 문단은 제외한다."""
+        if any(_local(e.tag) in ("pic", "container", "rect", "ellipse", "polygon", "tbl", "equation", "ole") for e in pp.iter()):
+            return None
+        items, cur, ntab = [], "", 0
+        for run in pp.findall(HP + "run"):
+            for t in run.findall(HP + "t"):
+                if t.text:
+                    cur += t.text
+                for ch in t:
+                    if _local(ch.tag) == "tab":
+                        items.append((cur, int(ch.get("width") or 0)))
+                        cur, ntab = "", ntab + 1
+                    if ch.tail:
+                        cur += ch.tail
+        items.append((cur, 0))
+        if ntab < 1 or sum(1 for x in items if x[0].strip()) < 2 or len(items) > 10:
+            return None
+        return items
+
+    @staticmethod
+    def _tab_grid_html(rows):
+        """탭으로 늘어놓은 줄들(여러 줄 [(글, 탭 폭)...])을 항목 시작 위치대로 열을 맞춘 표 HTML 로. 탭 칸은 원문이 탭마다 적어 둔 폭(hp:tab width)으로 계산한다:
+        항목 시작 = 앞 항목의 (글자 폭 추정 + 탭 폭). 글자 폭은 정확하지 않아도, 줄마다 같은 열의 시작 위치는 가까워서(열 사이는 훨씬 벌어진다)
+        가까운 것끼리 한 열로 묶으면 A, B, C 가 세로로 맞는다. 글이 없는 항목(연속한 탭 사이)은 위치 계산에만 쓰고 칸은 만들지 않는다."""
+        def tw(text):  # 글자 폭 추정(hwpunit, 10 pt 기준)
+            w = 0
+            for c in text:
+                w += 1000 if ord(c) > 0x2E80 else (300 if c == " " else 330 if c in ":,.;()" else 600)
+            return w
+
+        grid = []
+        for items in rows:
+            x, cells = 0, []
+            for text, tabw in items:
+                text = _fix_text(text).strip()
+                if text:
+                    cells.append((x, text))
+                x += tw(text) + 300 + tabw
+            grid.append(cells)
+        starts = sorted(c[0] for cells in grid for c in cells)
+        centers = []
+        for v in starts:
+            if centers and v - centers[-1][-1] < 2500:
+                centers[-1].append(v)
+            else:
+                centers.append([v])
+        bounds = [sum(c) / len(c) for c in centers]
+        ordinal = len(bounds) > max((len(cells) for cells in grid), default=0)  # 위치 추정이 어긋나 열이 가장 긴 줄의 항목 수보다 많아지면 차례(1열, 2열 ...)로 맞춘다
+        if ordinal:
+            bounds = list(range(max(len(cells) for cells in grid)))
+        out = []
+        for cells in grid:
+            row = [""] * len(bounds)
+            for n, (x, text) in enumerate(cells):
+                k = n if ordinal else min(range(len(bounds)), key=lambda q: abs(bounds[q] - x))
+                row[k] = (row[k] + " " + html.escape(text, quote=False)).strip()
+            out.append("<tr>" + "".join(f"<td>{c}</td>" for c in row) + "</tr>")
+        return '<table class="kp-aligntbl kp-legend">' + "".join(out) + "</table>"
 
     def _cell_content(self, sub):
         if sub is None:
             return "", ""
+        paras = sub.findall(HP + "p")
+        tabbed = [self._tab_items(pp) for pp in paras]
+        if any(t is not None for t in tabbed):
+            # 표 칸 안에 탭으로 항목을 늘어놓은 범례 줄이 있으면(장치 그림 아래 "A : 모터통 ⇥ B : 안기둥 ⇥ C : 바깥기둥") 이어진 줄끼리 열을 맞추고,
+            # 나머지 문단(그림, 긴 설명, 그림 이름)은 원래대로 둔다
+            parts, plains, group = [], [], []
+            legend = []  # 이어진 범례 줄들(왼쪽 정렬 한 줄 문단 + 열 맞춤 격자)
+
+            def flush_legend():
+                nonlocal legend
+                if legend:
+                    parts.append('<div class="kp-legendblk">' + "".join(legend) + "</div>" if len(legend) >= 2 else legend[0])
+                    legend = []
+
+            def flush_group():
+                nonlocal group
+                if group:
+                    legend.append(self._tab_grid_html(group))
+                    group = []
+
+            for pp, items in zip(paras, tabbed):
+                if items is not None:
+                    group.append(items)
+                    plains.append(" ".join(x[0].strip() for x in items if x[0].strip()))
+                    continue
+                flush_group()
+                for b in self.para(pp):
+                    if b["k"] == "p":
+                        al = {"c": "center", "r": "right"}.get(b["al"], "")
+                        line = f'<div class="kp-cp"{f" style=text-align:{al}" if al else ""}>{b["html"]}</div>'
+                        if al or "<img" in b["html"]:
+                            flush_legend()
+                            parts.append(line)
+                        else:
+                            legend.append(line)
+                    else:
+                        flush_legend()
+                        parts.append(b["html"])
+                    if b["plain"]:
+                        plains.append(b["plain"])
+            flush_group()
+            flush_legend()
+            return "".join(parts), _WS_RE.sub(" ", " ".join(plains)).strip()
         parts, plains = [], []
         for p in sub.findall(HP + "p"):
             for b in self.para(p):
@@ -517,6 +884,9 @@ def block_html(b, heading=False):
         # 번호/가나다 계층에 맞춘 들여쓰기(_apply_hierarchy): 깊이마다 한 단계 안쪽, 기호 줄은 기호 폭만큼 내어쓰기
         depth, hang, marked = hi
         ml, ti = depth * _HI_STEP + hang, (-hang if marked else 0.0)
+    elif b.get("term_hang"):
+        hang = b["term_hang"]  # 용어 묶음(92-x): 첫 줄은 왼쪽 끝, 이어지는 줄은 딸린 단락(융점, 비선광도 ...)의 들여쓰기와 같은 위치
+        ml, ti = left / 900.0 + hang, -hang
     elif ind < 0:
         # 내어쓰기(첫 줄만 왼쪽, 나머지 줄은 안쪽)는 번호 기호로 시작하는 문단에만 적용한다. 항목명 뒤나 일반 문장에 쓰면 줄마다 들쑥날쑥해 보인다.
         if _MARK_RE.match(plain.strip()) and b["al"] != "c":
@@ -529,8 +899,16 @@ def block_html(b, heading=False):
     if b["al"] == "c":  # 가운데 정렬 문단은 들여쓰기를 쓰지 않는다
         ml, ti = 0.0, 0.0
     ml = min(max(ml, 0), 9)
-    if b.get("fm_top"):
-        style.append("margin-top:1.75em")  # 계산식 위 빈 줄 한 줄(본문 줄 높이)
+    if b.get("term_tight"):
+        style.append("margin-bottom:0.1em")  # 같은 용어 묶음 안의 줄 사이는 좁게
+    if b.get("term_ind"):
+        style.append(f"padding-left:{b['term_ind']:.1f}em")  # 앞 용어에 딸린 단락의 들여쓰기(원문의 맨 앞 공백)
+    if b.get("term_top"):
+        style.append("margin-top:0.9em")  # 용어 단락(92-x 표준품·시약 등) 위 간격
+    if b.get("term_bot"):
+        style.append("margin-bottom:0.9em")  # 용어 단락 묶음 아래 간격
+    if b.get("fm_top") or b.get("gap_top"):
+        style.append("margin-top:1.75em")  # 계산식 위, 또는 일반시험법 최상위 항목 위의 빈 줄 한 줄(본문 줄 높이)
     if b.get("fm_bot"):
         style.append("margin-bottom:1.75em")  # 계산식 아래 빈 줄 한 줄
     if ml:
@@ -604,7 +982,7 @@ def _apply_hierarchy(blocks):
         if not eligible(b):
             out.append(b)
             continue
-        if b.get("hd"):
+        if b.get("hd") or b.get("top"):  # 소제목, 또는 지정한 상위 항목(_TOP_HEADINGS): 맨 바깥에 놓고 번호 계층을 처음부터 센다
             stack = []
             out.append(b)
             continue
@@ -727,8 +1105,32 @@ def _is_caption(b):
     return bool(pl) and len(pl) <= 150 and bool(_CAPTION_TEXT_RE.match(pl)) and not pl.endswith(("다.", "한다", "된다"))
 
 
+def _move_captions_up(blocks):
+    """그림만 있는 문단 바로 아래에 설명이 없고, 바로 뒤 세 블록 안에 "그림 N. ..." 설명 줄이 따로 나오면(그림과 설명 사이에 본문이 끼어 있는 경우)
+    그 설명 줄을 그림 바로 아래로 옮긴다."""
+    def figure_only(b):
+        return b["k"] == "p" and "<img" in b["html"] and not b["plain"].strip()
+
+    def fig_caption(b):
+        return b["k"] == "p" and bool(re.match(r"^그림\s*\d", b["plain"].strip())) and len(b["plain"].strip()) <= 160 and "<img" not in b["html"]
+
+    out = list(blocks)
+    i = 0
+    while i < len(out):
+        if figure_only(out[i]) and not (i + 1 < len(out) and fig_caption(out[i + 1])):
+            for j in range(i + 1, min(len(out), i + 4)):
+                if figure_only(out[j]) or out[j]["k"] != "p":
+                    break  # 다른 그림이나 표(그림 설명에 딸린 범례 표 등)를 만나면 거기까지만 본다
+                if fig_caption(out[j]) and not out[j].get("lab"):
+                    out.insert(i + 1, out.pop(j))
+                    break
+        i += 1
+    return out
+
+
 def _center_figures_captions(blocks):
     """그림(그림만 있는 문단)과 그림 설명, 표 설명 줄을 가운데 정렬로 바꾼다(표 자체는 CSS 로 가운데에 놓는다)."""
+    blocks = _move_captions_up(blocks)
     out = []
     for b in blocks:
         if b["k"] == "p" and b.get("al") != "c":
@@ -803,6 +1205,135 @@ def _space_formula_lines(blocks):
     return out
 
 
+# ---- 탭/공백으로 열을 맞춰 쓴 줄(표는 아니지만 표처럼 보이는 것) ---------------------------------------------------
+# 원문은 "L-시스틴 <탭> 0.5 <탭> g" 처럼 탭(또는 긴 공백)으로 이름·숫자·단위를 맞춰 썼는데, 화면에서는 탭이 고정 폭(2em)이라 이름 길이에 따라
+# 숫자와 단위의 가로 위치가 줄마다 어긋난다. 이런 줄이 이어지면 테두리 없는 표로 바꿔, 열(숫자, 단위)이 가장 긴 왼쪽 항목 기준으로 세로로 맞게 한다.
+_COL_SEP_RE = re.compile(r'<span class="kp-tab"></span>|(?<=\S)[ \u00a0]{5,}(?=\S)')
+_P_PART_RE = re.compile(r'^<p class="(kp-p[^"]*)"(?: style="([^"]*)")?>(.*)</p>$', re.S)
+_VOID_TAGS = {"br", "img", "hr"}
+_UNIT_PAT = r"(?:[kmμµ]?[gL]|mL|μL|mol|mmol|mol/L|mg/mL|μg/mL|%|vol％|vol%|℃|ppm|cm|mm|nm|IU|단위)"
+_NUM_RE = re.compile(r"^[\d.,]+(?:\s*[~∼\-–]\s*[\d.,]+)?$")  # 수치("0.5") 또는 범위("13.0 ~ 20.0")
+_UNIT_RE = re.compile(rf"^{_UNIT_PAT}$")
+_NUM_UNIT_GAP_RE = re.compile(rf"(\d)(?:[  ]|&nbsp;){{2,}}(?={_UNIT_PAT}(?![A-Za-z가-힣]))")  # "5.0  g" 처럼 수치와 단위 사이의 공백이 둘 이상
+
+
+def _tags_balanced(frag):
+    stack = []
+    for m in re.finditer(r"<(/?)(\w+)[^>]*?(/?)>", frag):
+        closing, name, selfclose = m.group(1), m.group(2).lower(), m.group(3)
+        if name in _VOID_TAGS or selfclose:
+            continue
+        if closing:
+            if not stack or stack.pop() != name:
+                return False
+        else:
+            stack.append(name)
+    return not stack
+
+
+def _column_row(part):
+    """문단 HTML 한 줄이 "이름 <탭> 값 <탭> 단위" 같은 열 맞춤 줄이면 (왼쪽 여백 em, [칸 HTML ...]), 아니면 None."""
+    m = _P_PART_RE.match(part)
+    if not m:
+        return None
+    cls, style, inner = m.groups()
+    if {"kp-c", "kp-h", "kp-r", "kp-h2", "kp-h3"} & set(cls.split()) or "kp-mk" in inner:
+        return None  # 가운데/오른쪽 정렬 줄, 제목, 번호 기호가 붙은 줄은 제외
+    cells = _COL_SEP_RE.split(inner)
+    if len(cells) > 12 or not all(_tags_balanced(c) for c in cells):
+        return None
+    plain = [re.sub(r"<[^>]+>", "", html.unescape(c)).replace("\u00a0", " ").strip() for c in cells]
+    # \ud0ed\uc744 \uba87 \ubc88 \ub20c\ub800\ub294\uc9c0\ub294 \uc55e \uae00\uc790 \uae38\uc774\uc5d0 \ub530\ub77c \ub2ec\ub77c\uc9c0\ubbc0\ub85c(\ud0ed \uc704\uce58\uc5d0 \ub9de\ucd94\ub824\uace0 \uae38\uc774\uc5d0 \ub530\ub77c 1~3\ubc88) \uc5f0\uc18d\ud55c \uad6c\ubd84(\ube48 \uce78)\uc740 \ud55c \uad6c\ubd84\uc73c\ub85c \ubcf4\uace0,
+    # \uae00\uc774 \uc788\ub294 \uce78\ub9cc \ucc28\ub840\ub300\ub85c 1\uc5f4, 2\uc5f4, ... \ub85c \uc13c\ub2e4
+    kept = [(c, p_) for c, p_ in zip(cells, plain) if p_]
+    if len(kept) < 2 or not plain[0] or len(kept) > 8:
+        return None
+    cells, plain = [c for c, _ in kept], [p_ for _, p_ in kept]
+    # 수치와 단위는 별도 열로 떼지 않고 공백 하나만 두고 붙여 한 칸으로 쓴다("0.5", "g" -> "0.5 g", "5.0  g" -> "5.0 g")
+    merged_cells, merged_plain = [], []
+    for c, p_ in zip(cells, plain):
+        c = _NUM_UNIT_GAP_RE.sub(lambda m: m.group(1) + " ", c)
+        if merged_cells and _NUM_RE.match(merged_plain[-1]) and _UNIT_RE.match(p_):
+            merged_cells[-1] = merged_cells[-1].rstrip() + " " + c.lstrip()
+            merged_plain[-1] = merged_plain[-1] + " " + p_
+        else:
+            merged_cells.append(c)
+            merged_plain.append(p_)
+    cells, plain = merged_cells, merged_plain
+    if len(cells) < 2:
+        return None
+    if len(plain[0]) > 70 or any(len(x) > 30 for x in plain[1:]):
+        return None  # 긴 글은 열이 아니라 문장이다
+    if any(re.search(r"다\.(\s|$)", x) for x in plain):
+        return None  # 문장
+    if len(plain[0]) >= 25 and re.match(r"[가-힣]", plain[1]) and len(plain[1]) >= 8:
+        return None  # 긴 줄이 탭에서 끊겨 이어지는 글(줄바꿈 대신 쓴 탭)
+    ml = re.search(r"margin-left:([\d.]+)em", style or "")
+    return (ml.group(1) if ml else "0"), cells
+
+
+_NUM_PARSE_RE = re.compile(r"^(?P<i>\d[\d,]*)(?P<f>\.\d+)?(?:[  ]*(?P<u>.+))?$")
+
+
+def _aligned_rows_html(rows):
+    """열 맞춤 표의 줄들(칸 HTML 목록)을 <tr> HTML 로 바꾼다. 수치가 든 열은 소수점이 세로로 맞게 "정수부(오른쪽 정렬) | 소수부(왼쪽 정렬) | 단위(왼쪽 정렬)" 세 칸으로
+    나눈다. 그러면 소수점과 단위의 가로 위치가 모든 줄에서 같고, 수치와 단위 사이의 간격은 열 사이 여백이 정한다(공백 하나로 한정하지 않는다)."""
+    ncol = max(len(r) for r in rows)
+    numeric = []
+    for k in range(ncol):
+        vals = [r[k] for r in rows if len(r) > k]
+        ok = sum(1 for c in vals if "<" not in c and _NUM_PARSE_RE.match(html.unescape(c).replace(" ", " ").strip()))
+        numeric.append(len(vals) >= 1 and ok >= 1 and ok / len(vals) > 0.6)
+    out = []
+    for r in rows:
+        tds = []
+        for k, c in enumerate(r):
+            m = None
+            if numeric[k] and "<" not in c:
+                m = _NUM_PARSE_RE.match(html.unescape(c).replace(" ", " ").strip())
+            if numeric[k] and m:
+                ip, fp, un = m.group("i"), m.group("f") or "", m.group("u") or ""
+                tds.append(f'<td class="ni">{ip}</td><td class="nf">{fp}</td><td class="nu">{html.escape(un, quote=False)}</td>')
+            elif numeric[k]:
+                tds.append(f'<td colspan="3">{c}</td>')  # 수치 열 안의 글("적당량" 등)은 세 칸에 걸쳐 왼쪽에 놓는다
+            else:
+                tds.append(f"<td>{c}</td>")
+        out.append("<tr>" + "".join(tds) + "</tr>")
+    return "".join(out)
+
+
+def _align_tab_columns(parts):
+    """블록 HTML 조각 목록에서, 같은 왼쪽 여백으로 이어지는 열 맞춤 줄 둘 이상을 테두리 없는 표 하나로 바꾼다."""
+    out, run = [], []
+
+    def flush():
+        nonlocal run
+        if len(run) >= 2:
+            ml = run[0][1][0]
+            rows = _aligned_rows_html([r[1][1] for r in run])
+            out.append(f'<table class="kp-aligntbl"{f" style=margin-left:{ml}em" if ml != "0" else ""}>{rows}</table>')
+        else:
+            out.extend(r[0] for r in run)
+        run = []
+
+    for part in parts:
+        row = _column_row(part) if part.startswith("<p ") else None
+        if row is None:
+            flush()
+            out.append(part)
+            continue
+        if run and run[0][1][0] != row[0]:
+            flush()
+        run.append((part, row))
+    flush()
+    return out
+
+
+def _join_blocks_html(blocks, flat=False):
+    parts = [block_html(b, heading=bool(b.get("hd")) if flat else False) for b in blocks]
+    return "".join(_align_tab_columns(parts))
+
+
 def _sections_html(blocks):
     """의약품각조 본문: 항목명 앞 글(별명/분자식/정의)은 머리 상자에, 이후는 항목명별 접고 펴는 구간으로."""
     head, secs = [], []
@@ -827,7 +1358,7 @@ def _sections_html(blocks):
             ]
         out.append('<div class="definition kp-definition">' + "".join(block_html(b) for b in head) + "</div>")
     for lab, bs in secs:
-        body = "".join(block_html(b) for b in _space_formula_lines(_apply_hierarchy(_merge_formula_lines(_center_figures_captions(bs)))))
+        body = _join_blocks_html(_space_formula_lines(_apply_hierarchy(_merge_formula_lines(_center_figures_captions(bs)))))
         out.append(
             f'<div class="section"><div class="section-header"><div class="label">{html.escape(lab)}</div>'
             f'<span class="toggle-icon">−</span></div><div class="section-content">{body}</div></div>'
@@ -835,10 +1366,333 @@ def _sections_html(blocks):
     return "".join(out)
 
 
-def _flat_html(blocks):
+def _split_heading_marker(blocks):
+    """굵은 상위 항목 이름 바로 뒤에 같은 줄로 하위 번호 항목("1) 제 1 액 ...")이 이어진 문단을 둘로 나눈다: "시 험 액 ⇥ 1) 제 1 액 염화나트륨 ..." ->
+    "시 험 액" / "1) 제 1 액 염화나트륨 ...". 번호 항목은 나눈 뒤에 번호 계층(들여쓰기) 규칙을 그대로 받는다."""
+    def has_marker(text):
+        return any(rx.match(text) for _k, rx, _w in _HI_KINDS)
+
+    out = []
+    for b in blocks:
+        if b["k"] != "p" or b.get("lab") or b.get("al") == "c":
+            out.append(b)
+            continue
+        m = re.match(r'^\s*(<b>(.*?)</b>)((?:<span class="kp-tab"></span>|[\s\u00a0]|&nbsp;)*)(.*)$', b["html"], re.S)
+        if m:
+            title = _WS_RE.sub(" ", html.unescape(re.sub(r"<[^>]+>", "", m.group(2)))).strip()
+            rest_html = m.group(4)
+            rest_plain = _WS_RE.sub(" ", html.unescape(re.sub(r"<[^>]+>", "", rest_html))).strip()
+            if (
+                title and re.search(r"[가-힣A-Za-z]", title) and len(title) <= 25 and not has_marker(title)
+                and rest_plain and has_marker(rest_plain) and _tags_balanced(rest_html)
+            ):
+                out.append(dict(b, html=m.group(1), plain=title))
+                nb = dict(b, html=rest_html, plain=rest_plain)
+                nb.pop("top", None)
+                out.append(nb)
+                continue
+        out.append(b)
+    return out
+
+
+def _mark_top_gaps(blocks, explicit=False):
+    """일반시험법 항목 안의 최상위 항목 바로 위에 빈 줄 한 줄을 넣도록 표시한다(항목 맨 처음 문단은 제외).
+    최상위 항목: 상위 항목 이름을 지정한 항목(_TOP_HEADINGS)은 지정한 이름들만, 지정하지 않은 항목은 소제목(hd)과 굵은 글씨로 시작하는 번호 없는
+    바깥 문단("조 작 법", "시 험 액", "장치" ...)."""
+    out, seen = [], False
+    for b in blocks:
+        top = False
+        if b["k"] == "p" and b.get("al") != "c" and not b.get("lab"):
+            if b.get("top"):
+                top = True
+            elif not explicit:
+                if b.get("hd"):
+                    top = True
+                elif b.get("hi") is None and b.get("left", 0) <= 0:
+                    m = re.match(r"^\s*<b>(.*?)</b>", b["html"], re.S)
+                    if m:
+                        lead = _WS_RE.sub(" ", html.unescape(re.sub(r"<[^>]+>", "", m.group(1)))).strip()
+                        top = bool(lead) and len(lead) <= 25 and bool(re.search(r"[가-힣A-Za-z]", lead)) and not any(rx.match(lead) for _k, rx, _w in _HI_KINDS)
+        if top and seen:
+            b = dict(b, gap_top=True)
+        if b["k"] in ("p", "tbl", "fig"):
+            seen = True
+        out.append(b)
+    return out
+
+
+_TERM_GAP = "&nbsp;" * 3  # 용어(굵은 글씨)와 설명문 사이의 공백 세 개
+
+
+def _term_gap(h):
+    """이미 앞부분이 굵게 적힌 용어 단락(굵은 글씨 바로 뒤에 공백이 있는 것)의 용어-설명 사이 공백을 다섯 개로. 공백이 없거나 굵은 글씨가 전부이면 그대로."""
+    m = re.match(r"^(\s*(?:<b>.*?</b>)+)[ \u00a0]+(?=\S)", h, re.S)
+    return m.group(1) + _TERM_GAP + h[m.end():] if m else h
+
+
+def _split_open_tags(frag):
+    """frag 끝에 열려 있는 태그를 닫는 글자열과 다시 여는 글자열. 태그 짝이 맞지 않으면 (None, None)."""
+    stack = []
+    for m in re.finditer(r"<(/?)(\w+)([^>]*?)(/?)>", frag):
+        closing, name, attrs, selfclose = m.group(1), m.group(2).lower(), m.group(3), m.group(4)
+        if name in _VOID_TAGS or selfclose:
+            continue
+        if closing:
+            if not stack or stack.pop()[0] != name:
+                return None, None
+        else:
+            stack.append((name, "<" + m.group(2) + attrs + ">"))
+    return "".join("</%s>" % n for n, _o in reversed(stack)), "".join(o for _n, o in stack)
+
+
+def _bold_term(h):
+    """단락 HTML 맨 앞에서 공백 둘 이상으로 갈라지는 앞부분("가용성전분시액, 0.5 %  가용성전분을 ...")을 굵게 감싼 HTML. 앞부분이 없거나 너무 길거나(100자 넘음),
+    쉼표 따위로 끝나(목록의 한 항목) 용어가 아니거나, 태그 짝이 맞지 않으면 None. 공백 둘 뒤에 바로 태그(<i> 등)가 오는 경우와, 공백만 굵게 쓴 경우도 찾는다."""
+    h = re.sub(r"<b>([  ]+)</b>", lambda m: m.group(1), h)  # 공백만 굵게 쓴 것("용어<b>  </b>설명")은 그냥 공백으로
+    text_len = 0
+    for m in re.finditer(r"<[^>]+>|[^<]+", h):
+        tok = m.group(0)
+        if tok.startswith("<"):
+            continue
+        mm = re.search(r"(?<=\S)[  ]{2,}(?=\S|$)", tok)
+        if mm is None and text_len > 0:
+            mm = re.match(r"[ \u00a0]{2,}(?=\S|$)", tok)  # 앞 태그(</sub> 등) 바로 뒤에서 시작하는 공백 둘
+        if mm:
+            cut = m.start() + mm.start()
+            front, rest = h[:cut], h[cut:]
+            plain_front = html.unescape(re.sub(r"<[^>]+>", "", front)).strip()
+            if not re.sub(r"<[^>]+>", "", rest).strip("  "):
+                return None  # 뒤에 설명이 없다
+            if 1 <= len(plain_front) <= 100 and plain_front[-1] not in ",;、" and "<b>" not in front:
+                close, reopen = _split_open_tags(front)
+                if close is None:
+                    return None
+                out = "<b>" + front + close + "</b>" + _TERM_GAP + reopen + rest.lstrip(" " + chr(0xa0))
+                return re.sub(r"<(i|sub|sup)></" + chr(92) + "1>", "", out)  # 공백만 들어 있던 태그는 지운다
+            return None
+        text_len += len(tok)
+        if text_len > 140:
+            return None
+    return None
+
+
+_RELATED_INDENT_EM = 1.0  # 용어에 딸린 단락의 들여쓰기(맨 앞 공백 두 개). 용어 단락의 내어쓰기(이어지는 줄의 들여쓰기)도 같은 크기로 한다
+
+
+_FORMULA_RE = re.compile(r"(?:[A-Z][a-z]?\d*|\d+|[()\[\]\u00b7.+\-,])+")  # 원소기호/화학식: Ag, NaCl, H2NC6H4N(C2H5)2\u00b7H2SO4\u00b7H2O
+
+
+def _bold_formula(h):
+    """단락(앞 공백 둘 이상으로 들여 쓴 줄) 맨 앞이 "원소기호 또는 화학식 + 공백 둘 + 설명"이면, 처음 나오는 공백 둘(맨 앞 공백은 이미 빠져 있다)을 용어와 설명의
+    구분점으로 보고 화학식을 굵게 한 HTML. 아니면 None."""
+    nh = _bold_term(h)
+    if not nh:
+        return None
+    m = re.match(r"^<b>(.*?)</b>", nh, re.S)
+    front = html.unescape(re.sub(r"<[^>]+>", "", m.group(1))).strip() if m else ""
+    if front and _FORMULA_RE.fullmatch(front) and re.search(r"[A-Z]", front):
+        return nh
+    return None
+
+
+def _bold_name_formula(h):
+    """"용어 + 공백 하나 + 화학식" 모양의 단락("파라톨루엔설폰클로라미드나트륨삼수화물 C7H7ClNNaO2S·3H2O", "인산테트라부틸암모늄 (C4H9)4NH2PO4 흰색의 가루로 ...")의
+    용어를 굵게 한 HTML. 공백 둘이 없어 _bold_term이 못 찾는 경우다. 앞부분은 한글이 있는 한 단어(또는 화학식 전체가 뒤따르는 짧은 이름), 뒷부분은 화학식(뒤에 설명이
+    이어져도 된다)일 때만. 아니면 None."""
+    for m in re.finditer(r"(?<=\S)[ \u00a0](?=\S)", h):
+        front, rest = h[:m.start()], h[m.end():]
+        if "<" in front and not _tags_balanced(front):
+            continue
+        plain_rest = html.unescape(re.sub(r"<[^>]+>", "", rest)).strip()
+        plain_front = html.unescape(re.sub(r"<[^>]+>", "", front)).strip()
+        if not (re.search(r"[가-힣]", plain_front) and len(plain_front) <= 100 and "<b>" not in front
+                and "=" not in plain_front and not plain_front[0].isdigit()):
+            continue
+        if _FORMULA_RE.fullmatch(plain_rest) and re.search(r"[A-Z]", plain_rest):
+            return "<b>" + front + "</b>" + _TERM_GAP + rest
+        if re.match(r"[\[〔](의약품각조|최순품|용량분석용|시약)", plain_rest):
+            return "<b>" + front + "</b>" + _TERM_GAP + rest  # "이름 [의약품각조, 제 2 부]"
+        # 화학식 뒤에 설명이 바로 이어지는 줄: "이름 화학식 설명 ..."
+        mm = re.match(r"(\S+) (?=[가-힣])", plain_rest)
+        mb = None if mm else re.match(r"(\S+)(?= \[)", plain_rest)  # 화학식 뒤에 [최순품] 따위가 오는 줄
+        if mm and _FORMULA_RE.fullmatch(mm.group(1)) and re.search(r"[A-Z]", mm.group(1)) and re.search(r"[0-9()]", mm.group(1)) and " " not in plain_front:
+            k = _formula_end(rest, len(mm.group(1)))
+            if k is not None:
+                return "<b>" + front + "</b>" + _TERM_GAP + rest[:k] + _TERM_GAP + rest[k:].lstrip(" \u00a0")
+        if mb and _FORMULA_RE.fullmatch(mb.group(1)) and re.search(r"[A-Z]", mb.group(1)) and " " not in plain_front:
+            return "<b>" + front + "</b>" + _TERM_GAP + rest
+    return None
+
+
+_REAGENT_NAME_RE = re.compile(
+    r"(?:[^\s,\d]+ ){0,3}?[^\s,]*?(?:시액|완충액|용액|[가-힣]{2,}액)(?:\([^)]*\))?"  # 이름: 아세트산염완충액, 아이코노겐 (Eikonogene) 시액
+    r"(?:, (?:pH [\d.]+|[\d.]+ ?(?:mol/L|mmol/L|mg/mL|g/L|%|vol%)|[가-힣]+용))*"  # 뒤에 붙는 조건: , pH 4.7  , 0.1 mol/L  , 전분소화력시험용
+    r"(?=\s|$)"
+)
+
+
+def _bold_reagent_name(h):
+    """원문에 용어와 설명 사이에 공백이 하나뿐인 시약·시액 줄("아세트산염완충액, pH 3.9 묽은아세트산 60 mL에 ...")에서, "...시액/완충액/용액"(뒤에 ", pH 3.9",
+    ", 0.1 mol/L" 따위 조건이 붙어도 됨)까지를 용어로 보아 굵게 한 HTML. 아니면 None."""
+    vis = html.unescape(re.sub(r"<[^>]+>", "", h)).replace(chr(0xa0), " ")
+    m = _REAGENT_NAME_RE.match(vis.lstrip())
+    if not m or len(m.group(0)) > 70:
+        return None
+    k = _formula_end(h, len(m.group(0)))
+    if k is None or html.unescape(re.sub(r"<[^>]+>", "", h[:k])).replace(chr(0xa0), " ").strip() != m.group(0):
+        return None
+    rest = h[k:]
+    if rest.strip() and not rest[0] in " " + chr(0xa0):
+        return None
+    return "<b>" + h[:k] + "</b>" + (_TERM_GAP + rest.lstrip(" " + chr(0xa0)) if rest.strip() else "")
+
+
+def _bold_first_gap(h):
+    """다른 규칙으로 용어를 찾지 못한 줄: 처음 나오는 공백 둘(없으면 처음 나오는 공백 하나) 앞을 용어로 보아 굵게 한 HTML. 쉼표로 끝나도 된다. 공백이 없으면 None."""
+    for pat in (r"(?<=\S)[ \u00a0]{2,}(?=\S|$)", r"(?<=\S)[ \u00a0](?=\S|$)"):
+        for m in re.finditer(r"<[^>]+>|[^<]+", h):
+            tok = m.group(0)
+            if tok.startswith("<"):
+                continue
+            mm = re.search(pat, tok)
+            if mm is None and m.start() > 0 and re.match(r"[ \u00a0]+(?=\S|$)", tok) and re.sub(r"<[^>]+>", "", h[:m.start()]).strip():
+                mm = re.match(r"[ \u00a0]{2,}(?=\S|$)" if "{2,}" in pat else r"[ \u00a0](?=\S|$)", tok)
+            if mm is None:
+                continue
+            cut = m.start() + mm.start()
+            front, rest = h[:cut], h[cut:]
+            plain_front = html.unescape(re.sub(r"<[^>]+>", "", front)).strip()
+            if not re.sub(r"<[^>]+>", "", rest).strip(" \u00a0") or not (1 <= len(plain_front) <= 100) or "<b>" in front:
+                break
+            close, reopen = _split_open_tags(front)
+            if close is None:
+                break
+            out = "<b>" + front + close + "</b>" + _TERM_GAP + reopen + rest.lstrip(" \u00a0")
+            return re.sub(r"<(i|sub|sup)></" + chr(92) + "1>", "", out)
+    return None
+
+
+def _formula_end(h, nchars):
+    """HTML h 맨 앞에서 보이는 글자 nchars개가 끝나는 자리(태그는 글자로 세지 않는다). 태그 안에서 끝나면 None."""
+    seen = 0
+    for m in re.finditer(r"<[^>]+>|[^<]", h):
+        tok = m.group(0)
+        if tok.startswith("<"):
+            continue
+        seen += 1
+        if seen == nchars:
+            e = m.end()
+            c = re.match(r"(?:</[^>]+>)+", h[e:])  # 바로 뒤의 닫는 태그(</sub> 등)까지
+            if c:
+                e += c.end()
+            return e if _tags_balanced(h[:e]) else None
+    return None
+
+
+
+def _is_indented(b):
+    """앞 용어 단락의 글자 시작 위치보다 들어가 시작하는 단락인가: 맨 앞에 공백이 둘 이상 있거나, 왼쪽 여백이 있거나, 첫 줄 들여쓰기(양수)가 있다."""
+    return b.get("lead", 0) >= 2 or b.get("left", 0) >= 500 or b.get("ind", 0) > 0
+
+
+def _style_terms(blocks):
+    """일반시험법 92-x(표준품, 시약·시액, 용량분석용표준액 ...)의 용어 단락. 용어 단락은 용어(굵은 글씨, 또는 공백 둘 앞의 앞부분)로 시작하며 맨 왼쪽에서 시작한다.
+    그 아래에서 용어 글자의 시작 위치보다 들어가 시작하는 단락(맨 앞 공백 둘 이상, 들여쓰기, 왼쪽 여백)은 앞 용어와 관련된 단락이다("  융점 : 180 ℃" 등).
+    용어 단락과 그에 관련된 단락들을 한 묶음으로 보아, 용어를 굵게 하고 묶음의 위아래에 간격을 둔다. 설명 없이 용어만 적힌 줄(끝이 공백 둘)은 바로 다음
+    줄이 들여 쓴 줄이면 용어 단락으로 본다. 들여 쓴 줄이 "화학식 + 공백 둘 + 설명"이면 그 공백 둘이 용어(화학식)와 설명의 구분점이다."""
+    out = []
+    in_group = False
+    for n, b in enumerate(blocks):
+        term = None
+        if b["k"] == "p" and b.get("al") != "c" and not b.get("lab") and not _is_indented(b):
+            if re.match(r"\s*<b>", b["html"]):
+                term = dict(b, html=_term_gap(b["html"]), term_top=True)  # 원문이 이미 앞부분을 굵게 쓴 용어 단락("조    제", "표    정" ...)
+            else:
+                nh = _bold_term(b["html"])
+                if nh:
+                    term = dict(b, html=nh, term_top=True)
+                elif _bold_name_formula(b["html"]) or (b.get("ind", 0) < 0 and _bold_reagent_name(b["html"])):
+                    term = dict(b, html=_bold_name_formula(b["html"]) or _bold_reagent_name(b["html"]), term_top=True)  # "용어 화학식"(공백 하나)만 있는 줄
+                elif (
+                    b.get("ind", 0) < 0 and not any(rx.match(b["plain"].strip()) for _k, rx, _w in _HI_KINDS)
+                    and not re.match(r"\d+\)", b["plain"].strip()) and not b["plain"].strip()[0].isdigit() and " : " not in b["plain"][:40]
+                    and not (n + 1 < len(blocks) and (blocks[n + 1]["k"] == "tbl" or (blocks[n + 1]["k"] == "p" and (_is_indented(blocks[n + 1]) or blocks[n + 1].get("lead", 0) >= 1))))
+                    and _bold_first_gap(b["html"]) and not re.match(r"[:：]", re.sub(r"<[^>]+>", "", _bold_first_gap(b["html"]).split("</b>", 1)[1]).replace("&nbsp;", "").strip())
+                ):
+                    term = dict(b, html=_bold_first_gap(b["html"]), term_top=True)  # 그 밖의 내어쓰기 단락: 처음 나오는 공백 둘(없으면 공백 하나)까지가 용어
+                else:
+                    nxt = blocks[n + 1] if n + 1 < len(blocks) else None
+                    plain_h = html.unescape(re.sub(r"<[^>]+>", "", b["html"]))
+                    if (
+                        nxt is not None and ((nxt["k"] == "p" and (_is_indented(nxt) or nxt.get("lead", 0) >= 1)) or nxt["k"] == "tbl")
+                        and (re.search(r"\S[ \u00a0]+$", plain_h) or (b.get("lead", 0) == 0 and len(plain_h.strip()) <= 40 and plain_h.strip()[-1] not in ".다:)")) and 1 <= len(plain_h.strip()) <= 100 and _tags_balanced(b["html"])
+                    ):
+                        term = dict(b, html="<b>" + b["html"].rstrip(" \u00a0") + "</b>", term_top=True)  # 용어만 있는 줄
+        if term is not None:
+            if in_group:
+                _close_term_group(out)
+            term["hi"] = None  # 번호 계층(_apply_hierarchy)이 앞 번호 항목의 내용으로 잘못 붙인 깊은 들여쓰기는 쓰지 않는다
+            if term.get("ind", 0) < 0:
+                term["term_hang"] = _RELATED_INDENT_EM  # 내어쓰기: 첫 줄은 왼쪽 끝, 이어지는 줄은 딸린 단락과 같은 들여쓰기 위치
+            out.append(term)
+            in_group = True
+        elif in_group and b["k"] == "p" and (_is_indented(b) or b.get("lead", 0) >= 1):
+            # 앞 용어와 관련된(들어간) 단락: 같은 묶음. 원문처럼 들여 쓰고(맨 앞 공백 개수만큼), 앞 줄과의 간격은 좁힌다
+            if out and out[-1]["k"] == "p":
+                out[-1] = dict(out[-1], term_tight=True)
+            lead = b.get("lead", 0)
+            rel = dict(b, term_ind=min(max(lead, 2), 6) * (_RELATED_INDENT_EM / 2)) if lead >= 2 else dict(b)
+            rel["hi"] = None
+            if rel.get("ind", 0) < 0 and not any(rx.match(rel["plain"].strip()) for _k, rx, _w in _HI_KINDS):
+                rel["ind"] = 0  # "0.1mol/L ..." 따위를 번호 기호로 오인해 깊게 내어쓰지 않는다
+            fh = _bold_formula(rel["html"])
+            if fh:
+                rel["html"] = fh  # "  화학식  설명": 화학식이 용어, 공백 둘이 용어와 설명의 구분점
+            out.append(rel)  # 딸린 단락은 첫 줄도 이어지는 줄도 같은 들여쓰기(내어쓰기 없음)
+        elif b["k"] == "p" and b.get("al") == "c" and out and _is_bold_title(b):
+            # 가운데 정렬한 굵은 제목("0.1 mol/L 과염소산" ...): 앞 묶음을 닫고, 제목 위에 빈 줄 한 줄
+            if in_group:
+                _close_term_group(out)
+            in_group = False
+            out.append(dict(b, gap_top=True, fm_top=False, fm_bot=False))  # 제목 아래에는 빈 줄을 두지 않는다(앞 계산식 때문에 붙은 아래 간격도 뺀다)
+        elif in_group and (b["k"] != "p" or b.get("al") == "c"):
+            out.append(b)  # 묶음 안의 계산식(가운데 줄)·표·그림은 묶음을 끊지 않는다. 그 뒤에 들여 쓴 줄이 이어지면 같은 묶음
+        else:
+            if in_group:
+                _close_term_group(out)
+            in_group = False
+            out.append(b)
+    if in_group:
+        _close_term_group(out)
+    return out
+
+
+def _is_bold_title(b):
+    """전체가 굵은 글씨인 짧은 단락(가운데 정렬 제목)."""
+    h = b["html"].strip()
+    if not (h.startswith("<b>") and h.endswith("</b>")) or len(b["plain"].strip()) > 80:
+        return False
+    rest = re.sub(r"<b>.*?</b>", "", h, flags=re.S)  # 굵은 글씨가 여러 조각(<b>..</b><b>..</b>)으로 나뉘어 있어도 전체가 굵으면 제목
+    return not re.sub(r"<[^>]+>|&nbsp;|\s", "", rest)
+
+
+def _close_term_group(out):
+    """용어 묶음의 마지막 본문 단락(뒤의 계산식·표·그림은 건너뛴다) 아래에 묶음 간격을 준다."""
+    for n in range(len(out) - 1, -1, -1):
+        if out[n]["k"] == "p" and out[n].get("al") != "c":
+            out[n] = dict(out[n], term_bot=True)
+            return
+
+
+def _flat_html(blocks, top_gaps=False, explicit_tops=False, terms=False):
+    blocks = _split_heading_marker(blocks)
     # 일반시험법/일반정보 등 본문도 의약품각조와 같이 수식줄을 한 줄로 합치고, 계산식 덩어리의 위아래에 빈 줄 한 줄씩 띄운다
     bs = _space_formula_lines(_apply_hierarchy(_merge_formula_lines(_center_figures_captions(blocks))))
-    return "".join(block_html(b, heading=bool(b.get("hd"))) for b in bs)
+    if terms:
+        bs = _style_terms(bs)
+    if top_gaps and not terms:  # 92-x(표준품, 시약·시액 ...)는 용어 묶음 간격(_style_terms)을 쓰고, 최상위 항목 빈 줄은 쓰지 않는다
+        bs = _mark_top_gaps(bs, explicit_tops)
+    return _join_blocks_html(bs, flat=True)
 
 
 # ---- 항목 나누기 ------------------------------------------------------------------------------
@@ -1108,6 +1962,37 @@ def _manifest(z):
     return out
 
 
+# 번호 없이 굵은 글씨로만 적힌 상위 항목이 바로 앞 "N)" 번호 항목의 내용으로 잘못 들어가(들여쓰기가 깊어져) 하위 항목처럼 보이는 일반시험법 항목:
+# 항목별로 상위 항목 이름을 지정하면 그 문단은 맨 바깥(깊이 0)에 놓이고, 그 아래 번호 계층은 새로 시작한다.
+# 장치 그림과 범례(표 칸 안의 그림, 범례 줄)를 가운데 정렬해 보일 일반시험법 항목: 항목 본문 전체를 kp-center-figs 로 감싼다(CSS 가 그림과 범례 덩어리를 가운데에 둔다).
+_CENTER_FIGURE_ENTRIES = {(5, "암모늄시험법")}
+
+_TOP_HEADINGS = {
+    (5, "무균시험법"): [
+        "미생물오염에 대한 예방조치", "배지와 배양온도", "배지의 적합성", "측정법의 적합성시험", "검체의 무균시험", "관찰과 결과의 판정",
+        "무균시험 적합이 요구되는 주사제, 안연고제, 점안제 및 다른 비주사제에 대한 시험 적용",
+    ],
+    (5, "생약시험법"): ["검체 채취", "분석용 검체 조제", "현미경 시험", "순도시험"],
+    (5, "소화력시험법"): ["전분소화력시험법", "단백소화력시험법", "지방소화력시험법"],
+    (5, "금속(원소)불순물시험법"): ["검체의 전처리", "시험법", "시험법의 밸리데이션 요건", "용어"],  # 원문에서 "시 험 법"처럼 글자 사이를 띄운 것도 공백을 뺀 이름으로 맞춘다
+}
+
+
+def _mark_top_headings(docno, entries):
+    for e in entries:
+        heads = _TOP_HEADINGS.get((docno, e["ko"]))
+        if not heads:
+            continue
+        want = {re.sub(r"\s+", "", h) for h in heads}
+        for b in e["blocks"]:
+            if b["k"] != "p":
+                continue
+            m = re.match(r"\s*<b>(.*?)</b>", b["html"], re.S)  # 문단 맨 앞의 굵은 글씨가 상위 항목 이름이어야 한다(본문 속 같은 말은 제외)
+            lead = re.sub(r"\s+", "", html.unescape(re.sub(r"<[^>]+>", "", m.group(1)))) if m else ""
+            if lead in want:
+                b["top"] = True
+
+
 def parse_doc(path, docno):
     """hwpx 한 파일 -> 항목 목록(딕셔너리). 항목: doc, no, ko, en, group, part, html_z(압축된 본문 HTML), text(검색용 평문),
     head(머리 글: 별명/분자식 등, 검색용), skipped(그리지 못한 도형 수)."""
@@ -1156,10 +2041,14 @@ def parse_doc(path, docno):
     else:
         entries = _segment_numbered(docno, blocks)
 
+    _mark_top_headings(docno, entries)
     out = []
     for e in entries:
         bs = e.pop("blocks")
-        e["html_z"] = zlib.compress((_sections_html(bs) if kind == "drug" else _flat_html(bs)).encode("utf-8"), 6)
+        body_html = _sections_html(bs) if kind == "drug" else _flat_html(bs, top_gaps=(docno == 5), explicit_tops=((docno, e["ko"]) in _TOP_HEADINGS), terms=(docno == 5 and e["no"].startswith("92-")))
+        if (docno, e["ko"]) in _CENTER_FIGURE_ENTRIES:
+            body_html = '<div class="kp-center-figs">' + body_html + "</div>"
+        e["html_z"] = zlib.compress(body_html.encode("utf-8"), 6)
         text = "\n".join(b["plain"] for b in bs if b["plain"])
         e["text"] = text
         # 머리 글: 첫 항목명 앞의 문단들(별명, 분자식, IUPAC 이름, 정의)
