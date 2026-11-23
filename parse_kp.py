@@ -47,6 +47,12 @@ DOCS = {
 IMG_URL = "/kp/img/{doc}/{name}"
 _TBL_HEAD_BG = "#ebebeb"  # 표 머리 행의 밝은 회색 배경
 _TBL_TITLE_RE = re.compile(r"^(?:표|Table)\s*\d+")  # 표 안의 표 번호·설명 줄("표 1. ...")
+# 열이 좁아 값이 두 줄로 꺾이는 표를 "첫 줄 글//둘째 줄 첫 칸 글"로 알아보고, 줄바꿈하지 않을 열(0부터)을 정한다(통칙 일반사항의 표들)
+_NOWRAP_COLS = {
+    "계량 항목/단위/기호//각도": {0, 1},  # 첫 표(계량 항목·단위·기호)
+    # 둘째 표(SI 접두어): 넷째 열("마이크로")이 꺾이지 않게 넓히면 표 폭이 고정이라 나머지 열이 좁아져 꺾이므로, 모든 열을 줄바꿈하지 않게 해서 표 자체가 넓어지게 한다
+    "이름/기호/인자/이름/기호/인자//기가": {0, 1, 2, 3, 4, 5},
+}
 
 
 def _is_neutral_gray(color):
@@ -698,6 +704,7 @@ class _Ctx:
         if szt is not None and szt.get("width"):
             tw = int(szt.get("width"))
         pct = min(100.0, tw * 100.0 / self.col_w) if tw and self.col_w else 100.0
+        nowrap_cols = _NOWRAP_COLS.get("/".join(c[8].strip() for c in rows[0]) + "//" + (rows[1][0][8].strip() if len(rows) > 1 and rows[1] else ""), ())
         out = [f'<div class="kp-tblwrap"><table class="kp-tbl" style="width:{pct:.1f}%">']
         if widths and total:
             out.append("<colgroup>" + "".join(f'<col style="width:{widths.get(c, 0) * 100.0 / total:.1f}%">' for c in range(max(widths) + 1)) + "</colgroup>")
@@ -725,6 +732,9 @@ class _Ctx:
                     st.append(f"background:{fill}")
                 if va in ("TOP", "BOTTOM"):
                     st.append(f"vertical-align:{va.lower()}")
+                # 통칙 일반사항의 표들: 지정한 열의 값이 두 줄로 꺾이지 않게 해서 열 너비가 글자 폭만큼 늘어나게 한다
+                if cs == 1 and col in nowrap_cols:
+                    st.append("white-space:nowrap")
                 out.append(f'<td{attrs}{" class=kp-th" if is_head else ""} style="{";".join(st)}">{inner}</td>')
             out.append("</tr>")
         out.append("</table></div>")
@@ -983,7 +993,7 @@ def _apply_hierarchy(blocks):
             out.append(b)
             continue
         if b.get("hd") or b.get("top"):  # 소제목, 또는 지정한 상위 항목(_TOP_HEADINGS): 맨 바깥에 놓고 번호 계층을 처음부터 센다
-            stack = []
+            stack = ["_top"] if b.get("nest") else []  # nest: 상위 항목 아래 번호 항목들을 한 층 안쪽에 놓는다("1. 확인시험" 아래 "1)" 와 같은 위치)
             out.append(b)
             continue
         mk = marker_of(b)
@@ -998,7 +1008,7 @@ def _apply_hierarchy(blocks):
             nb["html"] = _wrap_marker(b["html"], mk[1], w)
             out.append(nb)
         elif stack and not b.get("lab"):
-            out.append(dict(b, hi=(len(stack) - 1, width[stack[-1]], False)))
+            out.append(dict(b, hi=(len(stack) - 1, width.get(stack[-1], 0.0), False)))
         else:
             if b.get("lab"):
                 stack = []  # 새 항목명 구간은 처음부터
@@ -1684,7 +1694,7 @@ def _close_term_group(out):
             return
 
 
-def _flat_html(blocks, top_gaps=False, explicit_tops=False, terms=False):
+def _flat_html(blocks, top_gaps=False, explicit_tops=False, terms=False, no_first_indent=False):
     blocks = _split_heading_marker(blocks)
     # 일반시험법/일반정보 등 본문도 의약품각조와 같이 수식줄을 한 줄로 합치고, 계산식 덩어리의 위아래에 빈 줄 한 줄씩 띄운다
     bs = _space_formula_lines(_apply_hierarchy(_merge_formula_lines(_center_figures_captions(blocks))))
@@ -1692,6 +1702,9 @@ def _flat_html(blocks, top_gaps=False, explicit_tops=False, terms=False):
         bs = _style_terms(bs)
     if top_gaps and not terms:  # 92-x(표준품, 시약·시액 ...)는 용어 묶음 간격(_style_terms)을 쓰고, 최상위 항목 빈 줄은 쓰지 않는다
         bs = _mark_top_gaps(bs, explicit_tops)
+    if no_first_indent:
+        # 일반시험법: 원문이 문단 첫 줄을 들여 쓴 곳(첫 줄 들여쓰기 > 0)도 모두 왼쪽 끝에서 시작한다(내어쓰기·번호 계층·왼쪽 여백은 그대로)
+        bs = [dict(b, ind=0) if (b["k"] == "p" and b.get("ind", 0) > 0) else b for b in bs]
     return _join_blocks_html(bs, flat=True)
 
 
@@ -1975,7 +1988,13 @@ _TOP_HEADINGS = {
     (5, "생약시험법"): ["검체 채취", "분석용 검체 조제", "현미경 시험", "순도시험"],
     (5, "소화력시험법"): ["전분소화력시험법", "단백소화력시험법", "지방소화력시험법"],
     (5, "금속(원소)불순물시험법"): ["검체의 전처리", "시험법", "시험법의 밸리데이션 요건", "용어"],  # 원문에서 "시 험 법"처럼 글자 사이를 띄운 것도 공백을 뺀 이름으로 맞춘다
+    (5, "미생물한도시험법"): ["Ⅰ.", "Ⅱ."],  # "Ⅰ. 비무균제품의 미생물학적시험 : 생균수시험", "Ⅱ. ... : 특정미생물시험" (굵은 글씨가 "Ⅰ. " 와 제목으로 나뉘어 있어 앞 조각으로 알아본다)
+    (5, "무기질시험법"): ["시액"],  # "1. 확인시험", "2. 정량법"과 같은 맨 바깥 항목(원문은 13) 크롬 아래의 안쪽 여백으로 적혀 있다)
 }
+
+
+# 상위 항목 아래의 번호 항목("1)" ...)을 맨 바깥이 아니라 한 층 안쪽에 놓을 항목(다른 최상위 항목 "1. 확인시험" 아래와 같은 모양)
+_NEST_UNDER_TOP = {(5, "무기질시험법")}
 
 
 def _mark_top_headings(docno, entries):
@@ -1991,6 +2010,10 @@ def _mark_top_headings(docno, entries):
             lead = re.sub(r"\s+", "", html.unescape(re.sub(r"<[^>]+>", "", m.group(1)))) if m else ""
             if lead in want:
                 b["top"] = True
+                if (docno, e["ko"]) in _NEST_UNDER_TOP:
+                    b["nest"] = True
+                if b.get("left", 0) > 0:
+                    b["left"] = 0  # 원문이 안쪽 여백을 두어 적은 상위 항목도 맨 왼쪽(깊이 0)에 놓는다
 
 
 def parse_doc(path, docno):
@@ -2045,7 +2068,7 @@ def parse_doc(path, docno):
     out = []
     for e in entries:
         bs = e.pop("blocks")
-        body_html = _sections_html(bs) if kind == "drug" else _flat_html(bs, top_gaps=(docno == 5), explicit_tops=((docno, e["ko"]) in _TOP_HEADINGS), terms=(docno == 5 and e["no"].startswith("92-")))
+        body_html = _sections_html(bs) if kind == "drug" else _flat_html(bs, top_gaps=(docno == 5), explicit_tops=((docno, e["ko"]) in _TOP_HEADINGS), terms=(docno == 5 and e["no"].startswith("92-")), no_first_indent=(docno == 5 and not e["no"].startswith("92-")))  # 92-x(용어 묶음)는 딸린 단락의 들여쓰기가 뜻이 있어 그대로 둔다
         if (docno, e["ko"]) in _CENTER_FIGURE_ENTRIES:
             body_html = '<div class="kp-center-figs">' + body_html + "</div>"
         e["html_z"] = zlib.compress(body_html.encode("utf-8"), 6)
