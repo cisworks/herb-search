@@ -2,6 +2,7 @@
     --main: #2f6f4f;
     --main-dark: #234f38;
     --bg: #f6f7f4;
+    --label-bg: #eff0ed;  /* 검색 결과 카드의 제목 표시부(.group-label) 배경: 바탕색 #f6f7f4 를 3% 진하게(각 색 성분 x0.97) */
     --card: #ffffff;
     --border: #dfe3dc;
     --text: #2a2a2a;
@@ -353,7 +354,7 @@
     font-size: 0.9rem;
     font-weight: 700;
     color: var(--main-dark);
-    background: var(--bg);
+    background: var(--label-bg);
     border-bottom: 1px solid var(--border);
     white-space: nowrap;
   }

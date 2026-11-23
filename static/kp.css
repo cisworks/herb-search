@@ -3,6 +3,7 @@
   --main: #29608d;  /* 테마색: 첨부 이미지에서 잰 #3378b0 의 밝기를 20% 줄인 색(각 색 성분 x0.8). 어두운 색은 생약 검색(초록)과 같은 비율로 x0.75 */
   --main-dark: #1f486a;
   --bg: #f3f6fb;
+  --label-bg: #ecefF3;  /* 검색 결과 카드의 제목 표시부(.group-label) 배경: 바탕색 #f3f6fb 를 3% 진하게(각 색 성분 x0.97) */
   --card: #ffffff;
   --border: #d6dfec;
   --text: #25292f;
