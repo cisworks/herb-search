@@ -1,7 +1,7 @@
 /* 대한민국약전 검색(/kp): 생약 검색(app.css)을 그대로 쓰고, 색 테마(초록 -> 파랑)와 약전 본문 전용 스타일만 덧붙인다. */
 :root {
-  --main: #1f5fa8;
-  --main-dark: #17467d;
+  --main: #29608d;  /* 테마색: 첨부 이미지에서 잰 #3378b0 의 밝기를 20% 줄인 색(각 색 성분 x0.8). 어두운 색은 생약 검색(초록)과 같은 비율로 x0.75 */
+  --main-dark: #1f486a;
   --bg: #f3f6fb;
   --card: #ffffff;
   --border: #d6dfec;
@@ -82,6 +82,12 @@
 .kp-site .result-item { flex-wrap: wrap; white-space: normal; justify-content: flex-start; column-gap: 10px; row-gap: 0; align-items: baseline; }
 .kp-site .result-item .rname { flex: 0 1 auto; }
 .kp-site .ren { font-size: 0.8rem; color: var(--sub); font-style: italic; }
+/* 별표 4(의약품각조 제2부) 품목의 분류("2) 생물학적제제 등"): 이름 줄 안에서 '각조 제2부' 배지 바로 뒤에 이어서 붙는다(분류 글자 자체는 쪼개지지 않는다). 영문명은 목록에 보이지 않는다 */
+.kp-site .rgrp { margin-left: 5px; font-size: 0.8rem; font-weight: 400; color: var(--sub); white-space: nowrap; }
+.kp-site .result-item:has(.rgrp) .source-part { white-space: nowrap; }  /* 줄이 좁아 줄바꿈돼도 "각조 제2부" 배지는 쪼개지지 않는다 */
+/* 글자 크기 버튼 왼쪽 간격: 약전 화면에는 오른쪽 버튼 묶음이 없어서 이름 줄이 글자 폭만큼만 잡히고 간격이 최소값(6px)으로 줄어든다.
+   생약 검색처럼 이름 줄이 남는 폭을 채우게 해 평소 40px 간격이 나오고, 폭이 모자랄 때만 줄어든다 */
+.kp-site .detail-title-row .detail-name-line { flex: 1 1 auto; min-width: 0; }
 /* 통칙·제제·시험법·정보 하위 항목 줄: [번호][이름 + 영문명] 두 칸. 이름 칸은 단어 단위로 줄바꿈되고 둘째 줄부터 첫 줄의 이름 글자 위치에 맞는다 */
 .kp-site .ref-row { flex-wrap: nowrap; column-gap: 6px; align-items: baseline; }
 .kp-site .ref-row .rno { flex: none; margin-right: 0; }

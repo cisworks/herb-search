@@ -311,7 +311,22 @@ function fitDetailPlaceholderHeight() {
 }
 window.addEventListener('resize', fitDetailPlaceholderHeight);
 
+// 의약품등 검색 결과 카드는 목록이 길면 화면 아래끝(창 아래 24px 위)까지 늘어난다(통칙·제제·시험법·정보 탭의 카드와 같다). 그 안에서 스크롤된다.
+function fitDrugResultsHeight() {
+  const g = drugResultsBox.querySelector('.result-group');
+  if (!g || drugResultsBox.style.display === 'none') return;
+  if (window.matchMedia('(max-width: 860px)').matches) {  // 모바일은 페이지 전체가 스크롤되므로 기본 높이를 쓴다
+    g.style.maxHeight = '';
+    return;
+  }
+  const top = g.getBoundingClientRect().top;
+  if (top <= 0) return;  // 숨겨진 탭 등 위치를 잴 수 없을 때
+  g.style.maxHeight = Math.max(160, window.innerHeight - top - 24) + 'px';
+}
+window.addEventListener('resize', fitDrugResultsHeight);
+
 function fitAll() {
+  fitDrugResultsHeight();
   if (typeof fitRefResultsHeight === 'function') fitRefResultsHeight();
   fitDetailPlaceholderHeight();
   fitDropdownHeights();
@@ -337,9 +352,15 @@ function sourceBadge(it) {
   return `<span class="source-badge">KP</span><span class="source-part">${escapeHtml(it.cat)}</span>`;
 }
 
-// 목록/결과 한 줄: 한글명(+ 번호) 과 영문명
+// 별표 4(의약품각조 제2부) 품목의 분류("2) 생물학적제제 등" 등): 목록의 이름 아래 줄에 보인다. 별표 3 품목("의약품")은 분류줄이 없다.
+// 이름 줄 안의 '각조 제2부' 배지 바로 뒤에 이어서 붙는다.
+function groupLineHtml(it) {
+  return it.kind === 'drug' && it.doc === 4 && it.group ? `<span class="rgrp">${escapeHtml(it.group)}</span>` : '';
+}
+
+// 목록/결과 한 줄: 한글명(+ 번호). 영문명은 목록에 보이지 않는다(상세 화면에서만 보인다)
 function rowHtml(it, withBadge) {
-  const en = it.en ? `<span class="ren">${escapeHtml(it.en)}</span>` : '';
+  const en = '';
   if (it.kind === 'ref') {
     // 통칙·제제총칙·일반시험법·일반정보 항목: 번호는 따로 두고 이름(+영문명)은 한 덩어리로 흘러, 두 줄 이상이면 단어 단위로 줄바꿈되고
     // 둘째 줄부터 번호 뒤 첫 글자 위치에 맞춰 들여 쓴다(번호/이름 칸 구조는 CSS .ref-row)
@@ -349,7 +370,7 @@ function rowHtml(it, withBadge) {
     return `<div class="result-item ref-row" data-id="${it.id}">${no}<span class="rtext"><span class="rname">${escapeHtml(it.ko)}</span>${en}</span></div>`;
   }
   const no = '';
-  return `<div class="result-item" data-id="${it.id}"><span class="rname">${no}${escapeHtml(it.ko)}${withBadge ? sourceBadge(it) : ''}</span>${en}</div>`;
+  return `<div class="result-item" data-id="${it.id}"><span class="rname">${no}${escapeHtml(it.ko)}${withBadge ? sourceBadge(it) : ''}${groupLineHtml(it)}</span></div>`;
 }
 
 function dropdownHtml(tab, items) {
@@ -428,7 +449,7 @@ Object.values(combos).forEach(c => {
     if (row && row.dataset.cat) {  // 문서 이름(통칙/제제총칙/일반시험법/일반정보)을 고르면 검색칸에 표시하고 카드에는 그 문서의 항목만 나온다
       closeDropdown(c);
       refSelectedId = null;
-      renderRefParent('cat:' + row.dataset.cat);
+      selectRefCat(row.dataset.cat);
       return;
     }
     if (!row || !c.items) return;
@@ -495,6 +516,14 @@ async function renderRefParent(key) {
   }
   setQuery('ref', key);
 }
+// 문서(통칙 등)를 고르면 카드에 그 항목들을 그리고, 첫 번째 하위 항목(누를 수 있는 첫 줄)을 자동으로 골라 오른쪽 설명창에 연다
+async function selectRefCat(cat) {
+  await renderRefParent('cat:' + cat);
+  const first = (await getList('ref')).find(x => x.cat === cat && !x.nolink);
+  if (!first) return;
+  refSelectedId = first.id;
+  await showEntry(first.id);  // 선택 표시는 showEntry 가 붙인다
+}
 // 항목 it 의 상위 항목: 하위 항목이 딸린 묶음 머리이면 자기 자신, 묶음 안의 항목이면 그 묶음 머리, 그 밖에는 문서 이름
 async function refParentKeyFor(it) {
   const all = await getList('ref');
@@ -541,6 +570,7 @@ function activateTab(tabId) {
   closeAllDropdowns();
   refreshQuickBox();
   fitRefResultsHeight();
+  fitDrugResultsHeight();
 }
 function focusTabInput(tabId) {
   const box = { drugTab: drugInput, refTab: refInput, textTab: textInput }[tabId];
@@ -659,6 +689,7 @@ function renderNameResults(tab, items, q) {
   }
   box.querySelectorAll('.result-item').forEach(el => el.addEventListener('click', () => showEntry(Number(el.dataset.id))));
   applyShownHighlight();
+  if (tab === 'drug') fitDrugResultsHeight();
 }
 
 async function runNameSearch(tab, q, quiet) {
@@ -861,7 +892,7 @@ function saveRecent(list) {
   try { localStorage.setItem(RECENT_KEY, JSON.stringify(list)); } catch (e) { /* 저장소를 못 쓰면 이 페이지가 열려 있는 동안만 기억 */ }
 }
 function recordRecent(it) {
-  const snap = { id: it.id, ko: it.ko, en: it.en || '', no: it.no || '', kind: it.kind, part: it.part || '', cat: it.cat || '' };
+  const snap = { id: it.id, ko: it.ko, en: it.en || '', no: it.no || '', kind: it.kind, part: it.part || '', cat: it.cat || '', doc: it.doc || 0, group: it.group || '' };
   saveRecent([snap, ...loadRecent().filter(x => x.id !== it.id)].slice(0, RECENT_MAX));
   refreshQuickBox();
 }
@@ -876,7 +907,7 @@ function refreshQuickBox() {
   }
   quickBox.hidden = false;
   quickBox.innerHTML = `<div class="result-group"><div class="group-label"><span>최근 본 항목</span><button type="button" class="quick-clear">모두 지우기</button></div>${list.map(it => `
-    <div class="result-item" data-id="${it.id}"><span class="rname">${it.no && it.kind === 'ref' ? `<span class="rno">${escapeHtml(it.no)}.</span>` : ''}${escapeHtml(it.ko)}${sourceBadge(it)}</span>${it.en ? `<span class="ren">${escapeHtml(it.en)}</span>` : ''}<button type="button" class="quick-del" title="목록에서 지우기" aria-label="목록에서 지우기"><svg viewBox="0 0 10 10" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M1.5 1.5 8.5 8.5M8.5 1.5 1.5 8.5"/></svg></button></div>`).join('')}</div>`;
+    <div class="result-item" data-id="${it.id}"><span class="rname">${it.no && it.kind === 'ref' ? `<span class="rno">${escapeHtml(it.no)}.</span>` : ''}${escapeHtml(it.ko)}${sourceBadge(it)}${groupLineHtml(it)}</span><button type="button" class="quick-del" title="목록에서 지우기" aria-label="목록에서 지우기"><svg viewBox="0 0 10 10" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M1.5 1.5 8.5 8.5M8.5 1.5 1.5 8.5"/></svg></button></div>`).join('')}</div>`;
   applyShownHighlight();
 }
 quickBox.addEventListener('click', (ev) => {

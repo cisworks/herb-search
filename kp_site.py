@@ -127,6 +127,8 @@ def get_data():
                 e["n_ko"] = _normalize(e["ko"])
                 e["n_en"] = _normalize(e["en"])
                 e["n_head"] = _normalize(e.get("head", ""))
+                # 별표 4(의약품각조 제2부) 품목은 분류 제목("2) 생물학적제제 등", "5) 첨가제" ...)으로도 찾는다. 별표 3 품목의 "의약품"은 제외
+                e["n_group"] = _normalize(e.get("group", "")) if e["doc"] == 4 else ""
                 d.entries.append(e)  # n_text(본문 검색용 정규화 본문)는 본문 검색을 처음 쓸 때 만든다(ensure_text_index)
         d.text_ready = False
         d.by_id = d.entries
@@ -221,7 +223,7 @@ def api_list():
 
 
 def _name_search(entries, q, limit=100):
-    exact, starts, name_in, head_in = [], [], [], []
+    exact, starts, name_in, head_in, group_in = [], [], [], [], []
     for e in entries:
         if e.get("nolink"):
             continue
@@ -235,7 +237,11 @@ def _name_search(entries, q, limit=100):
             name_in.append(e)
         elif q in e["n_head"]:
             head_in.append(e)
-    return (exact + starts + name_in + head_in)[:limit]
+        elif q in e.get("n_group", ""):
+            group_in.append(e)
+    # 분류 제목으로 찾은 품목은 한 분류가 통째로 나오도록(예: 첨가제 174개) 개수 제한 없이 이름순으로 뒤에 붙인다
+    group_in.sort(key=lambda e: (e["ko"], e["en"]))
+    return (exact + starts + name_in + head_in)[:limit] + group_in
 
 
 @kp.route("/api/search")
