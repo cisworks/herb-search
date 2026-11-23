@@ -347,9 +347,19 @@ async function getList(tab) {
   return listCache[tab];
 }
 
+// 오른쪽 설명창 이름 오른쪽의 파일 구분: 각조 제2부는 분류까지 "각조 제2부 · 5) 첨가제" 처럼 보인다. 글자 크기 버튼이 이 글자 끝에 이어진다.
+function detailPartHtml(it) {
+  if (it.kind === 'drug') {
+    const text = it.doc === 4 && it.group ? `${it.part} · ${it.group}` : it.part;
+    return `<span class="source-part">${escapeHtml(text)}</span>`;
+  }
+  return `<span class="source-part">${escapeHtml(it.cat)}</span>`;
+}
+
 function sourceBadge(it) {
-  if (it.kind === 'drug') return `<span class="source-badge">KP</span><span class="source-part">${escapeHtml(it.part)}</span>`;
-  return `<span class="source-badge">KP</span><span class="source-part">${escapeHtml(it.cat)}</span>`;
+  // "KP" 배지는 두지 않는다(약전 검색 화면은 전부 KP 라서 구분할 필요가 없다). 파일 구분 글자만 보인다.
+  if (it.kind === 'drug') return `<span class="source-part">${escapeHtml(it.part)}</span>`;
+  return `<span class="source-part">${escapeHtml(it.cat)}</span>`;
 }
 
 // 별표 4(의약품각조 제2부) 품목의 분류("2) 생물학적제제 등" 등): 목록의 이름 아래 줄에 보인다. 별표 3 품목("의약품")은 분류줄이 없다.
@@ -373,9 +383,35 @@ function rowHtml(it, withBadge) {
   return `<div class="result-item" data-id="${it.id}"><span class="rname">${no}${escapeHtml(it.ko)}${withBadge ? sourceBadge(it) : ''}${groupLineHtml(it)}</span></div>`;
 }
 
+// 전체 목록의 '분류별' 보기: 켜면 "의약품 각조 제1부"와 "의약품 각조 제2부"(그 안은 2) 생물학적제제 등 ... 6) 의약외품 분류별)만 + 로 접혀 보이고,
+// + 를 누르면 그 아래 품목이 펼쳐진다. 선택은 이 브라우저에 기억해 둔다.
+const CLS_KEY = 'kpClsMode';
+function loadClsMode() { try { return localStorage.getItem(CLS_KEY) === '1'; } catch (e) { return false; } }
+function saveClsMode(on) { try { localStorage.setItem(CLS_KEY, on ? '1' : '0'); } catch (e) { /* 저장 못 해도 이번 화면에서는 그대로 쓴다 */ } }
+let clsMode = loadClsMode();
+function clsNode(title, count, inner, open) {
+  return `<div class="cls-node"><div class="cls-head" role="button" tabindex="0" aria-expanded="${open ? 'true' : 'false'}"><span class="cls-sign">${open ? '−' : '+'}</span><span class="cls-name">${escapeHtml(title)}</span><span class="cls-count">(${count})</span></div><div class="cls-body"${open ? '' : ' hidden'}>${inner}</div></div>`;
+}
+function groupedDrugHtml(items) {
+  const part1 = items.filter(it => it.doc === 3);
+  const part2 = items.filter(it => it.doc === 4);
+  const groups = [];
+  part2.forEach(it => {
+    let g = groups.find(x => x.name === it.group);
+    if (!g) groups.push(g = { name: it.group, items: [] });
+    g.items.push(it);
+  });
+  groups.sort((a, b) => a.name.localeCompare(b.name, 'ko'));  // "2) ...", "3) ..." 번호 순
+  const inner2 = groups.map(g => clsNode(g.name, g.items.length, g.items.map(it => rowHtml(it, false)).join(''), false)).join('');
+  // 제2부는 분류별 보기를 켤 때마다 항상 펼쳐져 나온다(그 안의 2)~6) 분류는 접힌 채)
+  return clsNode('의약품 각조 제1부', part1.length, part1.map(it => rowHtml(it, false)).join(''), false)
+    + clsNode('의약품 각조 제2부', part2.length, inner2, true);
+}
+
 function dropdownHtml(tab, items) {
   if (tab === 'drug') {
-    return `<div class="group-label">의약품각조 전체 목록 (${items.length})</div>${items.map(it => rowHtml(it, true)).join('')}`;
+    const label = `<div class="group-label"><span>의약품각조 전체 목록 (${items.length})</span><label class="cls-check"><input type="checkbox" id="clsCheck"${clsMode ? ' checked' : ''}> 분류별</label></div>`;
+    return label + (clsMode ? groupedDrugHtml(items) : items.map(it => rowHtml(it, true)).join(''));
   }
   // 목록에는 문서(통칙/제제총칙/일반시험법/일반정보) 넷만 한 줄씩 나온다(+ 표시도, 하위 항목도 없다). 하나를 고르면 그 하위 항목들이 아래 카드에 나온다.
   const cats = [];
@@ -443,8 +479,30 @@ async function openDropdown(c) {
   fitDropdownHeights();
 }
 
+function toggleClsNode(head) {
+  const open = head.getAttribute('aria-expanded') !== 'true';
+  head.setAttribute('aria-expanded', open ? 'true' : 'false');
+  head.querySelector('.cls-sign').textContent = open ? '−' : '+';
+  head.nextElementSibling.hidden = !open;
+}
+combos.drug.dropdown.addEventListener('change', (ev) => {
+  if (ev.target.id !== 'clsCheck') return;
+  clsMode = ev.target.checked;
+  saveClsMode(clsMode);
+  const dd = combos.drug.dropdown;
+  dd.innerHTML = dropdownHtml('drug', combos.drug.items);
+  dd.scrollTop = 0;
+  fitDropdownHeights();
+});
+combos.drug.dropdown.addEventListener('keydown', (ev) => {
+  const head = ev.target.closest && ev.target.closest('.cls-head');
+  if (head && (ev.key === 'Enter' || ev.key === ' ')) { ev.preventDefault(); toggleClsNode(head); }
+});
+
 Object.values(combos).forEach(c => {
   c.dropdown.addEventListener('click', (ev) => {
+    const head = ev.target.closest('.cls-head');
+    if (head) { toggleClsNode(head); return; }
     const row = ev.target.closest('.result-item');
     if (row && row.dataset.cat) {  // 문서 이름(통칙/제제총칙/일반시험법/일반정보)을 고르면 검색칸에 표시하고 카드에는 그 문서의 항목만 나온다
       closeDropdown(c);
@@ -1077,7 +1135,6 @@ async function showEntry(id, opts = {}) {
   const back = opts.back ? { back: true, backName: opts.backName || '' } : {};
   navSet({ view: { id: it.id, hl: opts.hl || '', ...back } }, opts.replace ? 'replace' : 'push');
   const title = `${it.no && it.kind === 'ref' ? it.no + '. ' : ''}${it.ko}`;
-  const sub = it.kind === 'drug' ? [it.part, it.group && it.group !== '의약품' ? it.group : ''].filter(Boolean).join(' · ') : [it.cat, it.group].filter(Boolean).join(' · ');
   detailBox.dataset.itemId = it.id;
   detailBox.dataset.itemName = title;
   const backTitle = opts.backName ? `${escapeHtml(opts.backName)}(으)로 돌아가기` : '돌아가기';
@@ -1089,17 +1146,10 @@ async function showEntry(id, opts = {}) {
       <div class="detail-title-row">
         <div class="detail-name-line">
           ${backHtml}
-          <h2>${escapeHtml(title)}${sourceBadge(it)}</h2>
-          <span class="detail-name-gap" aria-hidden="true"></span>
-          <div class="detail-zoom" role="group" aria-label="글자 크기">
-            <button type="button" class="detail-zoom-btn" data-dir="-1" aria-label="글자 작게">가−</button>
-            <span class="detail-zoom-pct" aria-live="polite">100%</span>
-            <button type="button" class="detail-zoom-btn" data-dir="1" aria-label="글자 크게">가+</button>
-          </div>
+          <h2>${escapeHtml(title)}${detailPartHtml(it)}<span class="detail-zoom" role="group" aria-label="글자 크기"><button type="button" class="detail-zoom-btn" data-dir="-1" aria-label="글자 작게">가−</button><span class="detail-zoom-pct" aria-live="polite">100%</span><button type="button" class="detail-zoom-btn" data-dir="1" aria-label="글자 크게">가+</button></span></h2>
         </div>
       </div>
       ${it.en ? `<p class="en">${escapeHtml(it.en)}</p>` : ''}
-      <p class="latin">${escapeHtml(sub)}</p>
     </div>
     <div class="kp-body">${it.html || '<p class="kp-p">(내용이 없습니다)</p>'}</div>
   `;

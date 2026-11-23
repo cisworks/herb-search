@@ -55,6 +55,17 @@ def _signature():
 _SIG = _signature()
 
 
+_FIRST_HANGUL_RE = re.compile(r"[가-힣]")
+
+
+def _drug_sort_key(e):
+    """의약품등 검색칸 목록의 가나다 순서. 이름 앞의 "(", "-", 숫자, "%", 영문 같은 글자는 건너뛰고, 제일 먼저 나오는 한글부터의 글자로 정렬한다
+    ("(-)에버나모닌" -> "에버나모닌", "10% 염화나트륨 주사액" -> "염화나트륨 주사액", "2-데옥시-... 주사액" -> "데옥시-... 주사액").
+    한글이 하나도 없는 이름은 맨 뒤에 둔다. 같으면 원래 이름, 영문명 순."""
+    m = _FIRST_HANGUL_RE.search(e["ko"])
+    return (0, e["ko"][m.start():]) if m else (1, e["ko"]), e["ko"], e["en"]
+
+
 def hwpx_path(docno):
     head = parse_kp.DOCS[docno][0]
     for p in sorted(BASE_DIR.glob("*.hwpx")):
@@ -134,7 +145,7 @@ def get_data():
         d.by_id = d.entries
         d.drug = [e for e in d.entries if e["kind"] == "drug"]
         d.ref = [e for e in d.entries if e["kind"] == "ref"]
-        d.drug_sorted = sorted(d.drug, key=lambda e: (e["ko"], e["en"]))
+        d.drug_sorted = sorted(d.drug, key=_drug_sort_key)
         # 본문 안에서 링크를 걸 일반시험법/일반정보 이름(긴 이름 먼저)
         targets = {}
         for e in d.ref:
@@ -252,6 +263,8 @@ def api_search():
     if not q:
         return jsonify({"items": []})
     items = _name_search(d.drug if tab == "drug" else d.ref, q)
+    if tab == "drug":  # 의약품등 검색 결과는 전체 목록과 같이, 이름 맨 앞의 한글(괄호·숫자·영문은 건너뜀) 가나다 순으로 보여 준다
+        items = sorted(items, key=_drug_sort_key)
     return jsonify({"items": [summary(e) for e in items]})
 
 
