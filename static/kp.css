@@ -83,7 +83,9 @@
 .kp-site .result-item .rname { flex: 0 1 auto; }
 .kp-site .ren { font-size: 0.8rem; color: var(--sub); font-style: italic; }
 /* 별표 4(의약품각조 제2부) 품목의 분류("2) 생물학적제제 등"): 이름 줄 안에서 '각조 제2부' 배지 바로 뒤에 이어서 붙는다(분류 글자 자체는 쪼개지지 않는다). 영문명은 목록에 보이지 않는다 */
-.kp-site .rgrp { margin-left: 5px; font-size: 0.8rem; font-weight: 400; color: var(--sub); white-space: nowrap; }
+.kp-site .rgrp { margin-left: 5px; font-size: 0.72rem; font-weight: 500; color: var(--sub); vertical-align: middle; white-space: nowrap; }  /* 글자 크기·굵기·색은 바로 앞 "각조 제2부"(.source-part)와 같다 */
+/* 오른쪽 설명창 이름 아래의 영문명과 부제(각조 제1부 등)는 이탤릭이 아닌 일반 글씨체 */
+.kp-site .detail-header .en, .kp-site .detail-header .latin { font-style: normal; }
 .kp-site .result-item:has(.rgrp) .source-part { white-space: nowrap; }  /* 줄이 좁아 줄바꿈돼도 "각조 제2부" 배지는 쪼개지지 않는다 */
 /* 글자 크기 버튼 왼쪽 간격: 약전 화면에는 오른쪽 버튼 묶음이 없어서 이름 줄이 글자 폭만큼만 잡히고 간격이 최소값(6px)으로 줄어든다.
    생약 검색처럼 이름 줄이 남는 폭을 채우게 해 평소 40px 간격이 나오고, 폭이 모자랄 때만 줄어든다 */
