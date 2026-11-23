@@ -47,6 +47,15 @@ DOCS = {
 IMG_URL = "/kp/img/{doc}/{name}"
 _TBL_HEAD_BG = "#ebebeb"  # 표 머리 행의 밝은 회색 배경
 
+
+def _is_neutral_gray(color):
+    """"#EFEFEF" 같은 무채색(회색) 배경인가. 원문의 색 있는 칸(노랑 등)은 그대로 둔다."""
+    m = re.fullmatch(r"#([0-9a-fA-F]{2})([0-9a-fA-F]{2})([0-9a-fA-F]{2})", color.strip())
+    if not m:
+        return False
+    r, g, b = (int(x, 16) for x in m.groups())
+    return max(r, g, b) - min(r, g, b) <= 6 and r >= 0xB0
+
 _HANGUL_RE = re.compile(r"[가-힣]")
 _LATIN_RE = re.compile(r"[A-Za-z]")
 _WS_RE = re.compile(r"\s+")
@@ -411,6 +420,15 @@ class _Ctx:
             # 칸의 절반 이상에 글이 있으면 머리 행으로 본다(왼쪽 위 귀퉁이 칸이 비어 있는 표가 많다). 테두리 없는 표(처방 배치 등)는 제외된다.
             if any(sum(c[5]) > 0 for c in first) and sum(1 for c in first if c[8].strip()) * 2 >= len(first):
                 hdr_rows = {0}
+        # 맨 윗줄이 표 제목 칸 하나(표 전체 폭으로 합친 칸, "표 1. ...", "완충액의 조성 (g)")인 표: 제목 줄과 그 아래 열 머리 줄(들)을 머리 행으로 본다.
+        # (원문에 머리 칸 표시가 없고 첫 행이 한 칸뿐이라 위의 규칙에서는 머리 행을 못 찾는 표들이다.)
+        if not hdr_rows and len(rows) >= 2 and len(rows[0]) == 1 and any(sum(c[5]) > 0 for r_ in rows for c in r_):
+            hdr_rows = {0}
+            # 둘째 줄은 열 이름처럼 짧은 칸들일 때만 머리로 본다("종류/절단제/특이성", "A B C D"). 긴 글이 든 줄은 자료 줄이다(무균시험법의 균주 표 등)
+            if len(rows[1]) >= 2 and all(len(c[8].strip()) <= 16 or c[1] > 1 for c in rows[1]):
+                hdr_rows.add(1)
+                if len(rows) > 2 and any(c[1] > 1 for c in rows[1]) and len(rows[2]) >= 2:  # 위 칸을 묶은 머리(겔 형성틀의 부피 ...) 아래의 열 머리도
+                    hdr_rows.add(2)
         total = sum(widths.values())
         tw = 0
         szt = tbl.find(HP + "sz")
@@ -424,6 +442,8 @@ class _Ctx:
             out.append("<tr>")
             for col, cs, rs, inner, va, sides, fill, _hd, _pl in cells:
                 is_head = ri in hdr_rows
+                if fill and _is_neutral_gray(fill):
+                    fill = f"var(--kp-tbl-head,{fill})"  # 원문의 회색 배경칸(머리 칸 등)도 테마색(옅은 파랑)으로
                 if is_head and not fill:
                     fill = f"var(--kp-tbl-head,{_TBL_HEAD_BG})"  # 머리 행 배경: 테마색(kp.css 의 --kp-tbl-head), 없으면 밝은 회색
                 attrs = ""
@@ -494,7 +514,9 @@ def block_html(b, heading=False):
     if b.get("fm_bot"):
         style.append("margin-bottom:1.75em")  # 계산식 아래 빈 줄 한 줄
     if ml:
-        style.append(f"margin-left:{ml:.2f}em")
+        # 밑줄이 있는 소제목(1.1. 정제 ...)은 들여쓰기를 바깥 여백이 아니라 안쪽 여백(padding)으로 둔다. 그러면 첫 줄 맨 앞(번호 "1.1.")이 상자의
+        # 왼쪽 끝이 되어, 밑줄(상자 아래 테두리)이 번호 밑에서부터 이어진다. 바깥 여백이면 밑줄이 번호 뒤 글자 위치에서 시작한다.
+        style.append(f"{'padding-left' if b.get('h2') else 'margin-left'}:{ml:.2f}em")
     if ti:
         style.append(f"text-indent:{max(min(ti, 6), -6):.2f}em")
     cls = "kp-p"
@@ -697,14 +719,14 @@ def _center_figures_captions(blocks):
     return out
 
 
-_FORMULA_MERGE_MAX = 70  # 합친 줄의 글자 수 상한(생약 검색의 정량법 계산식과 같다). 넘으면 두 줄 그대로 둔다
+_FORMULA_MERGE_MAX = 10 ** 9  # 합친 줄의 글자 수 상한: 두지 않는다(모든 수식줄을 길이와 상관없이 한 줄로 합친다. 화면에서는 폭에 맞춰 줄바꿈된다)
 
 
 def _merge_formula_lines(blocks):
     """정량법 계산식을 한 줄로 합친다(생약 검색의 정량법과 같다):
        "가벡세이트메실산염 (...)의 양 (mg)"            "X의 양 (mg) = 표준품의 양 (mg) × Q_T/Q_S"
        "= 표준품의 양 (mg) × Q_T/Q_S"           ->   (가운데 정렬 한 줄)
-    앞 줄이 "=" 로 끝나고 다음 줄이 수식뿐인 경우("아니시딘가 =" / 수식)도 합친다. 합친 글이 너무 길면 두 줄 그대로 둔다."""
+    앞 줄이 "=" 로 끝나고 다음 줄이 수식뿐인 경우("아니시딘가 =" / 수식)도 합친다."""
     out = []
     for b in blocks:
         prev = out[-1] if out else None
@@ -720,6 +742,10 @@ def _merge_formula_lines(blocks):
             eq_first = b_pl.startswith("=") and not a_pl.startswith("=") and not prev.get("merged")
             eq_tail = a_pl.endswith("=") and "kp-eq" in b["html"] and not b_pl[:1].isalpha() and not prev.get("merged")
             centered = prev.get("al") == "c" or (prev.get("sty") or "").lstrip("* ").startswith("대응량")
+            # 원문에서 "…의 양 (mg)" 줄이 가운데 정렬이 아니라 양쪽/왼쪽 정렬로 되어 있는 경우도 있다. 다음 줄이 "=" 로 시작하면 그 줄은
+            # 앞 줄(식의 왼쪽)에 이어지는 식이므로, 앞 줄이 문장이 아닌 짧은 줄(마침표/"다"/":" 로 끝나지 않음)이면 가운데 정렬로 보고 합친다.
+            if not centered and eq_first and 0 < len(a_pl) <= 110 and "=" not in a_pl and not a_pl.endswith((".", "다", ":", ";")):
+                centered = True
             # 앞 줄이 "... (mg) = ... 의 양 (mg) ×" 처럼 연산자로 끝나고 다음 줄이 수식(분수)뿐인 경우도 이어 붙인다
             eq_only = bool(re.fullmatch(r'\s*<span class="kp-eq">.*</span>\s*', b["html"], re.S))
             # 수식 개체가 아니라 "(A_T / A_S)" 처럼 아래첨자 글자로 쓴 짧은 식 줄(한글 없음)도 같다
@@ -790,7 +816,9 @@ def _sections_html(blocks):
 
 
 def _flat_html(blocks):
-    return "".join(block_html(b, heading=bool(b.get("hd"))) for b in _apply_hierarchy(_center_figures_captions(blocks)))
+    # 일반시험법/일반정보 등 본문도 의약품각조와 같이 수식줄을 한 줄로 합치고, 계산식 덩어리의 위아래에 빈 줄 한 줄씩 띄운다
+    bs = _space_formula_lines(_apply_hierarchy(_merge_formula_lines(_center_figures_captions(blocks))))
+    return "".join(block_html(b, heading=bool(b.get("hd"))) for b in bs)
 
 
 # ---- 항목 나누기 ------------------------------------------------------------------------------
@@ -861,16 +889,40 @@ def _segment_drugs(docno, blocks, part):
             entries.append(cur)
             continue
         if sty == "* 큰제목":
-            title = re.sub(r"^\s*\d+\)\s*", "", b["plain"]).strip()
+            # 분류 이름은 번호까지 그대로 둔다("2) 생물학적제제 등"): 목록의 품목 이름 아래 줄에 이 분류가 나온다
+            title = _WS_RE.sub(" ", b["plain"]).strip()
             if title and docno == 4:
                 group = title
                 cur = None
             i += 1
             continue
+        # 제목 스타일이 "바탕글"/"의약품명"(별표 없음)/"항목"/"머리말" 등으로 달라 위에서 못 알아본 새 품목: 앞 품목의 항목명(성상, 저장법 ...)이
+        # 이미 나온 뒤에, 큰 글자(1050~1300)의 가운데 정렬 한글 제목 한 줄 + 바로 다음 같은 모양의 영문 제목 한 줄이 오면 새 품목이다.
+        # (수식 줄은 글자가 더 크고 "=" 가 있어 걸리지 않는다.)
+        if cur is not None and i + 1 < n and _is_title_pair(blocks[i], blocks[i + 1]) and any(x.get("lab") for x in cur["blocks"]):
+            ko, en = _WS_RE.sub(" ", b["plain"]).strip(), _WS_RE.sub(" ", blocks[i + 1]["plain"]).strip()
+            cur = _new_entry(docno, ko, en, group=group, part=part)
+            entries.append(cur)
+            i += 2
+            continue
         if cur is not None:
             cur["blocks"].append(b)
         i += 1
     return entries
+
+
+def _is_title_pair(b, nb):
+    """큰 글자(1050~1300) 가운데 정렬 한글 제목 줄(b) + 바로 다음 같은 모양의 영문 제목 줄(nb)인가."""
+    def big_center(x):
+        return x["k"] == "p" and 1050 <= x.get("vs", 0) < 1300 and x.get("al") == "c" and not x.get("lab")
+    if not (big_center(b) and big_center(nb)):
+        return False
+    ko, en = b["plain"].strip(), nb["plain"].strip()
+    return (
+        bool(ko) and bool(en) and len(ko) < 80 and len(en) < 160
+        and bool(_HANGUL_RE.search(ko)) and not _LATIN_RE.match(ko[:1]) and "=" not in ko
+        and bool(_LATIN_RE.search(en)) and not _HANGUL_RE.search(en) and "=" not in en
+    )
 
 
 def _segment_numbered(docno, blocks, start_after_style=None, min_vs=1050):
