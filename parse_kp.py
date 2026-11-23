@@ -429,6 +429,26 @@ class _Ctx:
                 hdr_rows.add(1)
                 if len(rows) > 2 and any(c[1] > 1 for c in rows[1]) and len(rows[2]) >= 2:  # 위 칸을 묶은 머리(겔 형성틀의 부피 ...) 아래의 열 머리도
                     hdr_rows.add(2)
+        # 머리가 두 줄 이상인 표: 원문은 맨 윗줄에만 머리 표시를 하고, 그 줄 머리 칸이 아래로 합쳐(rowspan) 두 번째 줄 이하까지 덮는다
+        # ("제제구분/미생물"이 두 줄에 걸치고 "판정기준" 밑에 "14 일 후 | 28 일 후"가 놓인 표). 그 덮인 줄들도 머리 행으로 본다.
+        # 왼쪽 위 빈 칸이 아래로 합쳐진 처방 배합표("덱스트란 40 ... / 전체량")나 왼쪽 이름칸 하나가 합쳐진 목록은 머리가 아니므로, 글이 있는 합친 칸이 둘 이상이거나
+        # 글이 있는 가로로 합친 칸(판정기준)이 같이 있는 머리 줄에서만, 그리고 테두리가 있는 표에서만 넓힌다.
+        if hdr_rows and any(sum(c[5]) > 0 for r_ in rows for c in r_):
+            extra = set()
+            for r_i in sorted(hdr_rows):
+                spans = [c for c in rows[r_i] if c[2] > 1 and c[8].strip()]
+                if any(c[8].strip().endswith("=") or c[8].strip().startswith("×") for c in rows[r_i]):
+                    continue  # "과산화물가 = / 분자 / × 10" 처럼 표로 그린 분수식은 머리가 아니다(황납)
+                if spans and (len(spans) >= 2 or any(c[1] > 1 and c[8].strip() for c in rows[r_i])):
+                    for k in range(r_i + 1, min(len(rows), r_i + max(c[2] for c in spans))):
+                        extra.add(k)
+            # 머리 줄이 "① ② ③ ..." 번호뿐이면 그 아래 줄(항목 이름)도 머리다
+            last_h = max(hdr_rows)
+            if last_h + 1 < len(rows) and last_h + 1 not in hdr_rows:
+                texts = [c[8].strip() for c in rows[last_h] if c[8].strip()]
+                if len(texts) >= 3 and sum(1 for t_ in texts if re.fullmatch(r"[①-⑳㉑-㉟]", t_)) >= len(texts) - 1:
+                    extra.add(last_h + 1)
+            hdr_rows |= extra
         total = sum(widths.values())
         tw = 0
         szt = tbl.find(HP + "sz")
