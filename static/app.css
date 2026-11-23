@@ -298,7 +298,7 @@
     justify-content: center;
     width: 24px;
     height: 24px;
-    margin: -2px -4px -2px 0;
+    margin: -2px -15px -2px 0;  /* 오른쪽 -15px: 줄의 오른쪽 안쪽 여백(16px)을 거의 지나, 카드 오른쪽 끝과 2px 사이만 남긴다 */
     padding: 0;
     font-family: inherit;
     line-height: 1;
@@ -443,9 +443,20 @@
   .detail-placeholder {
     height: calc(100vh - 180px);
     min-height: 200px;
-    background: var(--card) url("herb_illustration.svg") no-repeat center bottom / contain;
+    position: relative;
+    background: var(--card);
     border: 1px dashed var(--border);
     border-radius: 12px;
+  }
+  /* 배경 그림은 대한민국약전 검색 화면과 같은 크기·위치: 칸의 가로세로 35% 크기의 칸 안에 contain 으로 넣고, 그 칸을 가운데에 둔다 */
+  .detail-placeholder::after {
+    content: "";
+    position: absolute;
+    left: 32.5%;
+    top: 32.5%;
+    width: 35%;
+    height: 35%;
+    background: url("herb_illustration.svg") no-repeat center center / contain;
   }
   .detail-placeholder.hide { display: none; }
   .detail-header {

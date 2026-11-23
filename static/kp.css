@@ -30,7 +30,7 @@
 /* 최근 본 항목의 삭제(×) 버튼: 배경(마우스를 올렸을 때)이 원형 */
 .kp-site .quick-del {
   display: inline-flex; align-items: center; justify-content: center;
-  width: 24px; height: 24px; padding: 0; margin: -2px -4px -2px 0;
+  width: 24px; height: 24px; padding: 0; margin: -2px -15px -2px 0;  /* 카드 오른쪽 끝과 2px 사이(생약 검색과 같다) */
   border-radius: 50%; line-height: 1;
 }
 .kp-site .quick-del svg { display: block; pointer-events: none; }  /* × 는 글자가 아니라 그림이라 원의 한가운데에 놓인다 */
