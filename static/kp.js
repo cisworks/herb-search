@@ -606,7 +606,14 @@ document.addEventListener('click', (ev) => {
 });
 
 async function selectFromCombo(c, it) {
-  closeDropdown(c);
+  if (c.tab === 'drug') {
+    // 의약품등 검색칸의 전체 목록은(분류별이든 아니든) 품목을 눌러도 닫지 않는다(펼쳐 둔 분류와 스크롤 위치가 그대로 유지된다). 고른 줄만 표시한다
+    c.dropdown.querySelectorAll('.result-item.kb-active').forEach(el => el.classList.remove('kb-active'));
+    const row = c.dropdown.querySelector(`.result-item[data-id="${it.id}"]`);
+    if (row) row.classList.add('kb-active');
+  } else {
+    closeDropdown(c);
+  }
   if (c.tab === 'ref') {
     await renderRefSelection(it);
     await showEntry(it.id);

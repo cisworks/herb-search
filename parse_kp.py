@@ -1266,8 +1266,9 @@ def _tags_balanced(frag):
     return not stack
 
 
-def _column_row(part):
-    """문단 HTML 한 줄이 "이름 <탭> 값 <탭> 단위" 같은 열 맞춤 줄이면 (왼쪽 여백 em, [칸 HTML ...]), 아니면 None."""
+def _column_row(part, lead_ok=False):
+    """문단 HTML 한 줄이 "이름 <탭> 값 <탭> 단위" 같은 열 맞춤 줄이면 (왼쪽 여백 em, [칸 HTML ...]), 아니면 None.
+    lead_ok: 줄이 탭으로 시작해도(첫 칸이 비어도) 열 맞춤 줄로 본다(제법 표의 첫 줄)."""
     m = _P_PART_RE.match(part)
     if not m:
         return None
@@ -1281,7 +1282,7 @@ def _column_row(part):
     # \ud0ed\uc744 \uba87 \ubc88 \ub20c\ub800\ub294\uc9c0\ub294 \uc55e \uae00\uc790 \uae38\uc774\uc5d0 \ub530\ub77c \ub2ec\ub77c\uc9c0\ubbc0\ub85c(\ud0ed \uc704\uce58\uc5d0 \ub9de\ucd94\ub824\uace0 \uae38\uc774\uc5d0 \ub530\ub77c 1~3\ubc88) \uc5f0\uc18d\ud55c \uad6c\ubd84(\ube48 \uce78)\uc740 \ud55c \uad6c\ubd84\uc73c\ub85c \ubcf4\uace0,
     # \uae00\uc774 \uc788\ub294 \uce78\ub9cc \ucc28\ub840\ub300\ub85c 1\uc5f4, 2\uc5f4, ... \ub85c \uc13c\ub2e4
     kept = [(c, p_) for c, p_ in zip(cells, plain) if p_]
-    if len(kept) < 2 or not plain[0] or len(kept) > 8:
+    if len(kept) < 2 or (not plain[0] and not lead_ok) or len(kept) > 8:
         return None
     cells, plain = [c for c, _ in kept], [p_ for _, p_ in kept]
     # 수치와 단위는 별도 열로 떼지 않고 공백 하나만 두고 붙여 한 칸으로 쓴다("0.5", "g" -> "0.5 g", "5.0  g" -> "5.0 g")
@@ -1307,20 +1308,27 @@ def _column_row(part):
     return (ml.group(1) if ml else "0"), cells
 
 
+_RULE_PART_RE = re.compile(r'^<p class="kp-p[^"]*"[^>]*>\s*[─━―\-]{5,}\s*</p>$')  # 가로선만 있는 줄(제법 표의 "전체량" 위)
 _NUM_PARSE_RE = re.compile(r"^(?P<i>\d[\d,]*)(?P<f>\.\d+)?(?:[  ]*(?P<u>.+))?$")
 
 
-def _aligned_rows_html(rows):
+def _aligned_rows_html(rows, recipe=False):
     """열 맞춤 표의 줄들(칸 HTML 목록)을 <tr> HTML 로 바꾼다. 수치가 든 열은 소수점이 세로로 맞게 "정수부(오른쪽 정렬) | 소수부(왼쪽 정렬) | 단위(왼쪽 정렬)" 세 칸으로
     나눈다. 그러면 소수점과 단위의 가로 위치가 모든 줄에서 같고, 수치와 단위 사이의 간격은 열 사이 여백이 정한다(공백 하나로 한정하지 않는다)."""
-    ncol = max(len(r) for r in rows)
+    real = [r for r in rows if r is not None]  # None 은 가로선 줄(제법 표)
+    ncol = max(len(r) for r in real)
     numeric = []
     for k in range(ncol):
-        vals = [r[k] for r in rows if len(r) > k]
+        vals = [r[k] for r in real if len(r) > k]
         ok = sum(1 for c in vals if "<" not in c and _NUM_PARSE_RE.match(html.unescape(c).replace(" ", " ").strip()))
-        numeric.append(len(vals) >= 1 and ok >= 1 and ok / len(vals) > 0.6)
+        # 제법 표는 "적당량" 같은 글이 섞여도(절반 가까이 되어도) 수치가 하나라도 있으면 수치 열로 본다
+        numeric.append(len(vals) >= 1 and ok >= 1 and (ok / len(vals) > 0.6 or (recipe and k == ncol - 1)))
     out = []
+    span = sum(3 if num else 1 for num in numeric)
     for r in rows:
+        if r is None:
+            out.append(f'<tr class="rule"><td colspan="{span}"></td></tr>')
+            continue
         tds = []
         for k, c in enumerate(r):
             m = None
@@ -1345,19 +1353,46 @@ def _align_tab_columns(parts):
         nonlocal run
         if len(run) >= 2:
             ml = run[0][1][0]
-            rows = _aligned_rows_html([r[1][1] for r in run])
-            out.append(f'<table class="kp-aligntbl"{f" style=margin-left:{ml}em" if ml != "0" else ""}>{rows}</table>')
+            recipe = any(r[1][1] is None for r in run)
+            cells_rows = [r[1][1] for r in run]
+            if recipe:  # 제법 표는 "이름 | 값" 두 칸: 이름 안에 탭이 있으면("파라옥시벤조산에틸 또는 ⇥ 파라옥시벤조산메틸") 이름 한 칸으로 합친다
+                cells_rows = [r if (r is None or len(r) <= 2) else [" ".join(c.strip() for c in r[:-1]), r[-1]] for r in cells_rows]
+                # 이름 안의 줄바꿈("파라옥시벤조산에틸 또는 <br> 파라옥시벤조산메틸")도 없애 한 줄로 합친다
+                cells_rows = [r if r is None else [re.sub(r"\s*<br\s*/?>\s*", " ", r[0])] + list(r[1:]) for r in cells_rows]
+            rows = _aligned_rows_html(cells_rows, recipe=recipe)
+            cls = "kp-aligntbl kp-recipe" if recipe else "kp-aligntbl"
+            out.append(f'<table class="{cls}"{f" style=margin-left:{ml}em" if ml != "0" else ""}>{rows}</table>')
         else:
             out.extend(r[0] for r in run)
         run = []
 
-    for part in parts:
-        row = _column_row(part) if part.startswith("<p ") else None
+    # 제법 표: 가로선 줄(───)의 위쪽 줄들(첫 줄은 탭으로 시작하기도 한다)과 아래쪽 줄(전체량)은 가로선과 함께 표 하나로 묶는다
+    lead_rows = [_column_row(p, lead_ok=True) if p.startswith("<p ") else None for p in parts]
+    rule = [bool(_RULE_PART_RE.match(p)) for p in parts]
+    recipe = set()
+    for i, is_rule in enumerate(rule):
+        if not is_rule or i == 0 or lead_rows[i - 1] is None:
+            continue
+        recipe.add(i)
+        j = i - 1
+        while j >= 0 and lead_rows[j] is not None:
+            recipe.add(j)
+            j -= 1
+        k = i + 1
+        while k < len(parts) and lead_rows[k] is not None:
+            recipe.add(k)
+            k += 1
+
+    for idx, part in enumerate(parts):
+        if idx in recipe:
+            row = ((run[0][1][0] if run else "0"), None) if rule[idx] else lead_rows[idx]
+        else:
+            row = _column_row(part) if part.startswith("<p ") else None
         if row is None:
             flush()
             out.append(part)
             continue
-        if run and run[0][1][0] != row[0]:
+        if run and run[0][1][0] != row[0] and not rule[idx]:
             flush()
         run.append((part, row))
     flush()

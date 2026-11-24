@@ -183,6 +183,17 @@
 .kp-body .kp-aligntbl td.nf { text-align: left; padding-right: 0.7em; }
 .kp-body .kp-aligntbl td.nu { text-align: left; }
 
+/* 제법 표(의약품각조): 왼쪽 이름은 왼쪽 정렬, 오른쪽 수치·단위는 세로로 같은 위치, "적당량" 같은 글은 오른쪽 끝에 맞추고,
+   가로선(───)은 표 너비 전체를 긋되 위아래 줄과 간격 없이 붙인다 */
+.kp-body table.kp-recipe { width: max-content; min-width: min(100%, 22em); max-width: none; margin-bottom: 0.4em; }
+.kp-body .kp-recipe td:first-child { white-space: nowrap; padding-right: 2em; }  /* 왼쪽 성분 이름("파라옥시벤조산에틸 또는 파라옥시벤조산메틸")은 한 줄로 둔다 */
+@media (max-width: 520px) { .kp-body .kp-recipe td:first-child { white-space: normal; } }  /* 아주 좁은 화면에서는 이름이 줄을 바꾼다 */
+.kp-body .kp-recipe td { padding-top: 0; padding-bottom: 0; line-height: 1.6; }
+.kp-body .kp-recipe td:first-child { width: 100%; }
+.kp-body .kp-recipe td[colspan] { text-align: right; }
+.kp-body .kp-recipe td:not(:first-child) { white-space: nowrap; }  /* 오른쪽 수치·단위("1000 mL", "적당량")는 줄을 바꾸지 않는다(좁은 화면에서는 왼쪽 이름이 줄을 바꾼다) */
+.kp-body .kp-recipe tr.rule td { padding: 0; height: 1px; line-height: 0; font-size: 0; background: var(--text, #25292f); }
+
 /* 그림 설명 안의 범례 표 둘 이상: 원문처럼 한 줄에 나란히 */
 .kp-body .kp-tblrow { display: flex; justify-content: center; align-items: flex-start; gap: 1.5em; flex-wrap: wrap; margin: 8px 0; }
 .kp-body .kp-tblrow .kp-tblwrap { margin: 0; flex: 0 0 auto; overflow: visible; }
