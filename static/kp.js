@@ -350,7 +350,7 @@ async function getList(tab) {
 // 오른쪽 설명창 이름 오른쪽의 파일 구분: 각조 제2부는 분류까지 "각조 제2부 · 5) 첨가제" 처럼 보인다. 글자 크기 버튼이 이 글자 끝에 이어진다.
 function detailPartHtml(it) {
   if (it.kind === 'drug') {
-    const text = it.doc === 4 && it.group ? `${it.part} · ${it.group}` : it.part;
+    const text = it.doc === 4 && it.group ? `${it.part} ${it.group}` : it.part;
     return `<span class="source-part">${escapeHtml(text)}</span>`;
   }
   return `<span class="source-part">${escapeHtml(it.cat)}</span>`;

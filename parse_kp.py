@@ -894,18 +894,23 @@ def block_html(b, heading=False):
         # 번호/가나다 계층에 맞춘 들여쓰기(_apply_hierarchy): 깊이마다 한 단계 안쪽, 기호 줄은 기호 폭만큼 내어쓰기
         depth, hang, marked = hi
         ml, ti = depth * _HI_STEP + hang, (-hang if marked else 0.0)
-    elif b.get("term_hang"):
+    elif b.get("term_hang") is not None:
         hang = b["term_hang"]  # 용어 묶음(92-x): 첫 줄은 왼쪽 끝, 이어지는 줄은 딸린 단락(융점, 비선광도 ...)의 들여쓰기와 같은 위치
         ml, ti = left / 900.0 + hang, -hang
     elif ind < 0:
         # 내어쓰기(첫 줄만 왼쪽, 나머지 줄은 안쪽)는 번호 기호로 시작하는 문단에만 적용한다. 항목명 뒤나 일반 문장에 쓰면 줄마다 들쑥날쑥해 보인다.
         if _MARK_RE.match(plain.strip()) and b["al"] != "c":
             hang = min(-ind / 900.0, 3.0)
+            mk = re.match(r'\s*(?:<[^>]+>)*<span class="kp-mk" style="min-width:([\d.]+)em"', b["html"]) if b.get("hang_text") else None
+            if mk:
+                hang = float(mk.group(1))  # 이어지는 줄을 기호 뒤 본문이 시작하는 위치(기호 칸 폭)에 맞춘다
             ml, ti = left / 900.0 + hang, -hang
         else:
             ml, ti = left / 900.0, 0.0
     else:
         ml, ti = left / 900.0, ind / 900.0
+    if b.get("hang_sym"):
+        ml, ti = ml + ti + b["hang_sym"], -b["hang_sym"]  # "M : 설명" 줄: 첫 줄은 그대로, 이어지는 줄은 설명이 시작하는 위치(기호 칸 폭)
     if b["al"] == "c":  # 가운데 정렬 문단은 들여쓰기를 쓰지 않는다
         ml, ti = 0.0, 0.0
     ml = min(max(ml, 0), 9)
@@ -938,6 +943,8 @@ def block_html(b, heading=False):
         cls += " kp-h2"
     if b.get("h3"):
         cls += " kp-h3"
+    if b.get("blue"):
+        cls += " kp-top-blue"  # 테마색(파랑) 글자 (static/kp.css)
     st =f' style="{";".join(style)}"' if style else ""
     return f'<p class="{cls}"{st}>{b["html"]}</p>'
 
@@ -958,6 +965,7 @@ _HI_KINDS = [
     ("bul", re.compile(r"^[○◦•]\s?"), 1.3),
 ]
 _HI_STEP = 1.9  # 한 층 들어가는 폭(em)
+_HEAD_KINDS = ["kor.", "(num)", "(kor)"]  # 굵은 번호 소제목 단계(가. > (1) > (가)): _fix_glyco_entry
 
 
 def _apply_hierarchy(blocks):
@@ -987,16 +995,31 @@ def _apply_hierarchy(blocks):
                 width[mk[0]] = max(width.get(mk[0], 0), _marker_width(mk[1]))
     # 2차: 층과 들여쓰기를 붙이고, 기호 뒤의 공백은 지워 기호를 고정 폭 칸에 넣는다
     stack = []  # 바깥 -> 안쪽 기호 종류
+    head_stack = []  # 바로 앞 소제목(hl)의 층(제목 단계를 따로 지정한 항목에서만 쓴다)
     out = []
     for b in blocks:
         if not eligible(b):
             out.append(b)
             continue
         if b.get("hd") or b.get("top"):  # 소제목, 또는 지정한 상위 항목(_TOP_HEADINGS): 맨 바깥에 놓고 번호 계층을 처음부터 센다
-            stack = ["_top"] if b.get("nest") else []  # nest: 상위 항목 아래 번호 항목들을 한 층 안쪽에 놓는다("1. 확인시험" 아래 "1)" 와 같은 위치)
+            stack = ["_top"] if b.get("nest") else []
+            head_stack = list(stack)  # nest: 상위 항목 아래 번호 항목들을 한 층 안쪽에 놓는다("1. 확인시험" 아래 "1)" 와 같은 위치)
             out.append(b)
             continue
+        if b.get("pop_stack") is not None and stack:
+            del stack[b["pop_stack"]:]  # 지정한 줄은 번호 계층을 바깥 단계(앞에서 몇 개만 남김)로 되돌린 위치에 놓는다(0이면 맨 바깥, 들여쓰기 없음)
+            out.append(dict(b, hi=(len(stack) - 1, width.get(stack[-1], 0.0), False)) if stack else b)
+            continue
         mk = marker_of(b)
+        if b.get("hh"):
+            # 제목 단계를 따로 지정한 항목(굵은 번호 소제목의 단계 hl): 소제목은 그 단계의 층에 놓고, 굵지 않은 목록 번호는 바로 앞 소제목 아래 한 층 더 안쪽에,
+            # 기호 없는 일반 문단은 바로 앞 소제목의 본문 위치에 둔다(목록 뒤에 와도 목록 안으로 들어가지 않는다)
+            if b.get("hl"):
+                stack = _HEAD_KINDS[: b["hl"] - 1]
+            elif mk:
+                stack = list(head_stack)
+            else:
+                stack = list(head_stack)
         if mk:
             k = mk[0]
             if k in stack:
@@ -1007,6 +1030,8 @@ def _apply_hierarchy(blocks):
             nb = dict(b, hi=(len(stack) - 1, w, True))
             nb["html"] = _wrap_marker(b["html"], mk[1], w)
             out.append(nb)
+            if b.get("hl"):
+                head_stack = list(stack)
         elif stack and not b.get("lab"):
             out.append(dict(b, hi=(len(stack) - 1, width.get(stack[-1], 0.0), False)))
         else:
@@ -1694,7 +1719,57 @@ def _close_term_group(out):
             return
 
 
-def _flat_html(blocks, top_gaps=False, explicit_tops=False, terms=False, no_first_indent=False):
+_SYM_LINE_RE = re.compile(r"^\s*((?:<i>[^<]*</i>(?:<sub>[^<]*</sub>)?)+)[  ]*:[  ]*(?=\S)")
+
+
+def _hang_symbol_lines(bs):
+    """일반시험법 92-3(용량분석용표준액) 전용 정리.
+    1) 용어 줄(조제 및 표정, 조제, 표정 ...)의 내어쓰기를 없앤다.
+    2) "M : 표준액조제에 ..." 처럼 기호(기울임 글자) + " : " + 설명인 줄은, 이어지는 줄을 설명이 시작하는 위치에 맞춘다(같은 묶음은 같은 위치).
+    3) 그 밖의 들여 쓴 일반 문단("1000 mL 중 ... 함유한다." 등)은 왼쪽 끝에서 시작한다."""
+    out = []
+    for b in bs:
+        if b["k"] != "p" or b.get("al") == "c":
+            out.append(b)
+            continue
+        if b.get("term_hang"):
+            out.append(dict(b, term_hang=0))
+            continue
+        m = _SYM_LINE_RE.match(b["html"]) if (b.get("left", 0) > 0 or b.get("ind", 0) > 0) and b.get("hi") is None and not b.get("term_hang") else None
+        if m and len(re.sub(r"<[^>]+>", "", m.group(1)).strip()) <= 6:
+            sym = m.group(1)
+            w = 0.58 + 0.3  # 콜론 + 공백, 기호와 설명 사이 간격
+            for ch in html.unescape(re.sub(r"<[^>]+>", "", sym)).strip():  # 기호 글자의 대략적인 폭(em)
+                w += 0.72 if ch.isupper() else 0.82 if ch in "mw" else 0.4 if ch.isdigit() else 0.5
+            out.append(dict(b, sym=(sym, b["html"][m.end():], w)))
+            continue
+        hi = b.get("hi")
+        if hi is not None and not hi[2] and not b.get("term_ind"):
+            b = dict(b, hi=None, left=0, ind=0)  # 번호 항목 바로 뒤에 붙은 기호 없는 문단("1000 mL 중 ... 함유한다.")은 들여 쓰지 않는다
+        elif b.get("left", 0) > 0 and hi is None and not b.get("term_ind") and b.get("ind", 0) >= 0 and not _MARK_RE.match(b["plain"].strip()):
+            b = dict(b, left=0)
+        out.append(b)
+    # 기호 줄 묶음(바로 이어진 줄들)은 가장 넓은 기호 폭에 맞춘다
+    res, i = [], 0
+    while i < len(out):
+        if out[i].get("sym"):
+            j = i
+            while j < len(out) and out[j].get("sym"):
+                j += 1
+            w = max(x["sym"][2] for x in out[i:j])
+            for x in out[i:j]:
+                sym, rest, _w = x["sym"]
+                nb = dict(x, html=f'<span class="kp-mk" style="min-width:{w:.2f}em">{sym.rstrip()} :</span>{rest}', hang_sym=w)
+                nb.pop("sym")
+                res.append(nb)
+            i = j
+        else:
+            res.append(out[i])
+            i += 1
+    return res
+
+
+def _flat_html(blocks, top_gaps=False, explicit_tops=False, terms=False, no_first_indent=False, hang_to_text=False, no_indent=False):
     blocks = _split_heading_marker(blocks)
     # 일반시험법/일반정보 등 본문도 의약품각조와 같이 수식줄을 한 줄로 합치고, 계산식 덩어리의 위아래에 빈 줄 한 줄씩 띄운다
     bs = _space_formula_lines(_apply_hierarchy(_merge_formula_lines(_center_figures_captions(blocks))))
@@ -1702,6 +1777,13 @@ def _flat_html(blocks, top_gaps=False, explicit_tops=False, terms=False, no_firs
         bs = _style_terms(bs)
     if top_gaps and not terms:  # 92-x(표준품, 시약·시액 ...)는 용어 묶음 간격(_style_terms)을 쓰고, 최상위 항목 빈 줄은 쓰지 않는다
         bs = _mark_top_gaps(bs, explicit_tops)
+    if no_indent:
+        # 모든 들여쓰기(왼쪽 여백, 첫 줄 들여쓰기, 내어쓰기, 용어 묶음의 안쪽 여백)를 없앤다
+        bs = [dict(b, left=0, ind=0, term_ind=0, hi=None, **({"term_hang": 0} if b.get("term_hang") is not None else {})) if b["k"] == "p" else b for b in bs]
+    if hang_to_text:
+        # 번호·기호가 있는 줄의 이어지는 줄은 기호 뒤 본문이 시작하는 위치에 맞춘다(기호 칸 폭만큼만 내어쓴다)
+        bs = [dict(b, hang_text=True) if b["k"] == "p" else b for b in bs]
+        bs = _hang_symbol_lines(bs)
     if no_first_indent:
         # 일반시험법: 원문이 문단 첫 줄을 들여 쓴 곳(첫 줄 들여쓰기 > 0)도 모두 왼쪽 끝에서 시작한다(내어쓰기·번호 계층·왼쪽 여백은 그대로)
         bs = [dict(b, ind=0) if (b["k"] == "p" and b.get("ind", 0) > 0) else b for b in bs]
@@ -1988,7 +2070,12 @@ _TOP_HEADINGS = {
     (5, "생약시험법"): ["검체 채취", "분석용 검체 조제", "현미경 시험", "순도시험"],
     (5, "소화력시험법"): ["전분소화력시험법", "단백소화력시험법", "지방소화력시험법"],
     (5, "금속(원소)불순물시험법"): ["검체의 전처리", "시험법", "시험법의 밸리데이션 요건", "용어"],  # 원문에서 "시 험 법"처럼 글자 사이를 띄운 것도 공백을 뺀 이름으로 맞춘다
-    (5, "미생물한도시험법"): ["Ⅰ.", "Ⅱ."],  # "Ⅰ. 비무균제품의 미생물학적시험 : 생균수시험", "Ⅱ. ... : 특정미생물시험" (굵은 글씨가 "Ⅰ. " 와 제목으로 나뉘어 있어 앞 조각으로 알아본다)
+    (5, "미생물한도시험법"): ["Ⅰ.", "Ⅱ.", "Ⅲ. 비무균 의약품의 미생물학적 품질 특성"],  # "Ⅰ. 비무균제품의 미생물학적시험 : 생균수시험", "Ⅱ. ... : 특정미생물시험", "Ⅲ. 비무균 의약품의 미생물학적 품질 특성" (굵은 글씨가 "Ⅰ. " 와 제목으로 나뉘어 있어 앞 조각으로 알아본다)
+    (6, "효소 결합 면역흡착 분석법(ELISA)"): ["분석법 개발 및 밸리데이션 계획"],  # 일반정보 43: 9. 절차 아래에 들어가 있던 굵은 제목을 최상위로
+    (6, "유세포 분석법"): ["작동원리, 방법, 품질 및 표준화", "세포 시료 및 세포치료제의 유세포분석 적용", "유세포 분석법 문제 해결"],
+    (6, "면역 블롯 분석법"): ["분석법 선정", "시험법 개발", "절차", "면역 블롯법의 데이터 분석", "시험법 밸리데이션"],
+    (6, "등전점 전기영동법"): ["기타 특정 변경", "주의", "시약·시액"],
+    (6, "당단백질의 당사슬분석법"): ["서론", "당단백질 생물의약품에서 당사슬분석과 분석법 선택", "당사슬분석법", "자료의 평가와 분석", "표준품", "분석법 개발 시 고려사항", "용어"],
     (5, "무기질시험법"): ["시액"],  # "1. 확인시험", "2. 정량법"과 같은 맨 바깥 항목(원문은 13) 크롬 아래의 안쪽 여백으로 적혀 있다)
 }
 
@@ -1997,8 +2084,173 @@ _TOP_HEADINGS = {
 _NEST_UNDER_TOP = {(5, "무기질시험법")}
 
 
+_NO_FIRST_INDENT = {(6, "유세포 분석법"), (6, "등전점 전기영동법")}  # 문단 첫 줄 들여쓰기(양수)를 없애는 일반정보 항목(일반시험법은 모두 없앤다)
+_BLUE_TOP = {(5, "미생물한도시험법"), (6, "유세포 분석법")}  # 최상위 항목 줄(Ⅰ. Ⅱ. Ⅲ.)을 파란색으로 칠할 항목
+
+
+_METAL_ENTRY = (6, "완제의약품 중 금속(원소)불순물 평가 및 관리")
+_EQ2_HTML = (  # 공식 (2): PDE(μg/day) ≥ Σ(k=1..N) Ck · Mk, 오른쪽 끝에 (2)
+    '<span class="kp-eqrow"><span class="kp-eq">PDE(μg/day) ≥ '
+    '<span class="eq-sum"><span class="eq-sup"><i>N</i></span><span class="eq-sig">∑</span><span class="eq-lim"><i>k</i>=1</span></span>'
+    ' C<sub><i>k</i></sub> · M<sub><i>k</i></sub></span><span class="kp-eqno">(2)</span></span>'
+)
+
+
+def _fix_metal_entry(entries):
+    """일반정보 26(완제의약품 중 금속(원소)불순물 평가 및 관리) 정리:
+    1) "4.2 금속불순물의 잠재적 기원", "4.3 ..." 소제목은 "4.1.", "4.4." 와 같이 마침표가 있는 번호로 보고 같은 계층(번호 칸 + 내어쓰기)에 둔다.
+    2) 공식 (2)의 그림(WMF)은 HTML 수식으로 바꾸고, "(2)" 를 번호 기호로 오인해 뒤 문단들(방법 3 ...)이 깊게 들어가지 않게 가운데 줄(수식)로 둔다."""
+    for e in entries:
+        if (6, e["ko"]) != _METAL_ENTRY:
+            continue
+        for n, b in enumerate(e["blocks"]):
+            if b["k"] != "p":
+                continue
+            if re.match(r"^\s*4\.[23]\s+[가-힣]", b["plain"]) and re.match(r"\s*<b>\s*4\.[23]\s", b["html"]):
+                e["blocks"][n] = dict(b, html=re.sub(r"(<b>\s*4\.[23])\s+", r"\1.", b["html"], count=1), plain=re.sub(r"^(\s*4\.[23])\s+", r"\1.", b["plain"]))
+            elif "image52" in b["html"] and b["plain"].strip() in ("(2)", ""):
+                e["blocks"][n] = dict(b, html=_EQ2_HTML, plain="PDE(μg/day) ≥ ∑ Ck · Mk (2)", al="c", left=0, ind=0, hi=None)
+
+
+_ALKYL_ENTRY = (6, "알킬설폰산에스테르류 분석법")
+
+
+def _fix_alkyl_entry(entries):
+    """일반정보 24(알킬설폰산에스테르류 분석법): 번호 제목줄 바로 밑 본문줄("메탄설폰산 중 알킬(메틸, 에틸, 이소프로필) 메탄설포네이트류 분석법은 ...")에서
+    제목을 되풀이해 굵게 쓴 글자를 보통 굵기로 바꾼다."""
+    for e in entries:
+        if (6, e["ko"]) != _ALKYL_ENTRY:
+            continue
+        for n, b in enumerate(e["blocks"]):
+            if b["k"] == "p" and re.match(r"^\s*(?:원료의약품|메탄설폰산)\s*중\s*알킬.*분석법은", b["plain"]) and "<b>" in b["html"]:
+                e["blocks"][n] = dict(b, html=re.sub(r"</?b>", "", b["html"]))
+
+
+def _fix_disinfect_entry(entries):
+    """일반정보 22(소독법 및 멸균법): "1.1 화학적 소독법" 아래의 번호 목록(1) ~ 12)) 뒤에 나오는 "1.2 물리적 소독법"이 목록의 안쪽 단계를 이어받아
+    깊게 들어가 보이므로, "1.1 ..." 과 같은 단계("1." 아래)로 되돌린다. 그 아래 (ⅰ) ~ (ⅳ) 줄도 같은 단계를 따른다."""
+    for e in entries:
+        if (6, e["ko"]) != (6, "소독법 및 멸균법"):
+            continue
+        for n, b in enumerate(e["blocks"]):
+            if b["k"] == "p" and re.match(r"^\s*1\.2\s+물리적\s*소독법", b["plain"]):
+                e["blocks"][n] = dict(b, pop_stack=1)
+
+
+_VIRUS_ENTRY = (6, "세포주로부터 생산된 생물의약품의 바이러스 안전성 평가")
+
+
+def _fix_virus_entry(entries):
+    """일반정보 21(세포주로부터 생산된 생물의약품의 바이러스 안전성 평가) 계층 정리:
+    - "Ⅰ.서론", "Ⅱ. ...", ..., "Ⅶ. 결론", "용어설명" 은 최상위 항목(_ROMAN_TOP, 파란색은 쓰지 않는다)
+    - Ⅰ 의 (1)~(3) 목록 뒤의 일반 본문 두 단락은 목록에 딸리지 않으므로 들여쓰지 않는다
+    - 표 1·3 아래 각주 번호 "4.", "5." 는 왼쪽 여백 때문에 번호 계층에서 빠져 있었으므로 다른 각주 번호와 같이 계층에 넣는다"""
+    for e in entries:
+        if (6, e["ko"]) != _VIRUS_ENTRY:
+            continue
+        for n, b in enumerate(e["blocks"]):
+            if b["k"] != "p":
+                continue
+            if re.match(r"^\s*(?:바이러스의 정량적 분석법은 한계|이 문서는 불활화 백신)", b["plain"]):
+                e["blocks"][n] = dict(b, pop_stack=0)
+            elif re.match(r"^\s*\d\.\s", b["plain"]) and b.get("left", 0) > 0:
+                e["blocks"][n] = dict(b, left=0)
+
+
+def _fix_ief_entry(entries):
+    """일반정보 9(등전점 전기영동법): "(1) ...", "(5) ..." 번호 줄 중 일부만 왼쪽 여백(5.22em)을 가져 번호 계층에서 빠져 있었다. 다른 "(2)", "(3)" 줄과
+    같이 계층에 넣는다(왼쪽 여백 0)."""
+    for e in entries:
+        if (6, e["ko"]) != (6, "등전점 전기영동법"):
+            continue
+        for n, b in enumerate(e["blocks"]):
+            if b["k"] == "p" and re.match(r"^\s*\(\d{1,2}\)\s", b["plain"]) and b.get("left", 0) > 0:
+                e["blocks"][n] = dict(b, left=0)
+
+
+_GLYCO_ENTRY = (6, "당단백질의 당사슬분석법")
+_GLYCO_LEVEL = {"kor.": 1, "(num)": 2, "(kor)": 3}  # 굵은 번호 소제목의 단계: 가. > (1) > (가)
+
+
+def _fix_glyco_entry(entries):
+    """일반정보 7(당단백질의 당사슬분석법) 제목글 계층 다시 세우기. 원문(hwpx)에는 문단 스타일 구분이 없고 모두 "바탕글"이라 굵은 글씨와 번호 모양으로 읽는다:
+    - 굵은 글씨의 줄 맨 앞 글자가 안쪽 여백 없이 시작하는 큰 제목(서론, 당단백질 생물의약품에서 ..., 당사슬분석법, 자료의 평가와 분석, 표준품, 분석법 개발 시
+      고려사항, 용어)이 최상위(_TOP_HEADINGS)
+    - 굵은 번호 소제목은 "가." (1단계) > "(1)" (2단계) > "(가)" (3단계). 굵지 않은 "1) 2) 3)"은 목록이라 제목 단계를 바꾸지 않는다
+    - 굵지 않은 일반 문단은 바로 앞 소제목의 본문 위치에 둔다(목록 뒤에 와도 목록 안으로 들어가지 않는다)
+    - 한 줄에 합쳐 있는 "다. ... 확인 (1) 분석물 수준의 ..." 은 두 소제목으로 나눈다"""
+    for e in entries:
+        if (6, e["ko"]) != _GLYCO_ENTRY:
+            continue
+        out = []
+        for b in e["blocks"]:
+            if b["k"] != "p":
+                out.append(b)
+                continue
+            m = re.match(r"^(.*?)[\s ]{2,}(\(1\)\s*[^<]*)(</b>.*)$", b["html"], re.S) if b["plain"].startswith("다.") else None
+            if m:
+                pm = re.match(r"^(.*?)[\s ]+(\(1\)\s.*)$", b["plain"], re.S)  # plain 은 공백이 하나로 합쳐져 있다
+                out.append(dict(b, html=m.group(1) + "</b>", plain=pm.group(1).strip() if pm else b["plain"]))
+                out.append(dict(b, html="<b>" + m.group(2).strip() + "</b>", plain=pm.group(2).strip() if pm else b["plain"]))
+                continue
+            out.append(b)
+        blocks = []
+        for b in out:
+            if b["k"] == "p":
+                b = dict(b, hh=True)
+                if b.get("left", 0) > 0:
+                    b["left"] = 0
+                if re.match(r"\s*<b>", b["html"]):
+                    for kind, rx, _w in _HI_KINDS:
+                        if kind in _GLYCO_LEVEL and rx.match(b["plain"].strip()):
+                            b["hl"] = _GLYCO_LEVEL[kind]
+                            break
+            blocks.append(b)
+        e["blocks"] = blocks
+
+
+def _number_glyco_heads(entries):
+    """일반정보 7의 최상위 제목 일곱 줄에 "1. ", "2. " ... 번호를 매긴다(_mark_top_headings 가 top 으로 표시한 뒤에 한다).
+    다른 번호 제목과 같이 번호는 고정 폭 칸에 넣고, 제목이 길어 줄이 바뀌면 번호 뒤 글자 위치에 맞춰 내어쓴다."""
+    for e in entries:
+        if (6, e["ko"]) != _GLYCO_ENTRY:
+            continue
+        n = 0
+        for i, b in enumerate(e["blocks"]):
+            if b["k"] == "p" and b.get("top"):
+                n += 1
+                e["blocks"][i] = dict(
+                    b,
+                    html=f'<span class="kp-mk" style="min-width:1.73em"><b>{n}. </b></span>' + b["html"],
+                    plain=f"{n}. " + b["plain"],
+                    ind=-1557,
+                )
+
+
+_ROMAN_RE = re.compile(r"^\s*(?:[IVX]{1,5}\.\s|[Ⅰ-Ⅻ]{1,2}\.\s*)")  # 영문 I, V, X 로 쓴 로마 숫자와 한 글자 로마 숫자(Ⅰ ~ Ⅻ)
+_NUM_TOP_RE = re.compile(r"^\s*\d{1,2}\s+[가-힣]")  # "1 개요", "2 시험방법 ..." (번호 뒤에 점이 없는 큰 항목)
+# 항목별로 최상위 항목(앞에 빈 줄, 파란색)으로 볼 줄의 모양. "I. 글리코펩타이드계 ...", "Ⅱ. ...", "1 개요" 따위
+_ROMAN_TOP = {
+    (6, "항생물질의 계와 류 분류"): _ROMAN_RE,
+    (6, "첨단바이오의약품 미생물 신속검출법"): _ROMAN_RE,
+    (6, "의약품등 시험방법 밸리데이션 가이드라인"): _NUM_TOP_RE,
+    (6, "근적외부스펙트럼(NIR:Near Infrared Spectrosropy) 측정법을 이용한 의약품 품질 관리 지침"): _ROMAN_RE,
+    _VIRUS_ENTRY: re.compile(r"^\s*(?:[Ⅰ-Ⅻ]{1,2}\.\s*|용어설명\s*$)"),
+}
+_ROMAN_NO_BLUE = {_VIRUS_ENTRY}  # 최상위로만 올리고 파란색은 칠하지 않는 항목
+
+
 def _mark_top_headings(docno, entries):
     for e in entries:
+        top_rx = _ROMAN_TOP.get((docno, e["ko"]))
+        if top_rx:
+            for b in e["blocks"]:
+                if b["k"] == "p" and top_rx.match(b["plain"]) and len(b["plain"]) <= 100 and not b["plain"].rstrip().endswith("."):
+                    b["top"] = True
+                    if (docno, e["ko"]) not in _ROMAN_NO_BLUE:
+                        b["blue"] = True
+                    if b.get("left", 0) > 0:
+                        b["left"] = 0  # 안쪽 여백을 두어 적은 줄도 맨 왼쪽에 놓는다
         heads = _TOP_HEADINGS.get((docno, e["ko"]))
         if not heads:
             continue
@@ -2012,8 +2264,74 @@ def _mark_top_headings(docno, entries):
                 b["top"] = True
                 if (docno, e["ko"]) in _NEST_UNDER_TOP:
                     b["nest"] = True
+                if (docno, e["ko"]) in _BLUE_TOP:
+                    b["blue"] = True
                 if b.get("left", 0) > 0:
                     b["left"] = 0  # 원문이 안쪽 여백을 두어 적은 상위 항목도 맨 왼쪽(깊이 0)에 놓는다
+
+
+# 일반시험법: 굵은 항목 이름("조 작 법", "장    치" ...)과 같은 줄에 이어지는 설명 사이의 탭(너비 2em)은 너무 넓어 보통 간격(_TERM_GAP)으로 바꾼다.
+# 탭 뒤에 글자가 이어질 때만(탭이 문단 끝이면 그대로 둔다).
+_HEAD_TAB_RE = re.compile(r'(?:<span class="kp-tab"></span></b>|</b><span class="kp-tab"></span>)(?!\s*(?:</|<p[ >]|<div|<table|<br|$))')
+
+_ELEMENTS = set("H He Li Be B C N O F Ne Na Mg Al Si P S Cl Ar K Ca Sc Ti V Cr Mn Fe Co Ni Cu Zn Ga Ge As Se Br Kr Rb Sr Y Zr Nb Mo Tc Ru Rh Pd Ag Cd In Sn Sb Te I Xe Cs Ba La Ce Pr Nd Pm Sm Eu Gd Tb Dy Ho Er Tm Yb Lu Hf Ta W Re Os Ir Pt Au Hg Tl Pb Bi Po At Rn Fr Ra Ac Th Pa U Np Pu".split())
+_CHEM_RE = re.compile(r"(?<![A-Za-z0-9])((?:[A-Z][a-z]?\d*|[()]\d*)+(?:·(?:\d+(?:/\d+)?)?(?:[A-Z][a-z]?\d*|[()]\d*)+)*)(?![A-Za-z0-9])")
+_CHEM_TOK_RE = re.compile(r"([A-Z][a-z]?)(\d*)|([()])(\d*)|(·)(\d+(?:/\d+)?)?")
+_CHEM_SKIP = {"SUS316", "ISO24", "CIP4", "PKH26"}  # 원소기호 조합처럼 보이지만 화학식이 아닌 말(강종, 규격, 균주 번호, 염료 이름)
+_CHEM_SINGLE = {"H2", "N2", "O2", "Cl2", "Br2"}  # 원소기호 하나뿐이어도 화학식으로 보는 것(기체 분자)
+
+
+def _chem_sub(m):
+    s = m.group(1)
+    if s.strip("()") in _CHEM_SKIP or "<" in s:
+        return s
+    parts, nel, hasdig, depth = [], 0, False, 0
+    for t in _CHEM_TOK_RE.finditer(s):
+        if t.group(1):
+            if t.group(1) not in _ELEMENTS:
+                return s
+            nel += 1
+            d = t.group(2)
+            if d == "1" or d.startswith("0"):
+                return s  # 화학식에는 1을 쓰지 않는다("C1N", "CC1" 같은 오타 표기)
+            parts.append(t.group(1) + (f"<sub>{d}</sub>" if d else ""))
+            hasdig = hasdig or bool(d)
+        elif t.group(3):
+            if t.group(3) == "(":
+                depth += 1
+                parts.append("(" + t.group(4))
+            else:
+                d = t.group(4)
+                if d == "1" or d.startswith("0"):
+                    return s
+                if depth > 0:
+                    depth -= 1
+                    parts.append(")" + (f"<sub>{d}</sub>" if d else ""))
+                    hasdig = hasdig or bool(d)
+                else:
+                    parts.append(")" + d)  # 짝이 없는 닫는 괄호(앞 글자가 다른 태그 안에 있다) 뒤의 숫자는 그대로 둔다
+        else:
+            parts.append("·" + (t.group(6) or ""))  # 결정수 앞의 계수(4H2O 의 4, 1/2H2O)는 아래첨자가 아니다
+    if not hasdig or (nel < 2 and s.strip("()") not in _CHEM_SINGLE):
+        return s
+    return "".join(parts)
+
+
+def _subscript_formulas(h):
+    """원문에 아래첨자 글꼴이 입혀지지 않은 화학식(C10H15NO·HCl, SiO2, TiCl3 ...)의 원소기호 오른쪽 숫자를 아래첨자로 바꾼다.
+    태그 밖 글자에서만 찾고(이미 <sub>/<sup> 안인 것은 그대로), 모든 글자가 실제 원소기호이고 숫자가 붙어 있는 덩어리만 바꾼다."""
+    out, hold = [], 0
+    for piece in re.split(r"(<[^>]+>)", h):
+        if piece.startswith("<"):
+            low = piece.lower()
+            if low.startswith(("<sub", "<sup")):
+                hold += 1
+            elif low.startswith(("</sub", "</sup")):
+                hold = max(0, hold - 1)
+            out.append(piece)
+        else:
+            out.append(piece if hold else _CHEM_RE.sub(_chem_sub, piece))
+    return "".join(out)
 
 
 def parse_doc(path, docno):
@@ -2064,13 +2382,25 @@ def parse_doc(path, docno):
     else:
         entries = _segment_numbered(docno, blocks)
 
+    _fix_metal_entry(entries)
+    _fix_alkyl_entry(entries)
+    _fix_disinfect_entry(entries)
+    _fix_virus_entry(entries)
+    _fix_ief_entry(entries)
+    _fix_glyco_entry(entries)
     _mark_top_headings(docno, entries)
+    _number_glyco_heads(entries)
     out = []
     for e in entries:
         bs = e.pop("blocks")
-        body_html = _sections_html(bs) if kind == "drug" else _flat_html(bs, top_gaps=(docno == 5), explicit_tops=((docno, e["ko"]) in _TOP_HEADINGS), terms=(docno == 5 and e["no"].startswith("92-")), no_first_indent=(docno == 5 and not e["no"].startswith("92-")))  # 92-x(용어 묶음)는 딸린 단락의 들여쓰기가 뜻이 있어 그대로 둔다
+        body_html = _sections_html(bs) if kind == "drug" else _flat_html(bs, top_gaps=(docno == 5 or (docno, e["ko"]) in _TOP_HEADINGS or (docno, e["ko"]) in _ROMAN_TOP), explicit_tops=((docno, e["ko"]) in _TOP_HEADINGS or (docno, e["ko"]) in _ROMAN_TOP), terms=(docno == 5 and e["no"].startswith("92-")), no_first_indent=((docno == 5 and not e["no"].startswith("92-")) or (docno, e["ko"]) in _NO_FIRST_INDENT), hang_to_text=(docno == 5 and e["no"] == "92-3"), no_indent=(docno == 5 and e["no"] in ("92", "92-8")))  # 92-x(용어 묶음)는 딸린 단락의 들여쓰기가 뜻이 있어 그대로 둔다
         if (docno, e["ko"]) in _CENTER_FIGURE_ENTRIES:
             body_html = '<div class="kp-center-figs">' + body_html + "</div>"
+        body_html = _subscript_formulas(body_html)
+        if docno == 5:
+            body_html = _HEAD_TAB_RE.sub(lambda m: "</b>" + _TERM_GAP, body_html)
+            if e["no"] == "92-3":
+                body_html = body_html.replace("</b>" + _TERM_GAP, "</b> ")  # 용량분석용표준액: 머리글·용어와 설명 사이는 공백 하나
         e["html_z"] = zlib.compress(body_html.encode("utf-8"), 6)
         text = "\n".join(b["plain"] for b in bs if b["plain"])
         e["text"] = text

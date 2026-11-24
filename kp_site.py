@@ -369,6 +369,26 @@ def _linkify(d, html_text, self_id):
     return "".join(parts)
 
 
+def _link_words(html_text, words):
+    """본문 글(태그·기존 링크 안쪽 제외)에서 앞뒤가 한글이 아닌 낱말 words({낱말: 항목 번호})에 링크를 단다. 이름이 세 글자라 일반 링크(_linkify)에서
+    빠진 "표준품", "표준액"을 92번(개요) 항목 안에서만 걸 때 쓴다."""
+    # 뒤에는 한글이 바로 이어지지 않거나, 조사("표준품은", "표준액을" ...)만 이어질 때 건다
+    rx = re.compile("(?<![가-힣])(" + "|".join(re.escape(w) for w in sorted(words, key=len, reverse=True)) + ")(?=(?:은|는|이|가|을|를|의|와|과|도|에|으로|로)(?![가-힣])|(?![가-힣]))")
+    parts = re.split(r"(<[^>]*>)", html_text)
+    depth_a = 0
+    for i, part in enumerate(parts):
+        if part.startswith("<"):
+            if part[:3].lower() == "<a ":
+                depth_a += 1
+            elif part.lower().startswith("</a"):
+                depth_a = max(0, depth_a - 1)
+            continue
+        if depth_a or not part.strip():
+            continue
+        parts[i] = rx.sub(lambda m: f'<a href="#" class="ref-link" data-id="{words[m.group(1)]}">{m.group(1)}</a>', part)
+    return "".join(parts)
+
+
 @kp.route("/api/entry/<int:entry_id>")
 def api_entry(entry_id):
     d = get_data()
@@ -379,6 +399,10 @@ def api_entry(entry_id):
         abort(404)
     body = zlib.decompress(e["html_z"]).decode("utf-8")
     body = _linkify(d, body, e["id"])
+    if e["doc"] == 5 and e["no"] == "92":  # 92. 표준품, 시약·시액 등 (개요): 하위 항목 92-1 표준품, 92-4 표준액으로도 링크를 건다
+        words = {x["ko"]: x["id"] for x in d.ref if x["doc"] == 5 and x["no"] in ("92-1", "92-4")}
+        if words:
+            body = _link_words(body, words)
     out = summary(e)
     out["html"] = body
     resp = jsonify(out)
