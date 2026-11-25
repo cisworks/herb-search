@@ -1175,3 +1175,6 @@ async function showEntry(id, opts = {}) {
 
 window.addEventListener('load', () => { fitAll(); focusTabInput('drugTab'); });
 refreshQuickBox();
+// 처음 크기(왼쪽 칸 너비, 배경 그림 칸 높이, 최근 본 항목 카드)가 모두 정해졌으니 숨겨 둔 본문을 보인다(templates 의 head 스크립트 참조)
+fitAll();
+document.documentElement.classList.remove('ui-pending');

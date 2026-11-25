@@ -62,6 +62,12 @@
 @media (max-width: 370px) {
   .kp-site .org-badge { flex: 0 0 auto; margin-bottom: 4px; }
 }
+/* 태블릿(폭 740~860px): 제목이 로고·링크와 겹치지 않으므로 폰용 첫 줄 배치(위)를 풀고, 로고·기관명(왼쪽)과 링크(오른쪽)를 제목 세 줄의 세로 가운데에 둔다 */
+@media (min-width: 740px) and (max-width: 860px) {
+  .kp-site header { padding-top: 10px; }
+  .kp-site .org-badge { position: absolute; order: 0; margin: 0; top: 50%; transform: translateY(-50%); }
+  .kp-site .site-link { position: absolute; order: 0; margin: 0; top: 50%; transform: translateY(-50%); }
+}
 
 /* 탭 이름 길이에 맞춰 폭을 나눠 쓴다("통칙·제제·시험법·정보"가 가장 길다) */
 .kp-site .tab-bar { align-items: stretch; }
