@@ -1127,6 +1127,7 @@ searchInput.addEventListener('keydown', async (ev) => {
 // 관능검사해설서 행은 data-id, 관능검사 사례집 행은 파일+시작쪽으로 같은 항목인지
 // 판단한다. 검색을 다시 해서 결과 카드가 새로 그려져도 같은 항목이 있으면 다시 표시한다.
 let shownKey = '';
+let prevShownKey = '';  // 바로 앞에 보이던 항목(터치 기기에서 PDF 로 넘어갈 때 화면을 그대로 두려고 되돌리는 데 쓴다)
 function applyShownHighlight() {
   [resultsBox, testResultsBox, prepResultsBox, quickBox].forEach(box => {
     box.querySelectorAll('.result-item').forEach(el => {
@@ -1138,6 +1139,7 @@ function applyShownHighlight() {
   });
 }
 function setShownKey(key) {
+  prevShownKey = shownKey;
   shownKey = key;
   applyShownHighlight();
 }
@@ -1691,6 +1693,17 @@ function closeLinkMenus() {
 document.addEventListener('click', closeLinkMenus);
 
 function showSensoryDetail(item, opts = {}) {
+  // 아이폰·아이패드 같은 터치 기기: 사파리는 iframe 안의 PDF를 첫 쪽만 보여 주므로, 오른쪽 설명 화면은 건드리지 않고 같은 탭에서
+  // 바로 사파리의 PDF 보기로 넘어간다. 화면 상태(기록)도 바꾸지 않아서, 사파리 뒤로 가기로 돌아오면 넘어가기 전 설명 화면 그대로다.
+  // 새 창(window.open)은 목록을 누른 뒤 내용을 받아 오는 사이에 사용자 동작으로 인정되지 않아 막힐 수 있어 같은 탭에서 이동한다.
+  // 뒤로 가기·새로고침으로 화면을 복원하는 중(navRestoring)에는 이동하지 않는다.
+  if (!navRestoring && window.matchMedia('(pointer: coarse), (hover: none)').matches) {
+    setShownKey(prevShownKey);  // 목록의 선택 표시도 설명 화면에 남아 있는 항목 그대로 둔다
+    const pdfUrl = `/api/sensory_pdf?file=${encodeURIComponent(item.source_file)}&start=${item.page_start}&end=${item.page_end}#page=1`;
+    showPdfLoading();
+    location.href = pdfUrl;
+    return;
+  }
   navSet(
     {
       view: {
@@ -1725,14 +1738,26 @@ function showSensoryDetail(item, opts = {}) {
     <iframe class="sensory-frame" src="${pdfUrl}" title="${escapeHtml(item.korean_name)} 원본 페이지"></iframe>
   `;
   _showDetailBox();
-  // 아이폰·아이패드 같은 터치 기기: 사파리는 iframe 안의 PDF를 첫 쪽만 보여 주므로(CSS 로 iframe 은 감춘다), 버튼을 따로 누르지
-  // 않아도 바로 사파리의 PDF 보기로 넘어간다. 새 창(window.open)은 목록을 누른 뒤 내용을 받아 오는 사이에 사용자 동작으로 인정되지 않아
-  // 막힐 수 있어서, 같은 탭에서 이동한다(사파리 뒤로 가기로 돌아오면 이 화면과 위의 버튼이 그대로 있다).
-  // 뒤로 가기·새로고침으로 화면을 복원하는 중(navRestoring)에는 다시 PDF 로 넘어가지 않는다(되돌아올 때 무한히 넘어가는 것을 막는다).
-  if (!navRestoring && window.matchMedia('(pointer: coarse), (hover: none)').matches) {
-    location.href = pdfUrl;
-  }
 }
+
+// 터치 기기에서 PDF 로 넘어가는 동안(서버가 해당 쪽을 잘라 보내는 데 시간이 걸린다) 보여 주는 "여는 중" 안내.
+// 사파리 뒤로 가기로 돌아오면(페이지 캐시 복원) 지운다.
+function showPdfLoading() {
+  let box = document.getElementById('pdfLoading');
+  if (!box) {
+    box = document.createElement('div');
+    box.id = 'pdfLoading';
+    box.className = 'pdf-loading';
+    box.setAttribute('role', 'status');
+    box.textContent = 'PDF를 여는 중입니다…';
+    document.body.appendChild(box);
+  }
+  box.hidden = false;
+}
+window.addEventListener('pageshow', () => {
+  const box = document.getElementById('pdfLoading');
+  if (box) box.hidden = true;
+});
 
 function _showDetailBox() {
   detailBox.classList.add('show');

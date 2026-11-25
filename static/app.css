@@ -1172,6 +1172,23 @@
     .sensory-frame { flex: 1 1 auto; min-height: 0; height: auto; }
   }
 
+  /* 터치 기기에서 PDF 로 넘어가는 동안 화면 가운데 아래에 뜨는 "PDF를 여는 중" 안내 */
+  .pdf-loading {
+    position: fixed;
+    left: 50%;
+    bottom: 12vh;
+    transform: translateX(-50%);
+    z-index: 1000;
+    padding: 14px 22px;
+    border-radius: 999px;
+    background: rgba(30, 30, 30, 0.88);
+    color: #fff;
+    font-size: 1rem;
+    font-weight: 600;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  }
+  .pdf-loading[hidden] { display: none; }
+
   /* 터치 기기(아이폰·아이패드, 가로·세로 모두): 사파리는 iframe 안의 PDF를 첫 쪽만 보여 주고 쪽 넘기기·확대가 안 되므로,
      iframe 은 감추고 사파리의 전체 화면 PDF 보기를 새 탭으로 여는 큰 버튼만 보여 준다. */
   @media (pointer: coarse), (hover: none) {
