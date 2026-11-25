@@ -1725,6 +1725,13 @@ function showSensoryDetail(item, opts = {}) {
     <iframe class="sensory-frame" src="${pdfUrl}" title="${escapeHtml(item.korean_name)} 원본 페이지"></iframe>
   `;
   _showDetailBox();
+  // 아이폰·아이패드 같은 터치 기기: 사파리는 iframe 안의 PDF를 첫 쪽만 보여 주므로(CSS 로 iframe 은 감춘다), 버튼을 따로 누르지
+  // 않아도 바로 사파리의 PDF 보기로 넘어간다. 새 창(window.open)은 목록을 누른 뒤 내용을 받아 오는 사이에 사용자 동작으로 인정되지 않아
+  // 막힐 수 있어서, 같은 탭에서 이동한다(사파리 뒤로 가기로 돌아오면 이 화면과 위의 버튼이 그대로 있다).
+  // 뒤로 가기·새로고침으로 화면을 복원하는 중(navRestoring)에는 다시 PDF 로 넘어가지 않는다(되돌아올 때 무한히 넘어가는 것을 막는다).
+  if (!navRestoring && window.matchMedia('(pointer: coarse), (hover: none)').matches) {
+    location.href = pdfUrl;
+  }
 }
 
 function _showDetailBox() {

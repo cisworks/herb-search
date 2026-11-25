@@ -1172,6 +1172,41 @@
     .sensory-frame { flex: 1 1 auto; min-height: 0; height: auto; }
   }
 
+  /* 터치 기기(아이폰·아이패드, 가로·세로 모두): 사파리는 iframe 안의 PDF를 첫 쪽만 보여 주고 쪽 넘기기·확대가 안 되므로,
+     iframe 은 감추고 사파리의 전체 화면 PDF 보기를 새 탭으로 여는 큰 버튼만 보여 준다. */
+  @media (pointer: coarse), (hover: none) {
+    .detail.sensory-mode.show {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 14px;
+      height: auto;
+      min-height: 40vh;
+      padding: 36px 20px;
+      text-align: center;
+    }
+    .detail.sensory-mode.show::before {
+      content: "이 기기에서는 PDF를 새 탭에서 전체 화면으로 열어 봅니다.\A모든 쪽을 넘겨 보고, 두 손가락으로 확대할 수 있습니다.";
+      white-space: pre-line;
+      font-size: 0.95rem;
+      line-height: 1.6;
+      color: var(--sub);
+    }
+    .sensory-mode .sensory-frame { display: none; }
+    .sensory-mode .pdf-open-link {
+      display: block;
+      flex: 0 0 auto;
+      padding: 16px 28px;
+      border-radius: 10px;
+      font-size: 1.1rem;
+      font-weight: 700;
+      color: #fff;
+      background: var(--main);
+      text-decoration: none;
+    }
+  }
+
   @media (max-width: 370px) {
     /* 아주 좁은 화면: 왼쪽 로고가 가운데 제목('생약 검색')과 겹치지 않게 제목 위 줄 왼쪽에 둔다 */
     .org-badge { position: static; flex: 0 0 100%; margin-bottom: 4px; }
