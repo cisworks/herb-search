@@ -1359,6 +1359,8 @@ def _align_tab_columns(parts):
                 cells_rows = [r if (r is None or len(r) <= 2) else [" ".join(c.strip() for c in r[:-1]), r[-1]] for r in cells_rows]
                 # 이름 안의 줄바꿈("파라옥시벤조산에틸 또는 <br> 파라옥시벤조산메틸")도 없애 한 줄로 합친다
                 cells_rows = [r if r is None else [re.sub(r"\s*<br\s*/?>\s*", " ", r[0])] + list(r[1:]) for r in cells_rows]
+                # 넓은 화면에서는 한 줄이지만 좁은 화면(아이폰)에서는 "또는" 바로 뒤에서만 줄을 바꾼다(kp-or 는 좁은 화면에서만 보이는 줄바꿈)
+                cells_rows = [r if r is None else [re.sub(r"\s+또는\s+", '&nbsp;또는<br class="kp-or"> ', r[0])] + list(r[1:]) for r in cells_rows]
             rows = _aligned_rows_html(cells_rows, recipe=recipe)
             cls = "kp-aligntbl kp-recipe" if recipe else "kp-aligntbl"
             out.append(f'<table class="{cls}"{f" style=margin-left:{ml}em" if ml != "0" else ""}>{rows}</table>')

@@ -176,6 +176,7 @@
 /* 카드 제목 | '분류별' 두 칸: 제목 칸이 줄어들고(길면 …), '분류별' 칸은 항상 카드 안에 보인다(화면 오른쪽 밖으로 나가지 않는다) */
 .kp-site #drugDropdown { overflow-x: hidden; }
 .kp-site #drugDropdown .group-label { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; column-gap: 12px; left: 0; }
+.kp-site #drugDropdown { scrollbar-gutter: stable; }  /* 스크롤 막대 자리를 늘 비워 둔다: 분류별을 체크해 목록이 짧아져 막대가 사라져도 "□ 분류별" 위치가 오른쪽으로 밀리지 않는다 */
 .kp-site #drugDropdown .group-label > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .kp-site #drugDropdown .group-label .cls-check { justify-self: end; white-space: nowrap; }
 .kp-site .cls-check { display: inline-flex; align-items: center; gap: 5px; font-size: 0.82rem; font-weight: 600; color: var(--main-dark); cursor: pointer; user-select: none; }
@@ -209,7 +210,11 @@
    가로선(───)은 표 너비 전체를 긋되 위아래 줄과 간격 없이 붙인다 */
 .kp-body table.kp-recipe { width: max-content; min-width: min(100%, 22em); max-width: none; margin-bottom: 0.4em; }
 .kp-body .kp-recipe td:first-child { white-space: nowrap; padding-right: 2em; }  /* 왼쪽 성분 이름("파라옥시벤조산에틸 또는 파라옥시벤조산메틸")은 한 줄로 둔다 */
-@media (max-width: 520px) { .kp-body .kp-recipe td:first-child { white-space: normal; } }  /* 아주 좁은 화면에서는 이름이 줄을 바꾼다 */
+.kp-body .kp-recipe br.kp-or { display: none; }  /* "A 또는 B" 이름의 줄바꿈: 넓은 화면에서는 한 줄 */
+@media (max-width: 520px) {  /* 아주 좁은 화면(아이폰)에서는 이름이 줄을 바꾼다: "또는" 바로 뒤에서, 그 밖에는 낱말 중간이 아니라 띄어쓰기에서만 */
+  .kp-body .kp-recipe td:first-child { white-space: normal; word-break: keep-all; }
+  .kp-body .kp-recipe br.kp-or { display: inline; }
+}
 .kp-body .kp-recipe td { padding-top: 0; padding-bottom: 0; line-height: 1.6; }
 .kp-body .kp-recipe td:first-child { width: 100%; }
 .kp-body .kp-recipe td[colspan] { text-align: right; }
