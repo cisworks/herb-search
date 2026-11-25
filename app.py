@@ -19,6 +19,7 @@ import os
 import pickle
 import re
 import sys
+import threading
 from pathlib import Path
 from urllib.parse import quote, urlencode
 
@@ -1753,6 +1754,32 @@ def api_sensory_pdf():
     pdf_path = (BASE_DIR / filename).resolve()
     if pdf_path.parent != BASE_DIR.resolve() or not pdf_path.is_file():
         abort(404)
+
+    # 빠르게 열기 (1) 브라우저 캐시: 같은 구간을 다시 열 때 받지 않는다(원본 pdf 의 크기·수정 시각이 키에 들어 있어, 원본이 바뀌면 주소 그대로여도 새로 받는다).
+    # (2) 서버 캐시: 한 번 잘라 만든 pdf 를 .parse_cache/pdfcut/ 에 저장해 두고 다시 쓴다. (3) 글꼴 줄이기: 잘라 낸 pdf 마다 붙던 한글 글꼴 전체(약 1MB)를
+    # 그 구간에서 쓰는 글자만 남긴다(사진·글자 모양은 그대로, 벡터 유지). fonttools 가 없는 서버면 줄이지 않고 예전처럼 만든다.
+    st = pdf_path.stat()
+    prefix = hashlib.sha1(f"{filename}|{start}|{end}".encode()).hexdigest()[:12]
+    key = prefix + "-" + hashlib.sha1(f"{_PDF_CUT_VERSION}|{st.st_size}|{st.st_mtime_ns}".encode()).hexdigest()[:12]
+    cache_headers = {"Cache-Control": "public, max-age=86400"}
+
+    def respond(data):
+        resp = Response(data, mimetype="application/pdf", headers=cache_headers)
+        resp.set_etag(key)
+        return resp.make_conditional(request)
+
+    if key in request.if_none_match:  # 브라우저가 이미 같은 것을 갖고 있다
+        resp = Response(status=304, headers=cache_headers)
+        resp.set_etag(key)
+        return resp
+    cut_dir = PARSE_CACHE_DIR / "pdfcut"
+    cache_file = cut_dir / f"{key}.pdf"
+    if cache_file.is_file():
+        try:
+            return respond(cache_file.read_bytes())
+        except OSError:
+            pass
+
     src = fitz.open(str(pdf_path))
     try:
         if start < 0 or end >= len(src) or start > end:
@@ -1763,16 +1790,43 @@ def api_sensory_pdf():
             # 페이지(후박, 황련 등)인 경우가 있다. 그런 빈 페이지는 빼고 보낸다(전부 빈 경우만 그대로 둔다).
             content_pages = [p for p in pages if not _is_blank_case_page(src[p])]
             pages = content_pages or pages
+        pdf_bytes = _cut_pdf_bytes(fitz, src, pages, subset=True)
+    finally:
+        src.close()
+    try:  # 저장 실패(읽기 전용 폴더 등)는 캐시 없이 계속한다
+        cut_dir.mkdir(parents=True, exist_ok=True)
+        tmp = cut_dir / f"{key}.{os.getpid()}.{threading.get_ident()}.tmp"
+        tmp.write_bytes(pdf_bytes)
+        os.replace(tmp, cache_file)
+        for old in cut_dir.glob(f"{prefix}-*.pdf"):  # 같은 구간의 옛(원본이 바뀌기 전) 캐시 정리
+            if old != cache_file:
+                old.unlink(missing_ok=True)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[알림] 잘라 낸 pdf 를 저장하지 못했습니다({filename} {start}-{end}): {exc}")
+    return respond(pdf_bytes)
+
+
+_PDF_CUT_VERSION = 1  # 잘라 내는 방식을 바꾸면 올려서 저장해 둔 옛 pdf 를 쓰지 않게 한다
+
+
+def _cut_pdf_bytes(fitz, src, pages, subset=True):
+    """src 에서 pages(0부터 센 쪽 번호 목록)만 잘라 pdf 바이트로 만든다. subset 이면 쓰는 글자만 남기고 압축한다(fonttools 가 없거나 실패하면
+    줄이지 않은 pdf 를 돌려준다)."""
+    for use_subset in ((True, False) if subset else (False,)):
         out = fitz.open()
         try:
             for p in pages:
                 out.insert_pdf(src, from_page=p, to_page=p)
-            pdf_bytes = out.tobytes()
+            if use_subset:
+                try:
+                    out.subset_fonts()
+                    return out.tobytes(garbage=3, deflate=True, deflate_fonts=True)
+                except Exception as exc:  # noqa: BLE001  fonttools 없음 등: 줄이지 않고 다시 만든다
+                    print(f"[알림] pdf 글꼴 줄이기를 못 했습니다(그대로 보냅니다): {exc}")
+                    continue
+            return out.tobytes()
         finally:
             out.close()
-    finally:
-        src.close()
-    return Response(pdf_bytes, mimetype="application/pdf")
 
 
 # ---- 대한민국약전 검색(/kp) ------------------------------------------------------------------
