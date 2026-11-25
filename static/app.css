@@ -1236,6 +1236,9 @@
     .org-badge .org-name { display: flex; white-space: nowrap; }  /* flex 로 두면 두 조각 사이 공백이 사라져 한 단어로 이어진다 */
     .org-short { display: block; }
     .site-link { top: 50%; transform: translateY(-50%); }
+    /* 생약 설명 화면이 위로 올라와 멈출 때 상단 모서리 위에 여백을 둔다(아이폰과 같게: 아이폰 화면 녹화에서 사파리 주소창 아래 경계선과
+       카드 상단 테두리 사이가 38px = 3배 화면에서 약 12.7px). 모바일 스크롤(scrollIntoView)이 이 값만큼 아래에서 멈춘다 */
+    #detailWrap { scroll-margin-top: 13px; }
   }
 
   /* 6) 손가락으로 누르는 화면(pointer: coarse)에서만 작은 버튼의 누르는 영역을 키운다. 마우스를 쓰는 PC에는 적용되지 않는다 */
