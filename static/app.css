@@ -13,6 +13,9 @@
      clip 은 hidden 과 달리 스크롤 칸을 만들지 않아 sticky(왼쪽 패널)에 영향이 없다. 아이폰·아이패드가 가로·세로를 돌릴 때 글자를 멋대로 키우지 않게도 한다. */
   html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; max-width: 100%; overflow-x: hidden; }  /* html 은 hidden(화면에 맞춰 잘라냄, 오래된 사파리도 지킴), body 는 clip(스크롤 칸을 만들지 않아 sticky 유지) */
   body { max-width: 100%; overflow-x: clip; }
+  /* 아이패드 사파리: 가로로 밀면 페이지가 고무줄처럼 늘어났다 돌아온다(가로 넘침이 없어도). 페이지 자체의 가로 밀기를 막는다(세로 스크롤·두 손가락 확대는 그대로).
+     표·목록처럼 스스로 가로 스크롤되는 칸(overflow-x: auto)은 영향을 받지 않는다. */
+  html, body { overscroll-behavior-x: none; touch-action: pan-y pinch-zoom; }
   body {
     margin: 0;
     font-family: "Malgun Gothic", "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
