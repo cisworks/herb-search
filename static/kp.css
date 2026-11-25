@@ -173,22 +173,22 @@
 }
 
 /* 의약품등 검색 전체 목록: 카드 제목 오른쪽의 '분류별' 체크와 분류별 보기(+ / − 로 접고 펴는 제1부·제2부·제2부 분류) */
-.kp-site #drugDropdown .group-label { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+/* 카드 제목 | '분류별' 두 칸: 제목 칸이 줄어들고(길면 …), '분류별' 칸은 항상 카드 안에 보인다(화면 오른쪽 밖으로 나가지 않는다) */
+.kp-site #drugDropdown { overflow-x: hidden; }
+.kp-site #drugDropdown .group-label { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; column-gap: 12px; left: 0; }
+.kp-site #drugDropdown .group-label > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kp-site #drugDropdown .group-label .cls-check { justify-self: end; white-space: nowrap; }
 .kp-site .cls-check { display: inline-flex; align-items: center; gap: 5px; font-size: 0.82rem; font-weight: 600; color: var(--main-dark); cursor: pointer; user-select: none; }
 .kp-site .cls-check input { margin: 0; accent-color: var(--main); cursor: pointer; }
+/* 터치 화면(아이폰·아이패드): 기기마다 크기가 다른 기본 체크 칸 대신, PC 의 기본 체크 칸과 같은 13px 칸을 직접 그린다(크기가 모든 기기에서 PC 와 같다) */
+@media (hover: none), (pointer: coarse), (max-width: 860px) {
+  .kp-site .cls-check input { -webkit-appearance: none; appearance: none; flex: none; position: relative; width: 13px; height: 13px; padding: 0; border: 1.5px solid var(--main); border-radius: 3px; background: #fff; }
+  .kp-site .cls-check input:checked { background: var(--main); }
+  .kp-site .cls-check input:checked::after { content: ""; position: absolute; left: 3px; top: 0; width: 3px; height: 7px; border: solid #fff; border-width: 0 1.5px 1.5px 0; transform: rotate(45deg); }
+}
 .kp-site .cls-head { display: flex; align-items: center; gap: 8px; padding: 9px 16px; font-weight: 700; color: var(--main-dark); background: #f7faff; border-bottom: 1px solid var(--border); cursor: pointer; user-select: none; }
 .kp-site .cls-head:hover, .kp-site .cls-head:focus-visible { background: #edf3fb; outline: none; }
 .kp-site .cls-sign { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 14.58px; height: 14.58px; border: 1.5px solid var(--main); border-radius: 4px; font-size: 0.648rem; line-height: 1; color: var(--main); background: #fff; }  /* +/- 칸 크기·글자: 설명창 시험항목 버튼 오른쪽 접기 버튼(.toggle-icon)과 같게 */
-/* 터치 화면: 누르기 쉽게 키웠던 크기(26px, 0.95rem)를 PC 와 같은 비율(x0.81: 18px -> 14.58px)로 줄인다 -> 21.06px, 0.7695rem.
-   '분류별' 체크(체크 칸 + 글자)도 같은 비율로 줄인다(zoom: 기기마다 다른 체크 칸 크기까지 한꺼번에 x0.81) */
-@media (pointer: coarse) {
-  .kp-site .cls-sign { width: 21.06px; height: 21.06px; font-size: 0.7695rem; }
-  .kp-site .cls-check { zoom: 0.81; }
-}
-/* 카드 제목(의약품각조 전체 목록 (N))이 길어 '분류별'이 화면 오른쪽 밖으로 나가지 않게: 제목이 줄어들고(길면 …), '분류별'은 항상 보인다 */
-.kp-site #drugDropdown .group-label > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.kp-site #drugDropdown .group-label .cls-check { flex: none; }
-
 .kp-site .cls-count { font-size: 0.8rem; font-weight: 500; color: var(--sub); }
 .kp-site .cls-body[hidden] { display: none; }
 .kp-site .cls-body > .result-item { padding-left: 40px; }

@@ -29,6 +29,11 @@ function measureTextWidth(text, font) {
   return ctx.measureText(text).width;
 }
 
+// 탭 이름: 폭에 따라 보이는 이름이 다르다(.tab-long / .tab-short 중 display 가 none 이 아닌 쪽). 시작할 때는 본문이 visibility:hidden 이라 innerText 가 비어 있으니 쓰지 않는다
+function tabLabelText(btn) {
+  const spans = [...btn.children].filter(el => getComputedStyle(el).display !== 'none');
+  return (spans.length ? spans.map(el => el.textContent).join('') : btn.textContent).trim();
+}
 // 처음 너비: 검색칸 안내 문구가 잘리지 않고 다 보이는 만큼(가장 긴 안내 문구 기준)
 function computeInitialLeftWidth(leftPanel) {
   let inputNeeded = 0;
@@ -45,7 +50,7 @@ function computeInitialLeftWidth(leftPanel) {
     const btns = [...tabBar.querySelectorAll('.tab-btn')];
     btns.forEach(b => {
       const st = getComputedStyle(b);
-      tabsNeeded += measureTextWidth((b.innerText || b.textContent).trim(), `${st.fontWeight} ${st.fontSize} ${st.fontFamily}`)
+      tabsNeeded += measureTextWidth(tabLabelText(b), `${st.fontWeight} ${st.fontSize} ${st.fontFamily}`)
         + parseFloat(st.paddingLeft) + parseFloat(st.paddingRight) + parseFloat(st.borderLeftWidth) + parseFloat(st.borderRightWidth) + 2;
     });
     tabsNeeded += 6 * btns.length + 16;  // 버튼 사이 간격 + 접기 버튼(◀)
@@ -463,14 +468,14 @@ function fitDropdownHeights() {
 window.addEventListener('resize', fitDropdownHeights);
 // 아이폰·아이패드(터치 화면): 의약품등 검색칸의 전체 목록은 품목을 누르는 등으로 닫혔다가 다시 열 때 닫히기 전 상태(스크롤 위치, 펼쳐 둔 분류)로 보인다.
 // 닫을 때 스크롤 위치를 적어 두고, 다시 열 때 목록을 새로 그리지 않고 그대로 보여 준다. PC 는 예전처럼 열 때마다 처음부터 보인다.
-const isTouchScreen = () => window.matchMedia('(pointer: coarse)').matches;
+const isTouchScreen = () => window.matchMedia('(pointer: coarse), (hover: none), (max-width: 860px)').matches;  // 아이패드에 키보드·트랙패드가 붙어 있어도(pointer: fine) 좁은 화면이면 터치 화면으로 본다
 function closeDropdown(c) {
   c.token += 1;  // 목록을 받아 오는 중에 닫으면 그 열기를 취소한다
-  if (c.dropdown.style.display === 'block') c.savedScroll = c.dropdown.scrollTop;
-  c.dropdown.style.display = 'none';
+  c.dropdown.style.display = 'none';  // 스크롤 위치는 목록이 보이는 동안 scroll 이벤트로 계속 적어 둔다(닫힌 뒤에는 읽을 수 없다)
   syncDropdownOpenClass();
 }
 function closeAllDropdowns() { Object.values(combos).forEach(closeDropdown); }
+combos.drug.dropdown.addEventListener('scroll', () => { if (combos.drug.dropdown.style.display === 'block') combos.drug.savedScroll = combos.drug.dropdown.scrollTop; }, { passive: true });
 async function openDropdown(c) {
   const token = ++c.token;
   const items = await getList(c.tab);
@@ -480,6 +485,7 @@ async function openDropdown(c) {
   if (!keep) {
     c.dropdown.innerHTML = dropdownHtml(c.tab, items);
     c.dropdown.scrollTop = 0;
+    c.savedScroll = 0;
     c.kept = true;
   }
   c.dropdown.style.display = 'block';
@@ -621,6 +627,7 @@ async function selectFromCombo(c, it) {
     c.dropdown.querySelectorAll('.result-item.kb-active').forEach(el => el.classList.remove('kb-active'));
     const row = c.dropdown.querySelector(`.result-item[data-id="${it.id}"]`);
     if (row) row.classList.add('kb-active');
+    if (isTouchScreen()) closeDropdown(c);  // 아이폰·아이패드: 품목을 고르면 목록이 닫힌다. 다시 열면 닫히기 전 상태(스크롤 위치, 펼친 분류)로 보인다
   } else {
     closeDropdown(c);
   }
