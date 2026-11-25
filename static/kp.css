@@ -17,6 +17,9 @@
 .kp-site .result-item:hover,
 .kp-site .result-item.kb-active,
 .kp-site .result-item.selected { background: #edf3fb; }
+/* 의약품등 검색칸 전체 목록에서 고른 품목(분류별이든 아니든): 바탕색 #edf3fb(사용자가 지정한 색) + 왼쪽 테마색 띠 + 굵은 이름 */
+.kp-site #drugDropdown .result-item.picked { background: #edf3fb; box-shadow: inset 3px 0 0 var(--main); }
+.kp-site #drugDropdown .result-item.picked .rname { font-weight: 700; color: var(--main-dark); }
 .kp-site .definition { background: #edf3fb; }
 .kp-site .quick-del { color: #8d9aab; }
 .kp-site .case-category-label { background: #f7f9fc; }

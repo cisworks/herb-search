@@ -487,6 +487,7 @@ async function openDropdown(c) {
     c.dropdown.scrollTop = 0;
     c.savedScroll = 0;
     c.kept = true;
+    markPicked(c, detailBox.dataset.itemId, true);  // 지금 오른쪽 화면에 보이는 품목이 목록에 있으면 선택 표시(접힌 분류 안이면 펼쳐서)
   }
   c.dropdown.style.display = 'block';
   syncDropdownOpenClass();
@@ -506,6 +507,7 @@ combos.drug.dropdown.addEventListener('change', (ev) => {
   saveClsMode(clsMode);
   const dd = combos.drug.dropdown;
   dd.innerHTML = dropdownHtml('drug', combos.drug.items);
+  markPicked(combos.drug, detailBox.dataset.itemId, true);
   combos.drug.kept = true;
   dd.scrollTop = 0;
   fitDropdownHeights();
@@ -621,12 +623,25 @@ document.addEventListener('click', (ev) => {
   if (!ev.target.closest('.search-box')) closeAllDropdowns();
 });
 
+// 의약품등 검색칸 전체 목록에서 고른 품목 줄에 선택 표시(.picked)를 단다(분류별이든 아니든). id 가 없거나 목록에 없으면 표시를 지운다
+function markPicked(c, id, reveal) {
+  if (c.tab !== 'drug') return;
+  c.dropdown.querySelectorAll('.result-item.picked').forEach(el => el.classList.remove('picked'));
+  if (id == null || id === '') return;
+  const row = c.dropdown.querySelector(`.result-item[data-id="${id}"]`);
+  if (!row) return;
+  row.classList.add('picked');
+  if (reveal) {  // 목록을 새로 그린 경우: 접힌 분류 안에 있으면 그 분류를 펼쳐 선택 표시가 보이게 한다
+    for (let body = row.closest('.cls-body'); body; body = body.parentElement && body.parentElement.closest('.cls-body')) {
+      if (body.hidden) toggleClsNode(body.previousElementSibling);
+    }
+  }
+}
+
 async function selectFromCombo(c, it) {
   if (c.tab === 'drug') {
     // 의약품등 검색칸의 전체 목록은(분류별이든 아니든) 품목을 눌러도 닫지 않는다(펼쳐 둔 분류와 스크롤 위치가 그대로 유지된다). 고른 줄만 표시한다
-    c.dropdown.querySelectorAll('.result-item.kb-active').forEach(el => el.classList.remove('kb-active'));
-    const row = c.dropdown.querySelector(`.result-item[data-id="${it.id}"]`);
-    if (row) row.classList.add('kb-active');
+    markPicked(c, it.id);
     if (isTouchScreen()) closeDropdown(c);  // 아이폰·아이패드: 품목을 고르면 목록이 닫힌다. 다시 열면 닫히기 전 상태(스크롤 위치, 펼친 분류)로 보인다
   } else {
     closeDropdown(c);
