@@ -11,7 +11,7 @@
   * { box-sizing: border-box; }
   /* 아이패드: 화면이 좌우로 밀리지 않게 가로폭을 화면폭에 맞춘다. 글자가 화면폭보다 길면 줄을 바꾸고(overflow-wrap), 그래도 삐져나온 것은 잘라낸다.
      clip 은 hidden 과 달리 스크롤 칸을 만들지 않아 sticky(왼쪽 패널)에 영향이 없다. 아이폰·아이패드가 가로·세로를 돌릴 때 글자를 멋대로 키우지 않게도 한다. */
-  html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; max-width: 100%; overflow-x: clip; }
+  html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; max-width: 100%; overflow-x: hidden; }  /* html 은 hidden(화면에 맞춰 잘라냄, 오래된 사파리도 지킴), body 는 clip(스크롤 칸을 만들지 않아 sticky 유지) */
   body { max-width: 100%; overflow-x: clip; }
   body {
     margin: 0;
