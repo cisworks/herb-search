@@ -45,7 +45,7 @@ function computeInitialLeftWidth(leftPanel) {
     const btns = [...tabBar.querySelectorAll('.tab-btn')];
     btns.forEach(b => {
       const st = getComputedStyle(b);
-      tabsNeeded += measureTextWidth(b.textContent.trim(), `${st.fontWeight} ${st.fontSize} ${st.fontFamily}`)
+      tabsNeeded += measureTextWidth((b.innerText || b.textContent).trim(), `${st.fontWeight} ${st.fontSize} ${st.fontFamily}`)
         + parseFloat(st.paddingLeft) + parseFloat(st.paddingRight) + parseFloat(st.borderLeftWidth) + parseFloat(st.borderRightWidth) + 2;
     });
     tabsNeeded += 6 * btns.length + 16;  // 버튼 사이 간격 + 접기 버튼(◀)
@@ -461,8 +461,12 @@ function fitDropdownHeights() {
   });
 }
 window.addEventListener('resize', fitDropdownHeights);
+// 아이폰·아이패드(터치 화면): 의약품등 검색칸의 전체 목록은 품목을 누르는 등으로 닫혔다가 다시 열 때 닫히기 전 상태(스크롤 위치, 펼쳐 둔 분류)로 보인다.
+// 닫을 때 스크롤 위치를 적어 두고, 다시 열 때 목록을 새로 그리지 않고 그대로 보여 준다. PC 는 예전처럼 열 때마다 처음부터 보인다.
+const isTouchScreen = () => window.matchMedia('(pointer: coarse)').matches;
 function closeDropdown(c) {
   c.token += 1;  // 목록을 받아 오는 중에 닫으면 그 열기를 취소한다
+  if (c.dropdown.style.display === 'block') c.savedScroll = c.dropdown.scrollTop;
   c.dropdown.style.display = 'none';
   syncDropdownOpenClass();
 }
@@ -472,11 +476,16 @@ async function openDropdown(c) {
   const items = await getList(c.tab);
   if (token !== c.token) return;
   c.items = items;
-  c.dropdown.innerHTML = dropdownHtml(c.tab, items);
-  c.dropdown.scrollTop = 0;
+  const keep = c.tab === 'drug' && isTouchScreen() && c.kept && c.dropdown.firstChild;  // 닫히기 전 상태 그대로 다시 보이기
+  if (!keep) {
+    c.dropdown.innerHTML = dropdownHtml(c.tab, items);
+    c.dropdown.scrollTop = 0;
+    c.kept = true;
+  }
   c.dropdown.style.display = 'block';
   syncDropdownOpenClass();
   fitDropdownHeights();
+  if (keep) c.dropdown.scrollTop = c.savedScroll || 0;  // 보이게 된 뒤에야 스크롤 위치를 되돌릴 수 있다
 }
 
 function toggleClsNode(head) {
@@ -491,6 +500,7 @@ combos.drug.dropdown.addEventListener('change', (ev) => {
   saveClsMode(clsMode);
   const dd = combos.drug.dropdown;
   dd.innerHTML = dropdownHtml('drug', combos.drug.items);
+  combos.drug.kept = true;
   dd.scrollTop = 0;
   fitDropdownHeights();
 });

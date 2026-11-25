@@ -69,6 +69,13 @@
   .kp-site .site-link { position: absolute; order: 0; margin: 0; top: 50%; transform: translateY(-50%); }
 }
 
+/* 탭 이름: 기본은 짧은 이름. 태블릿(아이패드 세로, 폭 740~860px)은 탭이 가로로 넓어 풀 이름("통칙·제제총칙·일반시험법·일반정보")을 보인다 */
+.kp-site .tab-long { display: none; }
+@media (min-width: 740px) and (max-width: 860px) {
+  .kp-site .tab-long { display: inline; }
+  .kp-site .tab-short { display: none; }
+}
+
 /* 탭 이름 길이에 맞춰 폭을 나눠 쓴다("통칙·제제·시험법·정보"가 가장 길다) */
 .kp-site .tab-bar { align-items: stretch; }
 .kp-site .tab-btn { flex: 1 0 auto; line-height: 1.3; padding-left: 8px; padding-right: 8px; }  /* PC: 글자 길이만큼(한 줄) 폭을 잡고, 남는 폭은 나눠 가진다. 왼쪽 패널은 탭 폭에 맞게 넓어진다 */
@@ -172,7 +179,16 @@
 .kp-site .cls-head { display: flex; align-items: center; gap: 8px; padding: 9px 16px; font-weight: 700; color: var(--main-dark); background: #f7faff; border-bottom: 1px solid var(--border); cursor: pointer; user-select: none; }
 .kp-site .cls-head:hover, .kp-site .cls-head:focus-visible { background: #edf3fb; outline: none; }
 .kp-site .cls-sign { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 14.58px; height: 14.58px; border: 1.5px solid var(--main); border-radius: 4px; font-size: 0.648rem; line-height: 1; color: var(--main); background: #fff; }  /* +/- 칸 크기·글자: 설명창 시험항목 버튼 오른쪽 접기 버튼(.toggle-icon)과 같게 */
-@media (pointer: coarse) { .kp-site .cls-sign { width: 26px; height: 26px; font-size: 0.95rem; } }  /* 터치 화면은 .toggle-icon 도 이 크기 */
+/* 터치 화면: 누르기 쉽게 키웠던 크기(26px, 0.95rem)를 PC 와 같은 비율(x0.81: 18px -> 14.58px)로 줄인다 -> 21.06px, 0.7695rem.
+   '분류별' 체크(체크 칸 + 글자)도 같은 비율로 줄인다(zoom: 기기마다 다른 체크 칸 크기까지 한꺼번에 x0.81) */
+@media (pointer: coarse) {
+  .kp-site .cls-sign { width: 21.06px; height: 21.06px; font-size: 0.7695rem; }
+  .kp-site .cls-check { zoom: 0.81; }
+}
+/* 카드 제목(의약품각조 전체 목록 (N))이 길어 '분류별'이 화면 오른쪽 밖으로 나가지 않게: 제목이 줄어들고(길면 …), '분류별'은 항상 보인다 */
+.kp-site #drugDropdown .group-label > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.kp-site #drugDropdown .group-label .cls-check { flex: none; }
+
 .kp-site .cls-count { font-size: 0.8rem; font-weight: 500; color: var(--sub); }
 .kp-site .cls-body[hidden] { display: none; }
 .kp-site .cls-body > .result-item { padding-left: 40px; }
