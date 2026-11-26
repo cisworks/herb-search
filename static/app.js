@@ -997,6 +997,26 @@ function releaseToggleFocus() {
   if (el && el.classList && el.classList.contains('combo-toggle')) el.blur();
 }
 
+// PageDown/PageUp: 열린 목록을 한 화면만큼 넘긴다. 반전된 항목이 있으면 화면 안의 같은 높이 항목으로, 없으면 맨 위(아래) 항목으로 옮긴다.
+function pageScrollDropdown(dropdown, list, cur, dir, setActive) {
+  const box = dropdown.getBoundingClientRect();
+  const step = Math.max(dropdown.clientHeight - 40, 40);
+  const offset = cur >= 0 ? list[cur].getBoundingClientRect().top - box.top : 0;
+  const before = dropdown.scrollTop;
+  dropdown.scrollTop = before + dir * step;
+  const moved = dropdown.scrollTop !== before;
+  let idx;
+  if (!moved) {
+    idx = dir > 0 ? list.length - 1 : 0;  // 이미 끝이면 끝 항목으로
+  } else {
+    const target = box.top + (cur >= 0 ? offset : (dir > 0 ? 0 : dropdown.clientHeight - 30));
+    idx = list.findIndex(el => el.getBoundingClientRect().bottom > target + 1);
+    if (idx < 0) idx = list.length - 1;
+    if (dir < 0 && cur < 0) idx = Math.max(list.findIndex(el => el.getBoundingClientRect().top >= box.top), 0);
+  }
+  setActive(list[idx]);
+}
+
 function setupDropdownKeys(dropdown, input, openFn, closeFn) {
   const rows = () => [...dropdown.querySelectorAll('.result-item')];
   const clearActive = () => dropdown.querySelectorAll('.result-item.kb-active').forEach(el => el.classList.remove('kb-active'));
@@ -1027,6 +1047,10 @@ function setupDropdownKeys(dropdown, input, openFn, closeFn) {
       ev.preventDefault();
       const next = ev.key === 'ArrowDown' ? Math.min(cur + 1, list.length - 1) : Math.max(cur - 1, 0);
       setActive(list[cur < 0 && ev.key === 'ArrowUp' ? 0 : next]);
+    } else if (ev.key === 'PageDown' || ev.key === 'PageUp') {
+      // 한 화면(목록 높이)만큼 스크롤하고, 반전 표시도 화면 안의 같은 위치 항목으로 옮긴다
+      ev.preventDefault();
+      pageScrollDropdown(dropdown, list, cur, ev.key === 'PageDown' ? 1 : -1, setActive);
     } else if (ev.key === 'Enter' && cur >= 0) {
       ev.preventDefault();
       ev.stopImmediatePropagation();  // 입력칸의 기본 Enter 검색보다 먼저 처리한다
