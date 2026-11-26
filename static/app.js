@@ -44,6 +44,7 @@ function computeInitialLeftWidth(leftPanel) {
 
   const baseLeftWidth = computeInitialLeftWidth(leftPanel);
   leftPanel.style.width = baseLeftWidth + 'px';
+  syncLeftWidthVar();
 
   let dragging = false;
   let startX = 0;
@@ -58,6 +59,7 @@ function computeInitialLeftWidth(leftPanel) {
   function onMouseMove(e) {
     if (!dragging) return;
     leftPanel.style.width = clampWidth(startWidth + (e.clientX - startX)) + 'px';
+    syncLeftWidthVar();
   }
 
   function onMouseUp() {
@@ -79,7 +81,7 @@ function computeInitialLeftWidth(leftPanel) {
   panelResizer.addEventListener('mousedown', (e) => {
     dragging = true;
     startX = e.clientX;
-    startWidth = leftPanel.getBoundingClientRect().width;
+    startWidth = parseFloat(leftPanel.style.width) || leftPanel.getBoundingClientRect().width;  // 패널 상자는 스크롤 막대 자리(app.css)만큼 넓어서 getBoundingClientRect 대신 정한 너비를 쓴다
     panelResizer.classList.add('dragging');
     document.body.style.userSelect = 'none';
     document.body.style.cursor = 'col-resize';
@@ -136,7 +138,7 @@ function computeInitialLeftWidth(leftPanel) {
       collapseBtn.title = '왼쪽 화면 펼치기';
       collapseBtn.setAttribute('aria-label', '왼쪽 화면 펼치기');
     } else {
-      if (savedWidth) leftPanel.style.width = savedWidth;
+      if (savedWidth) { leftPanel.style.width = savedWidth; syncLeftWidthVar(); }
       panelResizer.style.display = '';
       collapseBtn.textContent = '◀';
       collapseBtn.title = '왼쪽 화면 접기';
@@ -402,6 +404,14 @@ function fitLeftPanelHeight() {
 function updateLeftPanelScrollGap() {
   const scrollable = leftPanelEl.scrollHeight > leftPanelEl.clientHeight + 1;
   leftPanelEl.classList.toggle('has-scroll', scrollable);
+  syncLeftWidthVar();
+}
+// 패널이 스크롤될 때 막대 자리(12px)만큼 상자를 넓히는 app.css 규칙이 JS 가 정한 너비를 알도록 --lp-w 로 옮겨 둔다.
+function syncLeftWidthVar() {
+  const el = document.querySelector('.left-panel');
+  if (el && el.style.width && el.style.getPropertyValue('--lp-w') !== el.style.width) {
+    el.style.setProperty('--lp-w', el.style.width);
+  }
 }
 window.addEventListener('resize', fitLeftPanelHeight);
 window.addEventListener('scroll', fitLeftPanelHeight, { passive: true });

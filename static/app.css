@@ -109,6 +109,18 @@
     scrollbar-width: none;
   }
   .left-panel::-webkit-scrollbar { display: none; }
+  /* 왼쪽 패널은 내용이 길면 패널 안에서 스크롤된다(.has-scroll). '생약 검색'(생약검색 페이지)·'본문 검색'(약전 검색 페이지) 탭에서만 눈에 보이는
+     스크롤 막대를 목록과 화면 분할선 사이(패널과 분할선 사이 빈 칸)에 둔다. 다른 탭은 막대를 만들지 않는다.
+     스크롤 막대는 패널 너비 안쪽 자리를 차지하므로, 막대 폭(12px)만큼 패널 상자를 넓히고 오른쪽 바깥 여백(margin)을 같은 만큼 줄여서
+     목록 너비와 분할선 위치는 그대로 둔다. --lp-w 는 JS 가 정한 패널 너비(인라인 width)를 옮겨 둔 값이다(syncLeftWidthVar).
+     (PC 배치에서만. 폰·태블릿 세로 배치는 페이지 전체가 스크롤되어 이 패널은 스크롤되지 않는다.) */
+  @media (min-width: 861px) {
+    .left-panel.has-scroll:not(.dropdown-open):not(.collapsed):has(:is(#nameTab, #textTab).active) { width: calc(var(--lp-w, 359px) + 12px) !important; margin-right: -12px; scrollbar-width: auto; }
+    .left-panel.has-scroll:not(.dropdown-open):not(.collapsed):has(:is(#nameTab, #textTab).active)::-webkit-scrollbar { display: block; width: 12px; }
+    .left-panel.has-scroll:not(.dropdown-open):not(.collapsed):has(:is(#nameTab, #textTab).active)::-webkit-scrollbar-track { background: transparent; }
+    .left-panel.has-scroll:not(.dropdown-open):not(.collapsed):has(:is(#nameTab, #textTab).active)::-webkit-scrollbar-thumb { background: #b9c3d0; border: 3px solid transparent; background-clip: padding-box; border-radius: 8px; }
+    .left-panel.has-scroll:not(.dropdown-open):not(.collapsed):has(:is(#nameTab, #textTab).active)::-webkit-scrollbar-thumb:hover { background: #8d9aab; border: 3px solid transparent; background-clip: padding-box; }
+  }
   .left-panel.dropdown-open { overflow: visible; }
   .right-panel {
     flex: 1 1 0;
@@ -1122,7 +1134,7 @@
        기본값은 화면 폭(vw)으로 근사하고, 컨테이너 단위(cqw)를 지원하는 브라우저는 실제 내용 폭으로 계산한다 */
     /* 7글자 라벨("품질표준화연구", "생약감별자료집": .link-btn-long)은 칸에 딱 맞는 크기 그대로 두고, 나머지 버튼은 한 단계(1pt) 키운다
        (6글자 이하는 1pt를 키워도 칸에 들어간다). */
-    .detail-title-actions .link-btn { --fs-fit: calc((min(26rem, 100vw - 66px) - 12px) / 28 - 0.3px); font-size: calc(var(--fs-fit) + 1pt); }
+    .detail-title-actions .link-btn { --fs-fit: calc((min(26rem, 100vw - 50px) - 12px) / 28 - 0.3px); font-size: calc(var(--fs-fit) + 1pt); }
     @supports (width: 1cqw) {
       .detail-header:has(.detail-title-actions) { container-type: inline-size; }
       .detail-title-actions .link-btn { --fs-fit: calc((min(26rem, 100cqw) - 12px) / 28 - 0.3px); }
@@ -1149,11 +1161,11 @@
     .left-panel.collapsed .tab-panel.active { display: block; }
     .tab-bar { flex-wrap: wrap; }
     /* 탭 버튼('생약 검색', '시험항목 검색', '생약제제 검색') 글자를 검색칸 글자(1.05rem)와 같은 크기로. 가장 긴 라벨(약 5.8em)이
-       탭 칸에 안 들어가는 좁은 화면에서는 칸 폭에 맞춰 줄인다(칸 폭 = (화면 폭 - 좌우 여백 32px - 간격 12px) / 3, 안쪽 여백 4px + 테두리 4px) */
+       탭 칸에 안 들어가는 좁은 화면에서는 칸 폭에 맞춰 줄인다(칸 폭 = (화면 폭 - 좌우 여백 16px - 간격 12px) / 3, 안쪽 여백 4px + 테두리 4px) */
     .tab-bar .tab-btn {
       padding-left: 2px;
       padding-right: 2px;
-      font-size: min(1.05rem, calc(((100vw - 44px) / 3 - 8px) / 5.9));
+      font-size: min(1.05rem, calc(((100vw - 28px) / 3 - 8px) / 5.9));
     }
 
     /* 5) 관능검사해설서 PDF: 브라우저 내장 PDF 뷰어가 약한 모바일을 위해 새 창으로 여는 링크를 위에 둔다 */
@@ -1268,4 +1280,10 @@
       background: currentColor; clip-path: polygon(0 0, 100% 0, 50% 100%);
     }
     .tab-btn { padding: 13px 4px; }
+  }
+
+  /* 7) 아이폰·아이패드: 상단 제목 표시부(header)를 뺀 아래 화면(.wrap)의 좌우 여백을 50% 줄인다(16px -> 8px). 가로 모드 아이패드도 포함.
+     화면 폭으로 계산하는 값(탭 글자 크기, 시험항목 버튼 글자 크기)의 좌우 여백 값도 이에 맞춰 두었다. */
+  @media (pointer: coarse), (hover: none), (max-width: 860px) {
+    .wrap { padding-left: 8px; padding-right: 8px; }
   }

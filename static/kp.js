@@ -64,6 +64,7 @@ function computeInitialLeftWidth(leftPanel) {
   if (!leftPanelEl || !panelResizer || !wrapEl) return;
   const baseLeftWidth = computeInitialLeftWidth(leftPanelEl);
   leftPanelEl.style.width = baseLeftWidth + 'px';
+  syncLeftWidthVar();
   let dragging = false, startX = 0, startWidth = 0;
   const clampWidth = (w) => {
     const min = baseLeftWidth / 2;
@@ -72,14 +73,17 @@ function computeInitialLeftWidth(leftPanel) {
   panelResizer.addEventListener('mousedown', (e) => {
     dragging = true;
     startX = e.clientX;
-    startWidth = leftPanelEl.getBoundingClientRect().width;
+    startWidth = parseFloat(leftPanelEl.style.width) || leftPanelEl.getBoundingClientRect().width;  // 패널 상자는 스크롤 막대 자리(kp.css)만큼 넓어서 getBoundingClientRect 대신 정한 너비를 쓴다
     panelResizer.classList.add('dragging');
     document.body.style.userSelect = 'none';
     document.body.style.cursor = 'col-resize';
     e.preventDefault();
   });
   document.addEventListener('mousemove', (e) => {
-    if (dragging) leftPanelEl.style.width = clampWidth(startWidth + (e.clientX - startX)) + 'px';
+    if (dragging) {
+      leftPanelEl.style.width = clampWidth(startWidth + (e.clientX - startX)) + 'px';
+      syncLeftWidthVar();
+    }
   });
   document.addEventListener('mouseup', () => {
     if (!dragging) return;
@@ -126,7 +130,7 @@ function computeInitialLeftWidth(leftPanel) {
       collapseBtn.title = '왼쪽 화면 펼치기';
       collapseBtn.setAttribute('aria-label', '왼쪽 화면 펼치기');
     } else {
-      if (savedWidth) leftPanelEl.style.width = savedWidth;
+      if (savedWidth) { leftPanelEl.style.width = savedWidth; syncLeftWidthVar(); }
       panelResizer.style.display = '';
       collapseBtn.textContent = '◀';
       collapseBtn.title = '왼쪽 화면 접기';
@@ -301,6 +305,13 @@ function fitLeftPanelHeight() {
 }
 function updateLeftPanelScrollGap() {
   leftPanelEl.classList.toggle('has-scroll', leftPanelEl.scrollHeight > leftPanelEl.clientHeight + 1);
+  syncLeftWidthVar();
+}
+// 패널이 스크롤될 때 막대 자리(12px)만큼 상자를 넓히는 kp.css 규칙이 JS 가 정한 너비를 알도록 --lp-w 로 옮겨 둔다.
+function syncLeftWidthVar() {
+  if (leftPanelEl.style.width && leftPanelEl.style.getPropertyValue('--lp-w') !== leftPanelEl.style.width) {
+    leftPanelEl.style.setProperty('--lp-w', leftPanelEl.style.width);
+  }
 }
 window.addEventListener('resize', fitLeftPanelHeight);
 window.addEventListener('scroll', fitLeftPanelHeight, { passive: true });
