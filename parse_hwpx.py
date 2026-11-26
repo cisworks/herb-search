@@ -2079,7 +2079,9 @@ def _render_rich_html(text: str) -> str:
             piece = _rows_to_table_html([lines[k] for k in idxs])
         elif kind == "formula":
             raw_merged = _strip_markup_with_map(_collapse_fractions_for_width(" ".join(lines[k] for k in idxs)))[0]
-            join_with = " " if len(raw_merged) <= _FORMULA_MERGE_MAX_LEN else "<br>"
+            # 라벨 자체가 두 줄 이상으로 쪼개진 계산식(라벨 둘 + "= ..." 줄 = 세 줄 이상, 예: 당귀 "총 데쿠르신 [... 및 / ...]의 양 (mg) / = ...")은
+            # 길이와 상관없이 한 줄로 합친다(화면 폭에서는 자연히 줄이 바뀐다). 라벨 한 줄 + "= ..." 줄은 위의 길이 제한을 그대로 따른다.
+            join_with = " " if (len(raw_merged) <= _FORMULA_MERGE_MAX_LEN or len(idxs) >= 3) else "<br>"
             piece = f'<div class="formula-line">{join_with.join(_render_text_line_html(lines[k]) for k in idxs)}</div>'
         else:
             piece = "<br>".join(_render_text_line_html(lines[k]) for k in idxs)

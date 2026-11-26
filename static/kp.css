@@ -76,10 +76,15 @@
   .kp-site .site-link { position: absolute; order: 0; margin: 0; top: 50%; transform: translateY(-50%); }
 }
 
-/* 탭 이름: 기본은 짧은 이름. 태블릿(아이패드 세로, 폭 740~860px)은 탭이 가로로 넓어 풀 이름("통칙·제제총칙·일반시험법·일반정보")을 보인다 */
-.kp-site .tab-long { display: none; }
+/* 탭 이름: 폰(폭 739px 이하)은 짧은 이름. 태블릿(아이패드 세로, 폭 740~860px)은 탭이 가로로 넓어 풀 이름("통칙·제제총칙·일반시험법·일반정보")을 보인다.
+   PC(폭 861px 이상)는 "통칙·제제·시험법·정보" */
+.kp-site .tab-long, .kp-site .tab-pc { display: none; }
 @media (min-width: 740px) and (max-width: 860px) {
   .kp-site .tab-long { display: inline; }
+  .kp-site .tab-short { display: none; }
+}
+@media (min-width: 861px) {
+  .kp-site .tab-pc { display: inline; }
   .kp-site .tab-short { display: none; }
 }
 
@@ -198,9 +203,6 @@
 .kp-site .cls-head { display: flex; align-items: center; gap: 8px; padding: 9px 16px; font-weight: 700; color: var(--main-dark); background: #f7faff; border-bottom: 1px solid var(--border); cursor: pointer; user-select: none; }
 .kp-site .cls-head:hover, .kp-site .cls-head:focus-visible, .kp-site .cls-head.kb-active { background: #edf3fb; outline: none; }
 .kp-site .cls-sign { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 14.58px; height: 14.58px; border: 1.5px solid var(--main); border-radius: 4px; font-size: 0.648rem; line-height: 1; color: var(--main); background: #fff; }  /* +/- 칸 크기·글자: 설명창 시험항목 버튼 오른쪽 접기 버튼(.toggle-icon)과 같게 */
-/* 통칙 탭 목록: +/− 기호만 눌러야 펼쳐지므로(이름 줄은 그 문서를 고른다), 작은 기호 둘레까지 눌리게 키운다 */
-.kp-site #refDropdown .cls-sign { position: relative; cursor: pointer; }
-.kp-site #refDropdown .cls-sign::after { content: ""; position: absolute; inset: -9px; }
 .kp-site .cls-count { font-size: 0.8rem; font-weight: 500; color: var(--sub); }
 .kp-site .cls-body[hidden] { display: none; }
 .kp-site .cls-body > .result-item { padding-left: 40px; }

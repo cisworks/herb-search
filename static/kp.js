@@ -429,15 +429,13 @@ function dropdownHtml(tab, items) {
     const label = `<div class="group-label"><span>의약품각조 전체 목록 (${items.length})</span><label class="cls-check"><input type="checkbox" id="clsCheck"${clsMode ? ' checked' : ''}> 분류별</label></div>`;
     return label + (clsMode ? groupedDrugHtml(items) : items.map(it => rowHtml(it, true)).join(''));
   }
-  // 목록에는 문서(통칙/제제총칙/일반시험법/일반정보) 넷이 +/− 로 접힌 줄로 나온다. +/− 기호를 누르면(또는 방향키 →/←) 그 문서의 항목들이 펼쳐지고 접힌다.
-  // 문서 이름 줄을 누르면 예전처럼 그 문서를 고른다(검색칸에 문서 이름, 아래 카드에 그 문서의 항목들). 항목을 고르면 그 항목이 열린다.
+  // 목록에는 문서 넷("[별표 1] 통칙", "[별표 2] 제제총칙", "[별표 5] 일반시험법", "[별표 6] 일반정보")이 +/− 기호 없이 한 줄씩 나온다.
+  // 문서 이름 줄을 누르면 그 문서를 고른다(검색칸에 문서 이름, 아래 카드에 그 문서의 항목들). 항목은 카드에서 고른다.
   const cats = [];
   items.forEach(it => {
-    let c = cats.find(x => x.cat === it.cat);
-    if (!c) cats.push(c = { cat: it.cat, items: [] });
-    c.items.push(it);
+    if (!cats.some(x => x.cat === it.cat)) cats.push({ cat: it.cat, doc: it.doc });
   });
-  return cats.map(c => clsNode(c.cat, c.items.length, refRowsHtml(c.items, false), false, ` data-cat="${escapeHtml(c.cat)}"`)).join('');
+  return cats.map(c => `<div class="result-item" data-cat="${escapeHtml(c.cat)}"><span class="rname">[별표 ${c.doc}] ${escapeHtml(c.cat)}</span></div>`).join('');
 }
 
 // 통칙/제제총칙/일반시험법/일반정보 항목 줄들(제제총칙은 투여 경로별 소제목 포함). showCat: 문서 이름 구분줄을 넣을지
@@ -649,7 +647,11 @@ function markPicked(c, id, reveal) {
   if (c.tab !== 'drug' && c.tab !== 'ref') return;
   c.dropdown.querySelectorAll('.result-item.picked').forEach(el => el.classList.remove('picked'));
   if (id == null || id === '') return;
-  const row = c.dropdown.querySelector(`.result-item[data-id="${id}"]`);
+  let row = c.dropdown.querySelector(`.result-item[data-id="${id}"]`);
+  if (!row && c.tab === 'ref' && c.items) {  // 통칙 탭 목록은 문서 이름 줄만 있다: 지금 보이는 항목이 속한 문서 줄에 표시한다
+    const it = c.items.find(x => String(x.id) === String(id));
+    if (it) row = [...c.dropdown.querySelectorAll('.result-item[data-cat]')].find(el => el.dataset.cat === it.cat);
+  }
   if (!row) return;
   row.classList.add('picked');
   if (reveal && c.tab === 'drug') {  // 목록을 새로 그린 경우: 접힌 분류 안에 있으면 그 분류를 펼쳐 선택 표시가 보이게 한다(통칙 탭 목록은 +/− 기호를 눌러야만 펼쳐진다)
