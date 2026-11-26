@@ -54,16 +54,20 @@
   background: url("kp_illustration.svg") no-repeat center center / contain;
 }
 
-@media (max-width: 860px) {
-  /* 대한민국약전 검색 제목이 길어 로고/링크와 겹치므로, 첫 줄에 로고(왼쪽)와 링크(오른쪽)를 두고 제목은 그 아래 줄에 둔다 */
+/* 폰(폭 739px 이하)은 생약 검색 페이지처럼 로고·기관명(왼쪽), 제목(가운데), 링크(오른쪽)를 한 줄에 둔다(app.css 의 모바일 규칙 그대로).
+   제목(약 8.3em 폭)이 로고·기관명(오른쪽 끝 약 97px) 옆에서 12px 이상 떨어지도록, 화면이 좁아지면 제목 글자만 조금 줄인다(393px 이상은 그대로 1.3rem).
+   그래도 겹칠 만큼 아주 좁은 화면(339px 이하)만 첫 줄에 로고(왼쪽)와 링크(오른쪽), 제목은 그 아래 줄에 둔다 */
+@media (max-width: 739px) {
+  .kp-site header h1 { font-size: min(1.3rem, calc((100vw - 218px) / 8.32)); }
+  .kp-site .org-badge { position: absolute; flex: none; margin: 0; }  /* app.css 의 370px 이하 규칙(로고를 제목 위 줄로 올림)은 쓰지 않는다 */
+}
+@media (max-width: 339px) {
+  .kp-site header h1 { font-size: 1.3rem; }
   .kp-site header { padding-top: 8px; }
-  .kp-site .org-badge { position: static; order: 1; margin: 0 auto 4px 0; }
+  .kp-site .org-badge { position: static; order: 1; flex: 0 0 auto; margin: 0 auto 4px 0; }
   .kp-site .site-link { position: static; order: 2; margin: 0 0 4px auto; }
   .kp-site header h1 { order: 3; }
   .kp-site .header-meta { order: 4; }
-}
-@media (max-width: 370px) {
-  .kp-site .org-badge { flex: 0 0 auto; margin-bottom: 4px; }
 }
 /* 태블릿(폭 740~860px): 제목이 로고·링크와 겹치지 않으므로 폰용 첫 줄 배치(위)를 풀고, 로고·기관명(왼쪽)과 링크(오른쪽)를 제목 세 줄의 세로 가운데에 둔다 */
 @media (min-width: 740px) and (max-width: 860px) {
