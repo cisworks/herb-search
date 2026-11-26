@@ -18,8 +18,8 @@
 .kp-site .result-item.kb-active,
 .kp-site .result-item.selected { background: #edf3fb; }
 /* 의약품등 검색칸 전체 목록에서 고른 품목(분류별이든 아니든): 바탕색 #edf3fb(사용자가 지정한 색) + 왼쪽 테마색 띠 + 굵은 이름 */
-.kp-site #drugDropdown .result-item.picked { background: #edf3fb; box-shadow: inset 3px 0 0 var(--main); }
-.kp-site #drugDropdown .result-item.picked .rname { font-weight: 700; color: var(--main-dark); }
+.kp-site #drugDropdown .result-item.picked, .kp-site #refDropdown .result-item.picked { background: #edf3fb; box-shadow: inset 3px 0 0 var(--main); }
+.kp-site #drugDropdown .result-item.picked .rname, .kp-site #refDropdown .result-item.picked .rname { font-weight: 700; color: var(--main-dark); }
 .kp-site .definition { background: #edf3fb; }
 .kp-site .quick-del { color: #8d9aab; }
 .kp-site .case-category-label { background: #f7f9fc; }
@@ -90,6 +90,7 @@
   .kp-site .tab-btn { flex: 1 1 0; white-space: normal; padding: 6px 2px; }  /* 모바일: 좁으면 줄바꿈 */
   .kp-site .tab-bar .tab-btn { font-size: min(0.95rem, calc(((100vw - 28px) / 3.75 - 8px) / 5.2)); }
 }
+
 /* 읽기 전용 선택칸(통칙·제제·시험법·정보): 눌러서 목록을 연다 */
 .kp-site #refInput { cursor: pointer; caret-color: transparent; user-select: none; }  /* 글자를 칠 수 없다: 깜빡이는 커서도 안 보인다 */
 
@@ -197,6 +198,9 @@
 .kp-site .cls-head { display: flex; align-items: center; gap: 8px; padding: 9px 16px; font-weight: 700; color: var(--main-dark); background: #f7faff; border-bottom: 1px solid var(--border); cursor: pointer; user-select: none; }
 .kp-site .cls-head:hover, .kp-site .cls-head:focus-visible, .kp-site .cls-head.kb-active { background: #edf3fb; outline: none; }
 .kp-site .cls-sign { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 14.58px; height: 14.58px; border: 1.5px solid var(--main); border-radius: 4px; font-size: 0.648rem; line-height: 1; color: var(--main); background: #fff; }  /* +/- 칸 크기·글자: 설명창 시험항목 버튼 오른쪽 접기 버튼(.toggle-icon)과 같게 */
+/* 통칙 탭 목록: +/− 기호만 눌러야 펼쳐지므로(이름 줄은 그 문서를 고른다), 작은 기호 둘레까지 눌리게 키운다 */
+.kp-site #refDropdown .cls-sign { position: relative; cursor: pointer; }
+.kp-site #refDropdown .cls-sign::after { content: ""; position: absolute; inset: -9px; }
 .kp-site .cls-count { font-size: 0.8rem; font-weight: 500; color: var(--sub); }
 .kp-site .cls-body[hidden] { display: none; }
 .kp-site .cls-body > .result-item { padding-left: 40px; }

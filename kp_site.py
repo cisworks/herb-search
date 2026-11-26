@@ -180,6 +180,63 @@ def ensure_text_index(d):
         d.text_ready = True
 
 
+_WORD_RE = re.compile(r"[가-힣]{2,}|[A-Za-z][A-Za-z0-9\-]{2,}")
+# 낱말 끝의 조사·어미("시험액으로", "시험한다" ...)를 떼어 같은 말로 센다. 모호한 한 글자(은·는·이·가·의·도 ...)는 건드리지 않는다("흡광도"가 "흡광"이 되지 않게)
+_JOSA_RE = re.compile(r"^([가-힣]{2,}?)(?:에서는|으로써|으로서|으로|에서|에는|이며|으며|이다|이고|이면|한다|하여|하는|하고|하기|하며|되는|된다|할|한|된|를|을|에)$")
+_JOSA1 = ("로부터", "보다", "부터", "까지", "이라", "은", "는", "이", "가", "의", "도", "로", "과", "와", "만")
+
+
+def ensure_word_index(d):
+    """본문 검색칸 추천 문구용 낱말 색인: 본문에 나오는 한글(2글자 이상)·영문 낱말을 세어 정렬해 둔다. 처음 쓸 때 한 번만 만든다."""
+    if getattr(d, "words", None) is not None:
+        return
+    with _text_lock:
+        if getattr(d, "words", None) is not None:
+            return
+        counts = {}
+        for e in d.entries:
+            if e.get("nolink"):
+                continue
+            for w in _WORD_RE.findall(e["text"]):
+                w = w.lower()
+                m = _JOSA_RE.match(w)
+                if m:
+                    w = m.group(1)
+                counts[w] = counts.get(w, 0) + 1
+        # 모호한 조사(은·는·이·가·의·도 ...)는, 그것을 뗀 낱말이 본문에 그만큼 이상 나올 때만 떼어 합친다("시험은"→"시험", 그러나 "흡광도"는 그대로)
+        for w, c in list(counts.items()):
+            for suf in _JOSA1:
+                if w.endswith(suf) and len(w) - len(suf) >= 2:
+                    stem = w[: -len(suf)]
+                    if counts.get(stem, 0) >= c:
+                        counts[stem] += c
+                        del counts[w]
+                        break
+        d.word_count = counts
+        d.words = sorted(counts)
+
+
+@kp.route("/api/suggest")
+def api_suggest():
+    """본문 검색칸 추천 문구: 입력한 글자로 시작하는 본문 낱말을 많이 나오는 순으로 돌려준다(최대 8개)."""
+    import bisect
+
+    d = get_data()
+    q = _normalize(request.args.get("q", ""))
+    if len(q) < 2:
+        return jsonify({"words": []})
+    ensure_word_index(d)
+    words, counts = d.words, d.word_count
+    i = bisect.bisect_left(words, q)
+    found = []
+    while i < len(words) and words[i].startswith(q) and len(found) < 5000:
+        if words[i] != q:
+            found.append(words[i])
+        i += 1
+    found.sort(key=lambda w: (-counts[w], len(w), w))
+    return jsonify({"words": [{"w": w, "n": counts[w]} for w in found[:8]]})
+
+
 def warm():
     """서버를 켠 직후 백그라운드에서 데이터를 읽어 둔다(첫 접속자가 기다리지 않게)."""
     try:

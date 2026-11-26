@@ -405,8 +405,8 @@ const CLS_KEY = 'kpClsMode';
 function loadClsMode() { try { return localStorage.getItem(CLS_KEY) === '1'; } catch (e) { return false; } }
 function saveClsMode(on) { try { localStorage.setItem(CLS_KEY, on ? '1' : '0'); } catch (e) { /* 저장 못 해도 이번 화면에서는 그대로 쓴다 */ } }
 let clsMode = loadClsMode();
-function clsNode(title, count, inner, open) {
-  return `<div class="cls-node"><div class="cls-head" role="button" tabindex="0" aria-expanded="${open ? 'true' : 'false'}"><span class="cls-sign">${open ? '−' : '+'}</span><span class="cls-name">${escapeHtml(title)}</span><span class="cls-count">(${count})</span></div><div class="cls-body"${open ? '' : ' hidden'}>${inner}</div></div>`;
+function clsNode(title, count, inner, open, headAttrs = '') {
+  return `<div class="cls-node"><div class="cls-head"${headAttrs} role="button" tabindex="0" aria-expanded="${open ? 'true' : 'false'}"><span class="cls-sign">${open ? '−' : '+'}</span><span class="cls-name">${escapeHtml(title)}</span><span class="cls-count">(${count})</span></div><div class="cls-body"${open ? '' : ' hidden'}>${inner}</div></div>`;
 }
 function groupedDrugHtml(items) {
   const part1 = items.filter(it => it.doc === 3);
@@ -429,14 +429,15 @@ function dropdownHtml(tab, items) {
     const label = `<div class="group-label"><span>의약품각조 전체 목록 (${items.length})</span><label class="cls-check"><input type="checkbox" id="clsCheck"${clsMode ? ' checked' : ''}> 분류별</label></div>`;
     return label + (clsMode ? groupedDrugHtml(items) : items.map(it => rowHtml(it, true)).join(''));
   }
-  // 목록에는 문서(통칙/제제총칙/일반시험법/일반정보) 넷만 한 줄씩 나온다(+ 표시도, 하위 항목도 없다). 하나를 고르면 그 하위 항목들이 아래 카드에 나온다.
+  // 목록에는 문서(통칙/제제총칙/일반시험법/일반정보) 넷이 +/− 로 접힌 줄로 나온다. +/− 기호를 누르면(또는 방향키 →/←) 그 문서의 항목들이 펼쳐지고 접힌다.
+  // 문서 이름 줄을 누르면 예전처럼 그 문서를 고른다(검색칸에 문서 이름, 아래 카드에 그 문서의 항목들). 항목을 고르면 그 항목이 열린다.
   const cats = [];
   items.forEach(it => {
     let c = cats.find(x => x.cat === it.cat);
-    if (!c) cats.push(c = { cat: it.cat, doc: it.doc, n: 0 });
-    c.n += 1;
+    if (!c) cats.push(c = { cat: it.cat, items: [] });
+    c.items.push(it);
   });
-  return cats.map(c => `<div class="result-item" data-cat="${escapeHtml(c.cat)}"><span class="rname">${escapeHtml(c.cat)}</span><span class="ren">[별표 ${c.doc}] ${c.n}항목</span></div>`).join('');
+  return cats.map(c => clsNode(c.cat, c.items.length, refRowsHtml(c.items, false), false, ` data-cat="${escapeHtml(c.cat)}"`)).join('');
 }
 
 // 통칙/제제총칙/일반시험법/일반정보 항목 줄들(제제총칙은 투여 경로별 소제목 포함). showCat: 문서 이름 구분줄을 넣을지
@@ -465,8 +466,10 @@ const combos = {
   ref: { tab: 'ref', input: refInput, toggle: refToggle, dropdown: refDropdown, items: null, token: 0 },
 };
 
+const suggests = [];  // 검색칸 추천 문구 팝업들(makeSuggest 가 채운다)
+function closeSuggests() { suggests.forEach(s => s.close()); }
 function syncDropdownOpenClass() {
-  const open = Object.values(combos).some(c => c.dropdown.style.display === 'block');
+  const open = Object.values(combos).some(c => c.dropdown.style.display === 'block') || suggests.some(s => s.isOpen());
   leftPanelEl.classList.toggle('dropdown-open', open);
 }
 function fitDropdownHeights() {
@@ -485,9 +488,10 @@ function closeDropdown(c) {
   c.dropdown.style.display = 'none';  // 스크롤 위치는 목록이 보이는 동안 scroll 이벤트로 계속 적어 둔다(닫힌 뒤에는 읽을 수 없다)
   syncDropdownOpenClass();
 }
-function closeAllDropdowns() { Object.values(combos).forEach(closeDropdown); }
+function closeAllDropdowns() { Object.values(combos).forEach(closeDropdown); closeSuggests(); }
 combos.drug.dropdown.addEventListener('scroll', () => { if (combos.drug.dropdown.style.display === 'block') combos.drug.savedScroll = combos.drug.dropdown.scrollTop; }, { passive: true });
 async function openDropdown(c) {
+  closeSuggests();  // 추천 문구 팝업이 열려 있으면 닫고 전체 목록을 보여 준다
   const token = ++c.token;
   const items = await getList(c.tab);
   if (token !== c.token) return;
@@ -531,6 +535,12 @@ combos.drug.dropdown.addEventListener('keydown', (ev) => {
 Object.values(combos).forEach(c => {
   c.dropdown.addEventListener('click', (ev) => {
     const head = ev.target.closest('.cls-head');
+    if (head && head.dataset.cat && !ev.target.closest('.cls-sign')) {  // 통칙 탭 목록의 문서 이름 줄(+/− 기호가 아닌 곳): 그 문서를 고른다
+      closeDropdown(c);
+      refSelectedId = null;
+      selectRefCat(head.dataset.cat);
+      return;
+    }
     if (head) { toggleClsNode(head); return; }
     const row = ev.target.closest('.result-item');
     if (row && row.dataset.cat) {  // 문서 이름(통칙/제제총칙/일반시험법/일반정보)을 고르면 검색칸에 표시하고 카드에는 그 문서의 항목만 나온다
@@ -636,13 +646,13 @@ document.addEventListener('click', (ev) => {
 
 // 의약품등 검색칸 전체 목록에서 고른 품목 줄에 선택 표시(.picked)를 단다(분류별이든 아니든). id 가 없거나 목록에 없으면 표시를 지운다
 function markPicked(c, id, reveal) {
-  if (c.tab !== 'drug') return;
+  if (c.tab !== 'drug' && c.tab !== 'ref') return;
   c.dropdown.querySelectorAll('.result-item.picked').forEach(el => el.classList.remove('picked'));
   if (id == null || id === '') return;
   const row = c.dropdown.querySelector(`.result-item[data-id="${id}"]`);
   if (!row) return;
   row.classList.add('picked');
-  if (reveal) {  // 목록을 새로 그린 경우: 접힌 분류 안에 있으면 그 분류를 펼쳐 선택 표시가 보이게 한다
+  if (reveal && c.tab === 'drug') {  // 목록을 새로 그린 경우: 접힌 분류 안에 있으면 그 분류를 펼쳐 선택 표시가 보이게 한다(통칙 탭 목록은 +/− 기호를 눌러야만 펼쳐진다)
     for (let body = row.closest('.cls-body'); body; body = body.parentElement && body.parentElement.closest('.cls-body')) {
       if (body.hidden) toggleClsNode(body.previousElementSibling);
     }
@@ -903,12 +913,14 @@ function setupSearchInput(tab) {
     if (c) closeDropdown(c);  // 검색어를 치면 펼쳐 둔 전체 목록은 닫고 검색 결과를 보여 준다
     const q = input.value.trim();
     if (!q) {
+      if (tab === 'text') textSuggest.close();
       clearResults(tab);
       setQuery(tab, '');
       refreshQuickBox();
       return;
     }
-    if (tab === 'text' && q.replace(/\s+/g, '').length < 2) { clearResults(tab); return; }
+    if (tab === 'text' && q.replace(/\s+/g, '').length < 2) { textSuggest.close(); clearResults(tab); return; }
+    if (tab === 'text') suggestText(q);  // 본문 검색칸 추천 문구(검색 결과와 별개로 더 빨리 뜬다)
     timers[tab] = setTimeout(() => (tab === 'text' ? runTextSearch(q) : runNameSearch(tab, q)), tab === 'text' ? 400 : 200);
     refreshQuickBox();
   });
@@ -919,6 +931,7 @@ function setupSearchInput(tab) {
     const q = input.value.trim();
     if (!q) return;
     if (c) closeDropdown(c);
+    closeSuggests();
     dismissKeyboard(input);
     if (tab === 'text') {
       const data = await runTextSearch(q);
@@ -961,10 +974,10 @@ function pageScrollDropdown(dropdown, list, cur, dir, setActive) {
   setActive(list[idx]);
 }
 
-function setupDropdownKeys(c) {
+function setupDropdownKeys(c, openFn = openDropdown, closeFn = closeDropdown) {
   const { dropdown, input } = c;
   // 분류별 보기의 분류 머리(.cls-head)도 방향키로 오간다. 접혀 있는 줄은 건너뛴다
-  const rows = () => [...dropdown.querySelectorAll('.result-item, .cls-head')].filter(el => el.offsetParent !== null);
+  const rows = () => [...dropdown.querySelectorAll('.result-item:not(.no-link), .cls-head')].filter(el => el.offsetParent !== null);
   const clearActive = () => dropdown.querySelectorAll('.kb-active').forEach(el => el.classList.remove('kb-active'));
   const setActive = (el) => {
     clearActive();
@@ -973,15 +986,16 @@ function setupDropdownKeys(c) {
   };
   document.addEventListener('keydown', (ev) => {
     if (dropdown.style.display !== 'block') {
-      if (ev.key === 'ArrowDown' && document.activeElement === input) {
+      // (추천 문구 팝업이 열려 있으면 아래 방향키는 그 팝업의 몫이다)
+      if (ev.key === 'ArrowDown' && document.activeElement === input && !suggests.some(s => s.isOpen())) {
         ev.preventDefault();
-        openDropdown(c);
+        openFn(c);
       }
       return;
     }
     if (ev.key === 'Escape') {
       ev.preventDefault();
-      closeDropdown(c);
+      closeFn(c);
       return;
     }
     const list = rows();
@@ -1025,7 +1039,72 @@ function setupDropdownKeys(c) {
     if (row && !row.classList.contains('kb-active')) setActive(row);
   });
 }
-Object.values(combos).forEach(setupDropdownKeys);
+Object.values(combos).forEach(c => setupDropdownKeys(c));
+
+// ---- 추천 문구 팝업 (본문 검색 탭) ------------------------------------------------------------------------------------
+// 글자를 치면 검색칸 아래 팝업으로 후보를 추천한다. 항목을 누르거나 ↑↓ 로 고르고 Enter 를 누르면 그 후보를 고르고,
+// 후보를 고르지 않고 Enter 를 누르면 예전처럼 입력한 글자로 찾는다. Esc·바깥 클릭·Enter·탭 전환으로 닫힌다.
+// 방향키 이동은 ▾ 목록과 같은 setupDropdownKeys 를 쓴다.
+// rowHtmlFn(item): 후보 한 줄(.result-item 하나) HTML. pick(item): 후보를 골랐을 때
+function makeSuggest(input, rowHtmlFn, pick) {
+  const dd = document.createElement('div');
+  dd.className = 'combo-dropdown suggest-dropdown';
+  dd.style.display = 'none';
+  input.closest('.search-box').appendChild(dd);
+  let items = [];
+  let token = 0;  // 닫거나 새 요청을 시작할 때마다 올려서, 늦게 도착한 옛 응답으로 팝업이 다시 열리지 않게 한다
+  const s = {
+    isOpen: () => dd.style.display === 'block',
+    close() {
+      token += 1;
+      dd.style.display = 'none';
+      syncDropdownOpenClass();
+    },
+    begin: () => ++token,
+    show(tok, q, list) {
+      if (tok !== token || input.value.trim() !== q || document.activeElement !== input) return;
+      items = list;
+      if (!items.length) { dd.style.display = 'none'; syncDropdownOpenClass(); return; }
+      dd.innerHTML = items.map(rowHtmlFn).join('');
+      dd.querySelectorAll('.result-item').forEach((el, i) => { el.dataset.si = i; });
+      dd.scrollTop = 0;
+      dd.style.display = 'block';
+      syncDropdownOpenClass();
+    },
+  };
+  dd.addEventListener('click', (ev) => {
+    const row = ev.target.closest('.result-item');
+    const it = row && items[Number(row.dataset.si)];
+    if (!it) return;
+    s.close();
+    dismissKeyboard(input);
+    pick(it);
+  });
+  setupDropdownKeys({ dropdown: dd, input }, () => {}, () => s.close());
+  suggests.push(s);
+  return s;
+}
+
+// 본문 검색 탭: 입력한 글자로 시작하는 본문 낱말을 많이 나오는 순으로 추천한다(서버 /kp/api/suggest). 고르면 그 낱말로 본문을 찾는다
+const textSuggest = makeSuggest(textInput, it => `<div class="result-item"><span class="rname">${escapeHtml(it.w)}<span class="rcount">${it.n.toLocaleString()}회</span></span></div>`, async (it) => {
+  clearTimeout(timers.text);
+  textInput.value = it.w;
+  const data = await runTextSearch(it.w);
+  searchDone.text = true;
+  const first = data.groups && data.groups[0] && data.groups[0].items[0];
+  if (first) showEntry(first.id, { hl: it.w });
+});
+let textSuggestTimer = null;
+function suggestText(q) {
+  clearTimeout(textSuggestTimer);
+  textSuggestTimer = setTimeout(async () => {
+    const tok = textSuggest.begin();
+    try {
+      const res = await fetch(`${KP}/api/suggest?q=${encodeURIComponent(q)}`);
+      textSuggest.show(tok, q, (await res.json()).words);
+    } catch (e) { /* 추천을 못 받아도 검색은 그대로 된다 */ }
+  }, 150);
+}
 
 // ---- 최근 본 항목 --------------------------------------------------------------------------------
 const RECENT_KEY = 'kpRecent', RECENT_MAX = 15;
