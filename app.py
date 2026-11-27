@@ -1065,6 +1065,44 @@ def _search_case_entries(q):
     return grouped
 
 
+_ORIGIN_NORM = {}  # 항목 id -> 공백을 뺀 소문자 기원 문장(처음 쓸 때 만든다)
+ORIGIN_SUGGEST_MAX = 30
+
+
+@app.route("/api/origin_search")
+def api_origin_search():
+    """검색어가 생약의 '기원' 문장(예: "이 약은 칡 Pueraria lobata Ohwi (콩과 Leguminosae)의 뿌리로서 ...")에
+    들어 있는 공정서 생약을 찾아 추천 목록으로 돌려준다. 생약명·한자·영명·학명으로 이미 검색되는 생약은
+    검색 결과 카드에 나오므로 뺀다. 각 항목에는 일치한 부분 둘레의 기원 문장 조각(snippet: 앞/일치/뒤)을 붙인다."""
+    raw = (request.args.get("q") or "").strip()
+    q = _normalize(raw)
+    if len(q) < 2:
+        return jsonify({"q": raw, "total": 0, "items": []})
+    if not _ORIGIN_NORM:
+        for e in ENTRIES:
+            _ORIGIN_NORM[e["id"]] = _normalize(e.get("definition", ""))
+    found = [e for e in ENTRIES if q in _ORIGIN_NORM.get(e["id"], "") and q not in e["_search_blob"]]
+    found.sort(key=lambda e: e["korean_name"])
+    # 공백이 있어도 일치하도록 글자 사이에 공백 허용 패턴으로 원문에서 일치 위치를 찾는다
+    pat = re.compile(r"\s*".join(re.escape(ch) for ch in q), re.IGNORECASE)
+    items = []
+    # 입력 중 추천 목록은 상위 일부만, Enter 로 여는 전체 목록은 limit=all 로 전부 받는다
+    shown = found if request.args.get("limit") == "all" else found[:ORIGIN_SUGGEST_MAX]
+    for e in shown:
+        text = e.get("definition", "")
+        m = pat.search(text)
+        item = summary(e)
+        if m:
+            s, t = m.start(), m.end()
+            item["snippet"] = [
+                ("…" if s > 14 else "") + text[max(0, s - 14):s].lstrip(),
+                text[s:t],
+                text[t:t + 14].rstrip() + ("…" if t + 14 < len(text) else ""),
+            ]
+        items.append(item)
+    return jsonify({"q": raw, "total": len(found), "items": items})
+
+
 @app.route("/api/search")
 def api_search():
     q = _normalize(request.args.get("q", ""))

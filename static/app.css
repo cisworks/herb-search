@@ -212,6 +212,19 @@
     max-height: 60vh;
   }
 
+  /* 기원 추천 목록: 생약명 아래 줄에 기원 문장 조각을 작게 보여 주고 일치한 말을 강조한다 */
+  .origin-item { flex-direction: column; align-items: flex-start; gap: 2px; }
+  .origin-snip {
+    font-size: 0.8rem;
+    color: var(--sub);
+    white-space: pre;
+  }
+  .origin-snip mark {
+    background: #fff1a8;
+    color: inherit;
+    border-radius: 2px;
+  }
+
   .meta {
     font-size: 0.8rem;
     color: var(--sub);

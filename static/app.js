@@ -8,6 +8,8 @@ const prepDropdown = document.getElementById('prepDropdown');
 const prepResultsBox = document.getElementById('prepResults');
 const comboToggle = document.getElementById('comboToggle');
 const comboDropdown = document.getElementById('comboDropdown');
+const originDropdown = document.getElementById('originDropdown');
+let originTimer = null, originSeq = 0, originItems = [];  // 기원 추천 목록(아래 '기원 추천 목록' 참고)
 const resultsBox = document.getElementById('results');
 const detailBox = document.getElementById('detail');
 const detailPlaceholder = document.getElementById('detailPlaceholder');
@@ -489,6 +491,7 @@ comboDropdown.addEventListener('click', (ev) => {
 });
 
 function openComboDropdown() {
+  closeOriginSuggest();
   showAllOfficial();
   comboDropdown.style.display = 'block';
   syncDropdownOpenClass();
@@ -506,7 +509,7 @@ function closeComboDropdown() {
 // 그대로 펼쳐지게 한다.
 function syncDropdownOpenClass() {
   const open = comboDropdown.style.display === 'block' || testItemDropdown.style.display === 'block'
-    || prepDropdown.style.display === 'block';
+    || prepDropdown.style.display === 'block' || originDropdown.style.display === 'block';
   document.querySelector('.left-panel').classList.toggle('dropdown-open', open);
 }
 
@@ -553,6 +556,7 @@ function activateTab(tabId) {
   tabButtons.forEach(b => b.classList.toggle('active', b.dataset.tab === tabId));
   document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === tabId));
   closeComboDropdown();
+  closeOriginSuggest();
   closeTestItemDropdown();
   closePrepDropdown();
   if (tabId === 'testTab') fitTestResultsHeight();
@@ -974,7 +978,7 @@ testItemInput.addEventListener('click', () => {
 });
 
 document.addEventListener('click', (ev) => {
-  if (!ev.target.closest('#nameTab .search-box')) closeComboDropdown();
+  if (!ev.target.closest('#nameTab .search-box')) { closeComboDropdown(); closeOriginSuggest(); }
   if (!ev.target.closest('#testTab .search-box')) closeTestItemDropdown();
   if (!ev.target.closest('#prepTab .search-box')) closePrepDropdown();
 });
@@ -1029,7 +1033,7 @@ function setupDropdownKeys(dropdown, input, openFn, closeFn) {
   document.addEventListener('keydown', (ev) => {
     if (dropdown.style.display !== 'block') {
       // 입력칸에 커서가 있을 때 아래 방향키를 누르면 목록을 연다
-      if (ev.key === 'ArrowDown' && document.activeElement === input) {
+      if (ev.key === 'ArrowDown' && document.activeElement === input && originDropdown.style.display !== 'block') {
         ev.preventDefault();
         openFn();
       }
@@ -1067,6 +1071,7 @@ function setupDropdownKeys(dropdown, input, openFn, closeFn) {
   });
 }
 setupDropdownKeys(comboDropdown, searchInput, openComboDropdown, closeComboDropdown);
+setupDropdownKeys(originDropdown, searchInput, () => {}, closeOriginSuggest);  // 기원 추천 목록: 열려 있을 때만 방향키·Enter·Esc 가 듣는다
 setupDropdownKeys(testItemDropdown, testItemInput, openTestItemDropdown, closeTestItemDropdown);
 setupDropdownKeys(prepDropdown, prepInput, openPrepDropdown, closePrepDropdown);
 
@@ -1131,6 +1136,7 @@ searchInput.addEventListener('input', () => {
   searchDone = false;
   clearTimeout(debounceTimer);
   closeComboDropdown();  // 검색어를 치면 펼쳐 둔 전체 목록은 닫고 검색 결과를 보여 준다
+  closeOriginSuggest();
   const q = searchInput.value.trim();
   if (!q) {
     resultsBox.style.display = 'none';
@@ -1139,6 +1145,55 @@ searchInput.addEventListener('input', () => {
     return;
   }
   debounceTimer = setTimeout(() => doSearch(q), 200);
+  if (q.replace(/\s+/g, '').length >= 2) originTimer = setTimeout(() => suggestOrigin(q), 250);
+});
+
+// ---- 기원 추천 목록 ----
+// 검색칸에 2글자 이상 치면, 이름으로 검색되는 생약(검색 결과 카드)과 별도로 '기원' 문장(예: "콩과", "귤나무", "뿌리")에
+// 그 말이 들어 있는 생약을 서버에서 찾아 검색칸 아래 추천 목록으로 보여 준다. 항목을 고르면 그 생약을 연다.
+function closeOriginSuggest() {
+  originSeq++;
+  clearTimeout(originTimer);
+  originItems = [];
+  originDropdown.style.display = 'none';
+  originDropdown.innerHTML = '';
+  syncDropdownOpenClass();
+}
+function originRowHtml(it, idx) {
+  const primary = it.name_primary || it.korean_name;
+  const sn = it.snippet;
+  const snip = sn ? `<span class="origin-snip">${escapeHtml(sn[0])}<mark>${escapeHtml(sn[1])}</mark>${escapeHtml(sn[2])}</span>` : '';
+  return `
+    <div class="result-item origin-item" data-idx="${idx}" data-id="${it.id}">
+      <span class="rname">${escapeHtml(primary)}${sourceBadge(it.source_tag, it.part)}${flagBadge(it.flag)}</span>
+      ${snip}
+    </div>
+  `;
+}
+async function suggestOrigin(q) {
+  const seq = ++originSeq;
+  let data;
+  try {
+    data = await (await fetch('/api/origin_search?q=' + encodeURIComponent(q))).json();
+  } catch (e) { return; }
+  // 그새 검색어가 바뀌었거나 다른 목록이 열렸거나 검색을 마쳤으면 버린다
+  if (seq !== originSeq || searchInput.value.trim() !== q || searchDone || comboDropdown.style.display === 'block') return;
+  if (!data.items.length) { closeOriginSuggest(); return; }
+  originItems = data.items;
+  const more = data.total > data.items.length ? ` · 상위 ${data.items.length}개` : '';
+  originDropdown.innerHTML = `<div class="group-label">기원에 "${escapeHtml(q)}" 포함 (${data.total})${more}</div>`
+    + data.items.map(originRowHtml).join('');
+  originDropdown.scrollTop = 0;
+  originDropdown.style.display = 'block';
+  syncDropdownOpenClass();
+  originDropdown.style.maxHeight = Math.max(160, window.innerHeight - originDropdown.getBoundingClientRect().top - 24) + 'px';
+}
+originDropdown.addEventListener('click', (ev) => {
+  const row = ev.target.closest('.origin-item');
+  if (!row) return;
+  const it = originItems[Number(row.dataset.idx)];
+  closeOriginSuggest();
+  if (it) selectComboItem(it);
 });
 
 searchInput.addEventListener('keydown', async (ev) => {
@@ -1148,14 +1203,37 @@ searchInput.addEventListener('keydown', async (ev) => {
   const q = searchInput.value.trim();
   if (!q) return;
   closeComboDropdown();  // 펼쳐 둔 전체 목록은 닫고 검색 결과를 보여 준다
+  closeOriginSuggest();
   dismissKeyboard(searchInput);
-  const data = await doSearch(q);
+  const [data, origin] = await Promise.all([doSearch(q), fetchOriginAll(q)]);
   searchDone = true;
+  addOriginGroup(origin, q);
   const first = data.official[0] || data.sensory[0];
   if (first) {
     showDetail(first.id);
   }
 });
+
+// Enter 로 검색하면 검색 결과 카드(공정서 다음)에 '기원에 검색어가 들어 있는 생약' 카드를 한 장 더 보여 준다(입력 중
+// 추천 목록과 달리 전부). 이름으로 찾은 생약은 위 공정서 카드에 있으므로 이 카드에서는 빠진다.
+async function fetchOriginAll(q) {
+  if (q.replace(/\s+/g, '').length < 2) return null;
+  try {
+    return await (await fetch('/api/origin_search?limit=all&q=' + encodeURIComponent(q))).json();
+  } catch (e) { return null; }
+}
+function addOriginGroup(origin, q) {
+  if (!origin || !origin.items.length || searchInput.value.trim() !== q || resultsBox.style.display === 'none') return;
+  const group = document.createElement('div');
+  group.className = 'result-group origin-group';
+  group.innerHTML = `<div class="group-label">기원에 "${escapeHtml(q)}" 포함 (${origin.total})</div>`
+    + origin.items.map(originRowHtml).join('');
+  group.querySelectorAll('.origin-item').forEach(el => el.addEventListener('click', () => showDetail(el.dataset.id)));
+  const official = resultsBox.querySelector('.result-group');
+  if (official) official.after(group);
+  else resultsBox.innerHTML = '', resultsBox.appendChild(group);  // 이름으로는 하나도 안 나온 경우(안내 문구를 대체)
+  applyShownHighlight();
+}
 
 // 지금 오른쪽 화면에 보이는 항목의 검색 결과 행에 selected 표시를 한다. 공정서/
 // 관능검사해설서 행은 data-id, 관능검사 사례집 행은 파일+시작쪽으로 같은 항목인지
