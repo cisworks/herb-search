@@ -788,10 +788,12 @@ window.addEventListener('resize', fitPrepDropdownHeight);
 
 // 검색 결과 카드는 창 아래끝 - 24px 까지 늘어나고 그 안에서 스크롤된다(시험항목 검색 탭과 같다).
 function fitPrepResultsHeight() {
-  const group = prepResultsBox.querySelector('.result-group');
-  if (!group) return;
-  const top = group.getBoundingClientRect().top;
-  group.style.maxHeight = Math.max(160, window.innerHeight - top - 24) + 'px';
+  const groups = [...prepResultsBox.querySelectorAll('.result-group')];
+  if (!groups.length) return;
+  const top = groups[0].getBoundingClientRect().top;
+  // 카드가 둘이면(이름으로 찾은 것 + 제법에 든 것) 남은 높이를 나눠 쓰고, 카드 사이 간격(48px)을 뺀다
+  const avail = window.innerHeight - top - 24 - 48 * (groups.length - 1);
+  groups.forEach(g => { g.style.maxHeight = Math.max(160, avail / groups.length) + 'px'; });
 }
 window.addEventListener('resize', fitPrepResultsHeight);
 
@@ -814,17 +816,22 @@ prepDropdown.addEventListener('click', (ev) => {
   if (it) selectPrepItem(it);
 });
 
-function renderPrepResults(items, q) {
+// data: { items: 이름으로 찾은 생약제제, recipe: 검색어(생약명)가 제법에 들어 있는 생약제제 }
+function renderPrepResults(data, q) {
   prepResultsBox.style.display = 'flex';
-  const rows = items.length
-    ? items.map(resultRowHtml).join('')
-    : `<div class="empty-msg">"${escapeHtml(q)}"에 대한 검색 결과가 없습니다.</div>`;
-  prepResultsBox.innerHTML = `
+  const items = data.items || [], recipe = data.recipe || [];
+  // 이름으로 찾은 것이 없어도 제법에 들어 있는 생약제제가 있으면 그 카드만 보여 준다
+  const nameCard = (items.length || !recipe.length) ? `
     <div class="result-group">
       <div class="group-label">생약제제 (${items.length})</div>
-      ${rows}
-    </div>
-  `;
+      ${items.length ? items.map(resultRowHtml).join('') : `<div class="empty-msg">"${escapeHtml(q)}"에 대한 검색 결과가 없습니다.</div>`}
+    </div>` : '';
+  const recipeCard = recipe.length ? `
+    <div class="result-group recipe-group">
+      <div class="group-label">제법에 "${escapeHtml(q)}" 포함 (${recipe.length})</div>
+      ${recipe.map(resultRowHtml).join('')}
+    </div>` : '';
+  prepResultsBox.innerHTML = nameCard + recipeCard;
   prepResultsBox.querySelectorAll('.result-item').forEach(el => {
     el.addEventListener('click', () => showDetail(el.dataset.id));
   });
@@ -835,9 +842,9 @@ function renderPrepResults(items, q) {
 async function doPrepSearch(q) {
   const seq = ++prepSeq;
   const res = await fetch('/api/prep_search?q=' + encodeURIComponent(q));
-  const items = await res.json();
-  if (seq === prepSeq) renderPrepResults(items, q);
-  return items;
+  const data = await res.json();
+  if (seq === prepSeq) renderPrepResults(data, q);
+  return data;
 }
 
 async function selectPrepItem(it) {
@@ -875,9 +882,9 @@ prepInput.addEventListener('keydown', async (ev) => {
   if (!q) return;
   closePrepDropdown();  // 펼쳐 둔 전체 목록은 닫고 검색 결과를 보여 준다
   dismissKeyboard(prepInput);
-  const items = await doPrepSearch(q);
+  const data = await doPrepSearch(q);
   prepDone = true;
-  if (items.length) showDetail(items[0].id);
+  if (data.items.length) showDetail(data.items[0].id);
 });
 
 // 생약 검색칸과 같다: 검색을 마친 뒤(또는 다른 곳에 있다가 들어올 때) 누르면 검색어 전체를 선택한다.

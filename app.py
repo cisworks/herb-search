@@ -642,6 +642,38 @@ for _e in ENTRIES:
     if _e.get("name_only") and _e["name_only"] not in _HERB_NAME_TO_ID:
         _HERB_NAME_TO_ID[_e["name_only"]] = _e["id"]
 _link_recipe_herbs(PREP_ENTRIES, _HERB_NAME_TO_ID)
+
+
+# 생약제제 제법 표에 들어 있는 생약 이름 모음(정규화한 이름). 생약제제 검색칸에 생약명을 치면 이름이 제법에 있는
+# 생약제제를 찾는 데 쓴다. 링크가 걸린 이름과 표 첫 칸의 이름(공정서에 없는 생약 포함)을 모은다.
+_ANCHOR_TEXT_RE = re.compile(r'<a href="#" class="ref-link"[^>]*>(.*?)</a>', re.S)
+
+
+def _recipe_herb_tokens(obj, toks):
+    if isinstance(obj, dict):
+        for v in obj.values():
+            _recipe_herb_tokens(v, toks)
+    elif isinstance(obj, list):
+        for v in obj:
+            _recipe_herb_tokens(v, toks)
+    elif isinstance(obj, str) and 'recipe-table' in obj:
+        for t in _RECIPE_TABLE_RE.finditer(obj):
+            inner = t.group(2)
+            for a in _ANCHOR_TEXT_RE.findall(inner):
+                toks.add(_normalize(re.sub(r"<[^>]+>", "", a)))
+            for tr in re.findall(r"<tr>(.*?)</tr>", inner, re.S):
+                m = re.search(r"<td[^>]*>(.*?)</td>", tr, re.S)
+                if not m:
+                    continue
+                cell = re.sub(r"<[^>]+>", "", re.sub(r"<br\s*/?>", ",", m.group(1)))
+                for piece in _RECIPE_SPLIT_RE.split(cell)[::2]:
+                    if _normalize(piece):
+                        toks.add(_normalize(piece))
+
+
+for _e in PREP_ENTRIES:
+    _e["_recipe_herbs"] = set()
+    _recipe_herb_tokens(_e.get("sections", []), _e["_recipe_herbs"])
 PREP_METHOD_ENTRIES, PREP_METHOD_BY_HERB = load_prep_methods(METHOD_ID_START)
 
 
@@ -986,8 +1018,15 @@ def api_prep_list():
 def api_prep_search():
     q = _normalize(request.args.get("q", ""))
     if not q:
-        return jsonify([])
-    return jsonify([summary(e) for e in _search(PREP_ENTRIES, q)[:100]])
+        return jsonify({"items": [], "recipe": []})
+    by_name = _search(PREP_ENTRIES, q)[:100]
+    # 검색어가 생약 이름이면 그 생약이 제법에 들어 있는 생약제제(이름으로 이미 찾은 것은 뺀다)
+    named = {e["id"] for e in by_name}
+    recipe = []
+    if len(q) >= 2:
+        recipe = [e for e in PREP_ENTRIES if q in e["_recipe_herbs"] and e["id"] not in named]
+        recipe.sort(key=lambda e: e["korean_name"])
+    return jsonify({"items": [summary(e) for e in by_name], "recipe": [summary(e) for e in recipe]})
 
 
 @functools.lru_cache(maxsize=64)
