@@ -1086,6 +1086,24 @@ for _lst in FAMILY_INDEX.values():
 FAMILY_LIST = [[f, len(v)] for f, v in sorted(FAMILY_INDEX.items())]
 
 
+FAMILY_CARD_MAX = 20  # 과명 검색 결과로 카드를 그릴 최대 과 수(검색어가 짧아 과가 아주 많이 걸릴 때)
+
+
+@app.route("/api/family_search")
+def api_family_search():
+    """과명 검색: 검색어가 이름에 들어 있는 과(예: "콩" -> 콩과, "국화" -> 국화과)와 그 과의 생약 수. 검색어가 없으면 전체 과 목록.
+    herbs=1 이면 각 과에 속한 생약 목록(herbs)도 붙인다(검색 결과 카드용, 과가 많으면 앞의 FAMILY_CARD_MAX 개 과만)."""
+    raw = (request.args.get("q") or "").strip()
+    q = _normalize(raw)
+    items = [{"name": f, "count": n} for f, n in FAMILY_LIST if not q or q in _normalize(f)]
+    total = len(items)
+    if request.args.get("herbs") == "1":
+        items = items[:FAMILY_CARD_MAX]
+        for it in items:
+            it["herbs"] = [summary(e) for e in FAMILY_INDEX.get(it["name"], [])]
+    return jsonify({"q": raw, "total": total, "items": items})
+
+
 @app.route("/api/family/<name>")
 def api_family(name):
     """같은 과(예: 콩과)에 속한 공정서 생약 목록(가나다순)과, 고를 수 있는 전체 과 목록."""
@@ -1134,11 +1152,13 @@ def api_prep_search():
     q = _normalize(request.args.get("q", ""))
     if not q:
         return jsonify({"items": [], "recipe": []})
-    by_name = _search(PREP_ENTRIES, q)[:100]
-    # 검색어가 생약 이름이면 그 생약이 제법에 들어 있는 생약제제(이름으로 이미 찾은 것은 뺀다)
+    # scope: name = 생약제제 이름으로만, recipe = 제법에 든 생약명으로만(이름이 일치하는 것도 포함), 없으면 둘 다(제법 카드에서는 이름으로 찾은 것을 뺀다)
+    scope = request.args.get("scope", "")
+    by_name = [] if scope == "recipe" else _search(PREP_ENTRIES, q)[:100]
+    # 검색어가 생약 이름이면 그 생약이 제법에 들어 있는 생약제제(둘 다 찾을 때는 이름으로 이미 찾은 것은 뺀다)
     named = {e["id"] for e in by_name}
     recipe = []
-    if len(q) >= 2:
+    if len(q) >= 2 and scope != "name":
         recipe = [e for e in PREP_ENTRIES if q in e["_recipe_herbs"] and e["id"] not in named]
         recipe.sort(key=lambda e: e["korean_name"])
     return jsonify({"items": [summary(e) for e in by_name], "recipe": [summary(e) for e in recipe]})
@@ -1219,8 +1239,15 @@ def _search_case_entries(q):
     return grouped
 
 
-_ORIGIN_NORM = {}  # 항목 id -> 공백을 뺀 소문자 기원 문장(처음 쓸 때 만든다)
+_ORIGIN_NORM = {}  # 항목 id -> 공백을 뺀 소문자 기원 문장(처음 쓸 때 만든다. 과명은 뺀 것)
 ORIGIN_SUGGEST_MAX = 30
+# 기원 문장 속 과명("(뽕나무과 Moraceae)")은 기원 검색에서 찾지 않는다(과명은 '과명' 검색으로 찾는다). 과명 글자를 같은 길이의 \x00 으로 바꿔 두면
+# 글자 위치는 그대로이고, 검색어가 과명 글자와 겹치거나 과명을 건너 이어 붙어 일치하는 일이 없다.
+FAMILY_BLANK_RE = re.compile(r"[가-힣]+과\s*[A-Z][a-z]+(?:aceae|idae|ae)")
+
+
+def _origin_text(e):
+    return FAMILY_BLANK_RE.sub(lambda m: "\x00" * len(m.group(0)), e.get("definition", ""))
 
 
 @app.route("/api/origin_search")
@@ -1234,8 +1261,10 @@ def api_origin_search():
         return jsonify({"q": raw, "total": 0, "items": []})
     if not _ORIGIN_NORM:
         for e in ENTRIES:
-            _ORIGIN_NORM[e["id"]] = _normalize(e.get("definition", ""))
-    found = [e for e in ENTRIES if q in _ORIGIN_NORM.get(e["id"], "") and q not in e["_search_blob"]]
+            _ORIGIN_NORM[e["id"]] = _normalize(_origin_text(e))
+    # 기본은 이름으로 이미 찾아지는 생약을 뺀다(제목+기원 검색: 이름 결과는 공정서 카드에 따로 나온다). names=1 이면 빼지 않는다(기원만 검색)
+    with_names = request.args.get("names") == "1"
+    found = [e for e in ENTRIES if q in _ORIGIN_NORM.get(e["id"], "") and (with_names or q not in e["_search_blob"])]
     found.sort(key=lambda e: e["korean_name"])
     # 공백이 있어도 일치하도록 글자 사이에 공백 허용 패턴으로 원문에서 일치 위치를 찾는다
     pat = re.compile(r"\s*".join(re.escape(ch) for ch in q), re.IGNORECASE)
@@ -1244,7 +1273,7 @@ def api_origin_search():
     shown = found if request.args.get("limit") == "all" else found[:ORIGIN_SUGGEST_MAX]
     for e in shown:
         text = e.get("definition", "")
-        m = pat.search(text)
+        m = pat.search(_origin_text(e))  # 과명을 뺀 글에서 일치 위치를 찾고(글자 위치는 원문과 같다), 조각은 원문에서 자른다
         item = summary(e)
         if m:
             s, t = m.start(), m.end()

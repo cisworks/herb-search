@@ -391,6 +391,28 @@ detailBox.addEventListener('click', (e) => {
 // 허용하고 넘치는 내용은 패널 안에서 세로 스크롤되게 한다. 페이지를 스크롤하면
 // 패널의 top이 바뀌므로(위쪽 24px에서 붙을 때까지) 스크롤/창 크기 변경마다 다시 계산한다.
 const leftPanelEl = document.querySelector('.left-panel');
+// 과명 검색·기원 검색 결과 카드(카드 하나가 길게 이어지는 목록)는 시험항목·생약제제 검색 결과처럼 창 아래끝 - 24px 까지 늘어나고 그 안에서 스크롤된다.
+// 공정서/관능검사 해설서/사례집 카드가 함께 나오는 생약명 검색 결과는 원래 높이 그대로 둔다. 위아래로 쌓이는 좁은 화면은 페이지 전체가 스크롤되므로 늘리지 않는다.
+function fitNameResultsHeight() {
+  const all = [...resultsBox.querySelectorAll(':scope > .result-group')];
+  const groups = all.filter(g => g.classList.contains('family-group') || g.classList.contains('origin-group'));
+  if (!groups.length || groups.length !== all.length || resultsBox.style.display === 'none') { resultsBox.style.marginBottom = ''; return; }
+  if (window.matchMedia('(max-width: 860px)').matches) {
+    groups.forEach(g => { g.style.maxHeight = ''; });
+    resultsBox.style.marginBottom = '';
+    return;
+  }
+  // 카드 아래 끝을 창 아래끝에서 24px 위에 맞춘다. 이때 결과 영역의 아래 여백(margin-bottom 24px)이 카드 밑에 더 있으면 왼쪽 패널(아래끝이 같은 자리)보다
+  // 내용이 넘쳐 패널 세로 스크롤바가 생기므로, 이 여백은 없앤다(카드 끝이 곧 패널 끝)
+  resultsBox.style.marginBottom = '0px';
+  const top = groups[0].getBoundingClientRect().top;
+  const avail = window.innerHeight - top - 24 - 48 * (groups.length - 1);  // 카드 사이 간격 48px
+  groups.forEach(g => { g.style.maxHeight = Math.max(160, avail / groups.length) + 'px'; });
+}
+// 결과 카드가 새로 그려지거나 비워질 때마다(어떤 검색이든) 맞춘다: 과명·기원 카드가 아니면 늘린 높이와 없앤 아래 여백을 되돌린다
+new MutationObserver(() => fitNameResultsHeight()).observe(resultsBox, { childList: true });
+// 생약제제 검색 결과 카드(fitPrepResultsHeight)와 같다: 카드를 그릴 때 한 번, 그리고 창 크기가 바뀔 때만 높이를 맞춘다(페이지를 스크롤할 때마다 다시 늘리거나 줄이지 않는다)
+window.addEventListener('resize', fitNameResultsHeight);
 function fitLeftPanelHeight() {
   if (!leftPanelEl) return;
   if (window.matchMedia('(max-width: 860px)').matches || leftPanelEl.classList.contains('collapsed')) {
@@ -475,6 +497,15 @@ let comboItemsAll = null;  // 전체 목록
 
 async function showAllOfficial() {
   const seq = ++requestSeq;
+  if (isFamilyOnly()) {  // 과명만 선택했으면 과명 목록만
+    const data = await fetchFamilies('');
+    if (seq !== requestSeq) return;
+    comboItemsAll = null;
+    const fams = data ? data.items : [];
+    comboDropdown.innerHTML = `<div class="group-label">과명 전체 목록 (${fams.length})</div>${fams.map(famRowHtml).join('')}`;
+    comboDropdown.scrollTop = 0;
+    return;
+  }
   const items = await getOfficialList();
   if (seq !== requestSeq) return;
   comboItemsAll = items;
@@ -537,7 +568,7 @@ async function selectComboItem(it) {
   closeComboDropdown();
   const nameOnly = it.name_only || it.name_primary || it.korean_name;
   searchInput.value = nameOnly;
-  await doSearch(nameOnly);
+  await doNameSearch(nameOnly);  // (목록에서 고른 생약은 검색 범위와 상관없이 이름으로 보여 준다)
   searchDone = true;
   showDetail(it.id);
 }
@@ -751,6 +782,11 @@ async function selectTestItem(testItem) {
   });
   applyShownHighlight();
   fitTestResultsHeight();
+  // 시험항목을 고르면 그 목록의 첫 번째 생약을 오른쪽 설명창에 연다(그 시험항목이 강조되어 보인다). 뒤로/앞으로 가기로 화면을 복원하는 중에는 열지 않는다
+  if (items.length && !navRestoring) {
+    await showDetail(items[0].id, testItem);
+    applyShownHighlight();
+  }
 }
 
 // ---- 생약제제 검색 탭 ----------------------------------------------------
@@ -816,21 +852,39 @@ prepDropdown.addEventListener('click', (ev) => {
   if (it) selectPrepItem(it);
 });
 
-// data: { items: 이름으로 찾은 생약제제, recipe: 검색어(생약명)가 제법에 들어 있는 생약제제 }
-function renderPrepResults(data, q) {
+// 검색 범위(검색칸 밑 □ 생약제제명 □ 제법 생약명): 하나만 선택한다. name = 생약제제 이름으로(기본), recipe = 제법에 든 생약명으로
+const prepScopeEl = document.getElementById('prepScope');
+const prepScopeRecipeEl = prepScopeEl.querySelector('input[value=recipe]');
+const prepInputPlaceholder = prepInput.placeholder;
+const prepScope = () => (prepScopeRecipeEl.checked ? 'recipe' : 'name');
+function syncPrepPlaceholder() {
+  prepInput.placeholder = prepScope() === 'recipe' ? '제법에 들어 있는 생약명을 입력하세요.' : prepInputPlaceholder;
+}
+prepScopeEl.addEventListener('change', async (ev) => {
+  // 둘은 서로 배타적이고 늘 하나가 선택되어 있다(선택된 칸을 다른 칸을 고르지 않은 채 다시 눌러도 해제되지 않는다)
+  if (!ev.target.checked) { ev.target.checked = true; return; }
+  prepScopeEl.querySelectorAll('input').forEach(i => { if (i !== ev.target) i.checked = false; });
+  syncPrepPlaceholder();
+  clearTimeout(prepTimer);
+  closePrepDropdown();
+  const q = prepInput.value.trim();
+  if (q) await doPrepSearch(q);  // 검색칸에 든 검색어를 새 범위로 다시 찾는다
+});
+
+// data: { items: 이름으로 찾은 생약제제, recipe: 검색어(생약명)가 제법에 들어 있는 생약제제 }. scope 가 name 이면 이름 카드만, recipe 면 제법 카드만 보여 준다
+function renderPrepResults(data, q, scope) {
   prepResultsBox.style.display = 'flex';
   const items = data.items || [], recipe = data.recipe || [];
-  // 이름으로 찾은 것이 없어도 제법에 들어 있는 생약제제가 있으면 그 카드만 보여 준다
-  const nameCard = (items.length || !recipe.length) ? `
+  const nameCard = scope === 'recipe' ? '' : `
     <div class="result-group">
       <div class="group-label">생약제제 (${items.length})</div>
       ${items.length ? items.map(resultRowHtml).join('') : `<div class="empty-msg">"${escapeHtml(q)}"에 대한 검색 결과가 없습니다.</div>`}
-    </div>` : '';
-  const recipeCard = recipe.length ? `
+    </div>`;
+  const recipeCard = scope === 'name' ? '' : `
     <div class="result-group recipe-group">
       <div class="group-label">제법에 "${escapeHtml(q)}" 포함 (${recipe.length})</div>
-      ${recipe.map(resultRowHtml).join('')}
-    </div>` : '';
+      ${recipe.length ? recipe.map(resultRowHtml).join('') : `<div class="empty-msg">${q.replace(/\s+/g, '').length < 2 ? '제법 생약명 검색은 2글자 이상 입력하세요.' : `제법에 "${escapeHtml(q)}"이(가) 들어 있는 생약제제가 없습니다.`}</div>`}
+    </div>`;
   prepResultsBox.innerHTML = nameCard + recipeCard;
   prepResultsBox.querySelectorAll('.result-item').forEach(el => {
     el.addEventListener('click', () => showDetail(el.dataset.id));
@@ -839,11 +893,11 @@ function renderPrepResults(data, q) {
   fitPrepResultsHeight();
 }
 
-async function doPrepSearch(q) {
+async function doPrepSearch(q, scope = prepScope()) {
   const seq = ++prepSeq;
-  const res = await fetch('/api/prep_search?q=' + encodeURIComponent(q));
+  const res = await fetch('/api/prep_search?scope=' + scope + '&q=' + encodeURIComponent(q));
   const data = await res.json();
-  if (seq === prepSeq) renderPrepResults(data, q);
+  if (seq === prepSeq) renderPrepResults(data, q, scope);
   return data;
 }
 
@@ -851,7 +905,7 @@ async function selectPrepItem(it) {
   closePrepDropdown();
   const name = it.name_primary || it.korean_name;
   prepInput.value = name;
-  await doPrepSearch(name);
+  await doPrepSearch(name, 'name');  // (목록에서 고른 생약제제는 검색 범위와 상관없이 이름으로 보여 준다)
   prepDone = true;
   showDetail(it.id);
 }
@@ -884,7 +938,8 @@ prepInput.addEventListener('keydown', async (ev) => {
   dismissKeyboard(prepInput);
   const data = await doPrepSearch(q);
   prepDone = true;
-  if (data.items.length) showDetail(data.items[0].id);
+  const first = data.items[0] || data.recipe[0];
+  if (first) showDetail(first.id);
 });
 
 // 생약 검색칸과 같다: 검색을 마친 뒤(또는 다른 곳에 있다가 들어올 때) 누르면 검색어 전체를 선택한다.
@@ -1093,7 +1148,7 @@ detailBox.addEventListener('click', (ev) => {
   const fam = ev.target.closest('.fam-link');
   if (fam) {
     ev.preventDefault();
-    openFamily(fam.dataset.fam, fam);
+    searchFamilyFromLink(fam.dataset.fam);
     return;
   }
   const link = ev.target.closest('.ref-link');
@@ -1109,7 +1164,7 @@ detailBox.addEventListener('click', (ev) => {
 // 검색칸을 누르면(검색을 마친 뒤이거나, 다른 곳에 있다가 들어올 때) 검색어 전체를 선택한다. 입력 중에 누르면 평소처럼
 // 누른 자리에 커서만 놓는다. mouseup 에서 막지 않으면 브라우저가 선택을 풀고 커서를 놓아 버린다.
 searchInput.addEventListener('mousedown', () => {
-  selectAllOnMouseUp = !!searchInput.value && (searchDone || document.activeElement !== searchInput);
+  selectAllOnMouseUp = !!searchInput.value && !searchInput.readOnly && (searchDone || document.activeElement !== searchInput);
 });
 searchInput.addEventListener('mouseup', (ev) => {
   if (!selectAllOnMouseUp) return;
@@ -1125,7 +1180,7 @@ searchInput.addEventListener('mousedown', () => { searchWasFocused = document.ac
 prepInput.addEventListener('mousedown', () => { prepWasFocused = document.activeElement === prepInput; });
 searchInput.addEventListener('click', () => {
   if (comboDropdown.style.display === 'block') closeComboDropdown();
-  else if (searchWasFocused) openComboDropdown();
+  else if (searchWasFocused || isFamilyOnly()) openComboDropdown();  // (과명 선택 중에는 처음 눌러도 과명 목록을 연다)
 });
 prepInput.addEventListener('click', () => {
   if (prepDropdown.style.display === 'block') closePrepDropdown();
@@ -1145,7 +1200,7 @@ searchInput.addEventListener('input', () => {
     return;
   }
   debounceTimer = setTimeout(() => doSearch(q), 200);
-  if (q.replace(/\s+/g, '').length >= 2) originTimer = setTimeout(() => suggestOrigin(q), 250);
+  { const f = scopeFlags(); if (f.t && f.o && q.replace(/\s+/g, '').length >= 2) originTimer = setTimeout(() => suggestOrigin(q), 250); }  // 기원 추천 목록은 '생약명+기원'일 때만(기원만이면 검색 결과 카드에 나온다)
 });
 
 // ---- 기원 추천 목록 ----
@@ -1205,7 +1260,8 @@ searchInput.addEventListener('keydown', async (ev) => {
   closeComboDropdown();  // 펼쳐 둔 전체 목록은 닫고 검색 결과를 보여 준다
   closeOriginSuggest();
   dismissKeyboard(searchInput);
-  const [data, origin] = await Promise.all([doSearch(q), fetchOriginAll(q)]);
+  const f = scopeFlags();
+  const [data, origin] = await Promise.all([doSearch(q), f.t && f.o ? fetchOriginAll(q) : null]);
   searchDone = true;
   addOriginGroup(origin, q);
   const first = data.official[0] || data.sensory[0];
@@ -1256,7 +1312,31 @@ function setShownKey(key) {
   applyShownHighlight();
 }
 
-async function doSearch(q) {
+// 검색 범위(검색칸 밑 □ 생약명 □ 기원 □ 과명): 각각 선택·해제한다(기본은 생약명). 여럿 선택하면 모두에서 찾고, 하나도 선택하지 않으면 찾지 않는다.
+// 기원 검색은 기원 문장 속 과명("뽕나무과")은 찾지 않는다(과명은 '과명' 검색으로 찾는다). 과명만 선택하면 검색칸 목록(▾)에 과명 목록이 나온다.
+const searchScopeEl = document.getElementById('searchScope');
+const scopeTitleEl = searchScopeEl.querySelector('input[value=title]');
+const scopeOriginEl = searchScopeEl.querySelector('input[value=origin]');
+const scopeFamilyEl = searchScopeEl.querySelector('input[value=family]');
+const searchInputPlaceholder = searchInput.placeholder;
+function scopeFlags() {
+  return { t: scopeTitleEl.checked, o: scopeOriginEl.checked, f: scopeFamilyEl.checked };
+}
+const isFamilyOnly = () => { const f = scopeFlags(); return f.f && !f.t && !f.o; };
+function syncScopePlaceholder() {
+  const f = scopeFlags();
+  const famOnly = isFamilyOnly();
+  searchInput.placeholder = famOnly ? '과명을 목록에서 선택하세요.'
+    : (f.o && !f.t && !f.f) ? '기원에서 찾을 말을 입력하세요.' : searchInputPlaceholder;
+  // 과명을 선택하면 검색칸은 글자를 칠 수 없고(읽기 전용, 폰에서는 키보드도 안 뜬다), 칸을 누르면 과명 목록이 열린다
+  searchInput.readOnly = famOnly;
+  if (famOnly) searchInput.setAttribute('inputmode', 'none'); else searchInput.removeAttribute('inputmode');
+  searchInput.classList.toggle('pick-only', famOnly);
+}
+let searchToken = 0;  // 검색마다 올려서, 늦게 도착한 옛 검색의 과명 카드가 새 결과에 끼어들지 않게 한다
+
+// 생약명(제목)으로 찾아 공정서/관능검사해설서/관능검사 사례집 카드로 보여 준다
+async function doNameSearch(q) {
   const seq = ++requestSeq;
   const res = await fetch('/api/search?q=' + encodeURIComponent(q));
   const data = await res.json();
@@ -1266,6 +1346,130 @@ async function doSearch(q) {
   }
   return data;
 }
+
+// 기원 문장에서만 찾아 '기원에 "검색어" 포함' 카드 한 장으로 보여 준다(이름이 일치해도 포함). 돌려주는 모양은 이름 검색과 맞춘다(official 에 결과)
+async function doOriginSearch(q) {
+  const seq = ++requestSeq;
+  let origin = null;
+  if (q.replace(/\s+/g, '').length >= 2) {
+    try { origin = await (await fetch('/api/origin_search?limit=all&names=1&q=' + encodeURIComponent(q))).json(); } catch (e) { origin = null; }
+  }
+  const items = origin ? origin.items : [];
+  if (seq === requestSeq) {
+    resultsBox.style.display = 'flex';
+    if (!items.length) {
+      resultsBox.innerHTML = `<div class="empty-msg">${origin ? `기원에 "${escapeHtml(q)}"이(가) 들어 있는 생약이 없습니다.` : '기원 검색은 2글자 이상 입력하세요.'}</div>`;
+    } else {
+      resultsBox.innerHTML = `<div class="result-group origin-group"><div class="group-label">기원에 "${escapeHtml(q)}" 포함 (${origin.total})</div>`
+        + items.map(originRowHtml).join('') + '</div>';
+      resultsBox.querySelectorAll('.origin-item').forEach(el => el.addEventListener('click', () => showDetail(el.dataset.id)));
+      if (items.length === 1 && !navRestoring) showDetail(items[0].id, undefined, { replace: true });
+      applyShownHighlight();
+      fitNameResultsHeight();
+    }
+    navSet({ q }, 'replace');
+  }
+  return { official: items, sensory: [], case: [] };
+}
+
+// 하나도 선택하지 않았으면 찾지 않고 선택을 안내한다
+function showNoScope() {
+  requestSeq++;
+  resultsBox.style.display = 'flex';
+  resultsBox.innerHTML = '<div class="empty-msg">검색 범위(생약명, 기원, 과명)를 선택하세요.</div>';
+  return { official: [], sensory: [], case: [] };
+}
+
+// 과명 한 줄: 과명 + 그 과의 생약 수(검색칸 목록(▾)의 과명 목록에 쓴다). 누르면 검색칸에 그 과명을 넣고 그 과의 생약명 카드를 보여 준다
+function famRowHtml(f) {
+  return `<div class="result-item fam-row" data-fam="${escapeHtml(f.name)}"><span class="rname">${escapeHtml(f.name)}</span><span class="rcount">(${f.count})</span></div>`;
+}
+async function fetchFamilies(q, withHerbs) {
+  try { return await (await fetch('/api/family_search?' + (withHerbs ? 'herbs=1&' : '') + 'q=' + encodeURIComponent(q))).json(); } catch (e) { return null; }
+}
+// 과명 검색 결과: 검색어가 이름에 들어 있는 과마다 카드 한 장을 '과명 - 콩과 (29)' 제목으로 보여 주고, 그 아래에 그 과의 생약명을 늘어놓는다. 생약명을 누르면 그 생약이 열린다.
+async function showFamilyCards(q, token) {
+  const data = await fetchFamilies(q, true);
+  if (token !== searchToken) return [];
+  const fams = data ? data.items : [];
+  resultsBox.style.display = 'flex';
+  if (!fams.length) {
+    resultsBox.innerHTML = `<div class="empty-msg">"${escapeHtml(q)}"이(가) 들어 있는 과명이 없습니다.</div>`;
+  } else {
+    const more = data.total > fams.length ? `<div class="empty-msg">그 밖에 ${data.total - fams.length}개 과가 더 있습니다. 검색어를 더 입력하세요.</div>` : '';
+    resultsBox.innerHTML = fams.map(f => `<div class="result-group family-group"><div class="group-label">과명 - ${escapeHtml(f.name)} (${f.count})</div>${f.herbs.map(resultRowHtml).join('')}</div>`).join('') + more;
+    resultsBox.querySelectorAll('.family-group .result-item').forEach(el => el.addEventListener('click', () => showDetail(el.dataset.id)));
+    applyShownHighlight();
+    fitNameResultsHeight();
+  }
+  navSet({ q }, 'replace');
+  return fams;
+}
+// 검색칸 목록(▾)의 과명 줄을 누르면: 검색칸에 과명을 채우고 그 과의 생약명 카드를 보여 준다
+document.addEventListener('click', (ev) => {
+  const row = ev.target.closest && ev.target.closest('.fam-row');
+  if (!row || !comboDropdown.contains(row)) return;
+  closeComboDropdown();
+  searchInput.value = row.dataset.fam;
+  doSearch(row.dataset.fam).then((data) => {
+    searchDone = true;
+    // 과명을 고르면 그 과 카드 목록의 첫 번째 생약을 오른쪽 설명창에 연다
+    const fam = (data.families || []).find(f => f.name === row.dataset.fam) || (data.families || [])[0];
+    if (fam && fam.herbs.length) showDetail(fam.herbs[0].id);
+  });
+});
+// 설명창 기원 문장의 과명 링크를 누르면: 왼쪽 검색 패널의 '과명'을 선택하고, 검색칸에 그 과명을 넣어, 검색 결과 카드에 그 과의 생약명 목록을 보여 준다
+async function searchFamilyFromLink(name) {
+  const lp = document.querySelector('.left-panel');
+  if (lp.classList.contains('collapsed')) document.getElementById('leftPanelCollapseBtn').click();  // 접혀 있던 왼쪽 패널은 펼친다
+  activateTab('nameTab');
+  navSet({ tab: 'nameTab' });
+  searchScopeEl.querySelectorAll('input').forEach(i => { i.checked = i === scopeFamilyEl; });
+  syncScopePlaceholder();
+  closeOriginSuggest();
+  searchInput.value = name;
+  searchDone = true;
+  await doSearch(name);
+  if (window.matchMedia('(max-width: 860px)').matches) resultsBox.scrollIntoView({ behavior: 'smooth', block: 'start' });  // 위아래로 쌓이는 좁은 화면에서는 결과 카드로 올라가 보여 준다
+}
+
+async function doSearch(q) {
+  const f = scopeFlags();
+  if (!f.t && !f.o && !f.f) return showNoScope();
+  const token = ++searchToken;
+  let data = { official: [], sensory: [], case: [] };
+  if (f.t) data = await doNameSearch(q);          // 생약명(+ 기원을 같이 고르면 입력 중 추천 목록/Enter 기원 카드는 아래에서 따로)
+  else if (f.o) data = await doOriginSearch(q);   // 기원만
+  if (f.f) data.families = await showFamilyCards(q, token);
+  return data;
+}
+
+// 검색 범위를 바꾸면, 검색칸에 든 검색어를 새 범위로 다시 찾는다(하나도 선택하지 않으면 안내만 보인다)
+searchScopeEl.addEventListener('change', async (ev) => {
+  // 세 칸은 서로 배타적이고 늘 하나가 선택되어 있다: 하나를 선택하면 나머지는 해제되고, 선택된 칸을 다른 칸을 고르지 않은 채 다시 눌러도 해제되지 않는다
+  if (!ev.target.checked) { ev.target.checked = true; return; }
+  searchScopeEl.querySelectorAll('input').forEach(i => { if (i !== ev.target) i.checked = false; });
+  const wasFamily = searchInput.readOnly;
+  clearTimeout(debounceTimer);
+  closeOriginSuggest();
+  closeComboDropdown();  // 열려 있던 목록(▾)은 닫는다(범위에 따라 내용이 다르다)
+  syncScopePlaceholder();
+  if (wasFamily !== searchInput.readOnly && searchInput.value) {  // 과명 <-> 다른 범위: 이전 범위의 검색어와 결과는 지운다
+    searchInput.value = '';
+    searchDone = false;
+    resultsBox.style.display = 'none';
+    resultsBox.innerHTML = '';
+    navSet({ q: '' }, 'replace');
+    return;
+  }
+  const q = searchInput.value.trim();
+  if (!q) return;
+  const f = scopeFlags();
+  const both = f.t && f.o;
+  const [, origin] = await Promise.all([doSearch(q), searchDone && both ? fetchOriginAll(q) : null]);
+  if (searchDone) addOriginGroup(origin, q);  // 검색을 마친 상태(Enter)였으면 '기원' 카드도 같이
+  else if (both && q.replace(/\s+/g, '').length >= 2) originTimer = setTimeout(() => suggestOrigin(q), 0);  // 입력 중이었으면 추천 목록
+});
 
 // 없어진 즐겨찾기/최근 본 생약 기능이 이 브라우저에 남겨 둔 기록을 지운다.
 try { localStorage.removeItem('herbFavorites'); localStorage.removeItem('herbRecent'); } catch (e) { /* 저장소를 못 쓰면 지울 것도 없다 */ }
