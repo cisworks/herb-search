@@ -2159,6 +2159,28 @@ _EQ2_HTML = (  # 공식 (2): PDE(μg/day) ≥ Σ(k=1..N) Ck · Mk, 오른쪽 끝
 )
 
 
+_FIG_CAP_RE = re.compile(r"^\s*그림(\s*\d+[A-Za-z]?\b|\s*$|\s*\d+[A-Za-z]?\.)")
+
+
+def _fix_figure_captions(entries):
+    """그림 이름줄("그림", "그림 1. ...")은 그림 바로 밑에 둔다. 떠 있는 그림은 글 문단에 매여 있어서 그림이 앞쪽에 먼저 나오고 이름줄이 보통 문단 몇 개 뒤에 남는 경우
+    (일반시험법 42 알코올수측정법: 그림 -> "1) 장치 ..." -> "그림")가 있다. 그림과 이름줄 사이에 가운데 정렬 아닌 보통 문단만 있으면(범례·주 같은 가운데 줄이 끼어 있으면 그림에 딸린
+    것이므로 그대로) 이름줄을 그림 바로 밑으로 올린다. 이름줄 바로 다음이 다른 그림이면(이름줄이 그 그림 위에 놓이는 경우) 건드리지 않는다."""
+    for e in entries:
+        bl = e["blocks"]
+        i = 0
+        while i < len(bl):
+            b = bl[i]
+            if b["k"] == "p" and b.get("al") == "c" and len(b["plain"].strip()) <= 70 and _FIG_CAP_RE.match(b["plain"]):
+                j = i - 1
+                while j >= 0 and bl[j]["k"] == "p" and bl[j].get("al") != "c" and i - j <= 5:
+                    j -= 1
+                nxt = bl[i + 1] if i + 1 < len(bl) else None
+                if j >= 0 and j < i - 1 and bl[j]["k"] == "fig" and not (nxt is not None and nxt["k"] == "fig"):
+                    bl.insert(j + 1, bl.pop(i))
+            i += 1
+
+
 def _fix_metal_entry(entries):
     """일반정보 26(완제의약품 중 금속(원소)불순물 평가 및 관리) 정리:
     1) "4.2 금속불순물의 잠재적 기원", "4.3 ..." 소제목은 "4.1.", "4.4." 와 같이 마침표가 있는 번호로 보고 같은 계층(번호 칸 + 내어쓰기)에 둔다.
@@ -2445,6 +2467,8 @@ def parse_doc(path, docno):
     else:
         entries = _segment_numbered(docno, blocks)
 
+    if docno in (5, 6):
+        _fix_figure_captions(entries)
     _fix_metal_entry(entries)
     _fix_alkyl_entry(entries)
     _fix_disinfect_entry(entries)
