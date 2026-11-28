@@ -297,82 +297,6 @@
     color: var(--sub);
     vertical-align: middle;
   }
-  /* 즐겨찾기 / 최근 본 생약 카드: 검색 결과 카드(.result-group)와 같은 모양. 카드가 길어지면 카드 안에서만 스크롤된다 */
-  .quick-box[hidden] { display: none; }
-  .quick-box { gap: 24px; margin-top: 24px; }
-  .quick-box .result-group { max-height: min(260px, 40vh); }
-  .quick-box .group-label { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-  .quick-clear {  /* 최근 본 생약 라벨 오른쪽의 "모두 지우기" */
-    padding: 0 2px;
-    font-family: inherit;
-    font-size: 0.72rem;
-    font-weight: 500;
-    color: var(--sub);
-    background: none;
-    border: none;
-    cursor: pointer;
-    text-decoration: underline;
-  }
-  .quick-clear:hover { color: var(--main-dark); }
-  .quick-box .result-item { align-items: center; }
-  .quick-fav-off {  /* 즐겨찾기 줄 오른쪽의 별: 누르면 즐겨찾기에서 뺀다 */
-    flex: none;
-    padding: 0 2px;
-    font-family: inherit;
-    font-size: 1rem;
-    line-height: 1;
-    color: #c98a00;
-    background: none;
-    border: none;
-    cursor: pointer;
-  }
-  .quick-fav-off:hover { color: #a06c00; }
-  .quick-del {  /* 최근 본 생약 줄 오른쪽 끝의 ×: 누르면 그 줄만 지운다 */
-    flex: none;
-    /* 배경(마우스를 올렸을 때)은 24px 원이고, × 는 글자가 아니라 그림(SVG)이라 원의 정가운데에 놓인다(글자 ×는 폰트에 따라 치우친다) */
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 24px;
-    height: 24px;
-    margin: -2px -15px -2px 0;  /* 오른쪽 -15px: 줄의 오른쪽 안쪽 여백(16px)을 거의 지나, 카드 오른쪽 끝과 2px 사이만 남긴다 */
-    padding: 0;
-    font-family: inherit;
-    line-height: 1;
-    color: #9aa59d;
-    background: none;
-    border: none;
-    border-radius: 50%;
-    cursor: pointer;
-  }
-  .quick-del svg { display: block; pointer-events: none; }
-  .quick-del:hover, .quick-del:focus-visible { color: #a0281c; background: #f3e4e1; outline: none; }
-  /* 설명창 생약명 옆의 즐겨찾기 별 버튼: 글자 크기 버튼(가−/가+)과 같은 높이(20.7px)의 정사각형. 별은 그림(SVG)이라 정가운데에 놓인다 */
-  .detail-fav-btn {
-    position: relative;
-    /* 아래 모서리를 옆의 글자 크기 버튼('가−')·KP 배지의 아래 모서리와 맞춘다. 이름 줄은 baseline 정렬인데, 별 버튼은 글자가 없는
-       그림(SVG)뿐이라 baseline 이 상자 아래에 잡혀서 글자 있는 버튼(top: -3.35px)보다 2.94px 위에 놓인다. 그 차이를 더해 -0.41px */
-    top: -0.41px;
-    flex: none;
-    box-sizing: border-box;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 20.7px;
-    height: 20.7px;
-    margin: -6px 0 -6px 6px;
-    padding: 0;
-    color: var(--main-dark);
-    background: #fff;
-    border: 1.5px solid var(--main-dark);
-    border-radius: 3px;
-    cursor: pointer;
-  }
-  .detail-fav-btn svg { display: block; width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linejoin: round; }
-  .detail-fav-btn.on svg { fill: currentColor; }
-  .detail-fav-btn.fav-in-row { display: none; }  /* 모바일에서만 쓰는 두 번째 별(영문명 줄 오른쪽 끝). 화면 폭 규칙에서 보이게 한다 */
-  .detail-fav-btn:hover { background: #f0f5ef; }
-  .detail-fav-btn.on { color: #c98a00; border-color: #c98a00; }
   .empty-msg {
     text-align: center;
     color: var(--sub);
@@ -571,6 +495,29 @@
     font-variant-numeric: tabular-nums;
     user-select: none;
   }
+  /* '원문' 버튼: KP/KHP(·식약공용 등) 배지 바로 오른쪽(간격 6px). 높이는 배지와 같고, 글자·테두리는 글자 크기 버튼과 같다. 아래 모서리는 배지 아래 모서리에 맞춘다 */
+  .detail-orig-btn {
+    position: relative;
+    top: -2.16px;  /* 높이가 배지와 같은 18.3px 라 가운데 정렬 기준선이 내려간 만큼(1.19px) 되올려, 아래 모서리를 배지 아래 모서리에 맞춘다 */
+    flex: none;
+    box-sizing: border-box;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    height: 18.3px;  /* 생약명 옆 배지(.source-badge)와 같은 높이 */
+    margin: -6px 0 -6px 6px;
+    padding: 0 4px;
+    font-size: 0.68rem;
+    font-weight: 700;
+    line-height: 1;
+    color: var(--main-dark);
+    background: #fff;
+    border: 1.5px solid var(--main-dark);
+    border-radius: 3px;
+    text-decoration: none;
+    white-space: nowrap;
+  }
+  .detail-orig-btn:hover { color: #fff; background: var(--main); }
   .detail-zoom-btn:hover:not(:disabled) { color: #fff; background: var(--main); }
   .detail-zoom-btn:disabled { opacity: 0.4; cursor: default; }
   /* 글자 크기 단계(--detail-zoom, 0.8~1.5)는 헤더(생약명/버튼)를 뺀 내용 전체에 적용한다. 관능검사해설서 PDF 화면은 제외 */
@@ -1125,9 +1072,6 @@
     .detail { padding: 16px; }
     .detail-header:has(.detail-title-actions) { grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: none; }
     .detail-header:has(.detail-title-actions) .detail-name-line { grid-column: 1 / -1; }
-    /* 즐겨찾기 별: 이름 줄은 이미 빠듯해서(배지가 줄바꿈되지 않게 간격을 줄여 놓았다) 이름 옆 별은 숨기고, 영문명 줄 오른쪽 끝에 둔다 */
-    .detail-fav-btn.fav-in-name { display: none; }
-    .detail-fav-btn.fav-in-row { display: inline-flex; grid-column: 2; grid-row: 2 / span 2; align-self: start; justify-self: end; top: 0; margin: 2px 0 0; }
     /* 이름 칸이 좁아 배지가 둘 달린 이름(예: 감초 KP 식약공용)이 글자 크기 버튼과 40px 간격이면 두 줄로 꺾이므로, 모바일은 원래 간격(10px) */
     .detail-name-gap { flex-basis: 10px; min-width: 4px; }  /* 모바일은 배지와 버튼 사이 간격 10px(최소 4px) */
     .detail-header:has(.detail-title-actions) .detail-title-actions {
@@ -1270,8 +1214,7 @@
   @media (pointer: coarse) {
     /* 글자 크기 버튼의 눈에 보이는 크기(25.2 x 20.7px)는 그대로 두고, 손가락으로 누르는 영역만 눈에 안 보게 높이 약 36px로 넓힌다 */
     .detail-back-btn::after { content: ""; position: absolute; inset: -8px; }  /* 눈에 보이는 크기는 그대로 두고, 손가락으로 누르는 영역만 위아래·양옆 8px씩 넓힌다 */
-    .detail-fav-btn::after { content: ""; position: absolute; inset: -8px -5px; }  /* 즐겨찾기 별도 누르는 영역만 넓힌다 */
-    .detail-zoom-btn::after { content: ""; position: absolute; top: -9.2px; bottom: -9.2px; left: -3.5px; right: -3.5px; }  /* 테두리(1.5px) 안쪽 기준이라 보정한 값 */
+    .detail-zoom-btn::after, .detail-orig-btn::after { content: ""; position: absolute; top: -9.2px; bottom: -9.2px; left: -3.5px; right: -3.5px; }  /* 테두리(1.5px) 안쪽 기준이라 보정한 값 */
     .link-btn { padding: 10px 0; }  /* 글자 크기는 그대로(5rem 폭에 "생약감별자료집"이 들어가야 한다), 누르는 높이만 키운다 */
     .link-menu-list a { padding: 12px 14px; }
     .section .toggle-icon { width: 26px; height: 26px; font-size: 0.95rem; }

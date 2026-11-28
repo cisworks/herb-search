@@ -41,7 +41,7 @@ def main(argv):
             last[0] = now
             print(f"  [사진 위치] {n}/{total}  {name}  ({_fmt(now - started)} 경과)", flush=True)
 
-    if not (app.BASE_DIR / app.SENSORY_PHOTO_FILE).is_file():
+    if not (app.HERB_DIR / app.SENSORY_PHOTO_FILE).is_file():
         print(f"[경고] {app.SENSORY_PHOTO_FILE} 파일이 없어 만들 것이 없습니다.")
         return 1
 

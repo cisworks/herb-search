@@ -21,7 +21,6 @@
 .kp-site #drugDropdown .result-item.picked, .kp-site #refDropdown .result-item.picked { background: #edf3fb; box-shadow: inset 3px 0 0 var(--main); }
 .kp-site #drugDropdown .result-item.picked .rname, .kp-site #refDropdown .result-item.picked .rname { font-weight: 700; color: var(--main-dark); }
 .kp-site .definition { background: #edf3fb; }
-.kp-site .quick-del { color: #8d9aab; }
 .kp-site .case-category-label { background: #f7f9fc; }
 .kp-site .detail-width-tip { border-color: #6f7c8c; }
 .kp-site .link-menu-list a:hover { background: #edf3fb; }
@@ -29,14 +28,6 @@
 /* 링크로 연 항목의 "돌아가기" 버튼(app.css 의 초록 배경을 파랑으로) */
 .kp-site .detail-back-btn { background: #edf3fb; }
 .kp-site .detail-back-btn:hover { background: #dce8f6; }
-
-/* 최근 본 항목의 삭제(×) 버튼: 배경(마우스를 올렸을 때)이 원형 */
-.kp-site .quick-del {
-  display: inline-flex; align-items: center; justify-content: center;
-  width: 24px; height: 24px; padding: 0; margin: -2px -15px -2px 0;  /* 카드 오른쪽 끝과 2px 사이(생약 검색과 같다) */
-  border-radius: 50%; line-height: 1;
-}
-.kp-site .quick-del svg { display: block; pointer-events: none; }  /* × 는 글자가 아니라 그림이라 원의 한가운데에 놓인다 */
 
 /* 통칙·제제·시험법·정보 목록: 이름 뒤의 "[별표 N] n항목"은 이탤릭체로 쓰지 않는다 */
 .kp-site #refDropdown .ren { font-style: normal; }
@@ -120,6 +111,8 @@
 /* 글자 크기 버튼은 이름 줄 오른쪽 끝에 고정하지 않고, 이름 + 파일 구분(각조 제2부 · 5) 첨가제) 글자 바로 뒤에 이어 붙인다(이름이 여러 줄이면 마지막 줄 끝에) */
 .kp-site .detail-name-line h2 .detail-zoom { display: inline-flex; vertical-align: middle; position: static; margin: 0 0 0 66.7px; }  /* 제목(배지) 오른쪽 끝에서 글자 크기 버튼까지: 생약 검색 화면과 같게(별 단추 자리 포함 66.7px, 모바일은 10px) */
 @media (max-width: 860px) { .kp-site .detail-name-line h2 .detail-zoom { margin-left: 10px; } }
+/* '원문' 버튼: 제목(+파일 구분 글자) 바로 뒤, 글자 크기 버튼 앞. 이름 줄이 아니라 제목(h2) 글자 흐름 안에 있어서 글자 가운데 맞춤으로 둔다 */
+.kp-site .detail-name-line h2 .detail-orig-btn { position: static; display: inline-flex; vertical-align: middle; margin: 0 0 0 10px; }
 /* 통칙·제제·시험법·정보 하위 항목 줄: [번호][이름 + 영문명] 두 칸. 이름 칸은 단어 단위로 줄바꿈되고 둘째 줄부터 첫 줄의 이름 글자 위치에 맞는다 */
 .kp-site .ref-row { flex-wrap: nowrap; column-gap: 6px; align-items: baseline; }
 .kp-site .ref-row .rno { flex: none; margin-right: 0; }
@@ -133,11 +126,6 @@
 .kp-site .rcount { margin-left: 8px; font-size: 0.72rem; font-weight: 600; color: var(--sub); }
 .kp-site .rsnip { display: block; margin-top: 3px; font-size: 0.82rem; font-weight: 400; color: #444c57; line-height: 1.5; }
 .kp-site mark { background: #ffe58a; color: inherit; border-radius: 2px; padding: 0 1px; }
-.kp-site .quick-box .group-label button + * { margin-left: 0; }
-/* 최근 본 항목 줄: 이름(+파일 구분+분류)은 줄 안에서 줄바꿈되고, ×는 줄바꿈되어 아래로 밀리지 않고 줄 높이의 세로 가운데에 놓인다 */
-.kp-site .quick-box .result-item { flex-wrap: nowrap; align-items: center; }
-.kp-site .quick-box .result-item .rname { flex: 1 1 auto; min-width: 0; }
-.kp-site .quick-box .result-item .quick-del { flex: none; margin-left: auto; align-self: center; }
 /* KP 배지가 없어졌으니 이름과 파일 구분 글자(각조 제2부 등) 사이를 조금 더 띄운다 */
 .kp-site .source-part { margin-left: 8px; }
 
@@ -222,6 +210,7 @@
 
 /* 제법 표(의약품각조): 왼쪽 이름은 왼쪽 정렬, 오른쪽 수치·단위는 세로로 같은 위치, "적당량" 같은 글은 오른쪽 끝에 맞추고,
    가로선(───)은 표 너비 전체를 긋되 위아래 줄과 간격 없이 붙인다 */
+.kp-body .kp-tbl.kp-hoisted { margin-left: 0; margin-right: auto; }  /* "제법" 항목명을 표 밖으로 뺀 제법 표(에페드린염산염 10 배산 등)는 왼쪽에 붙인다 */
 .kp-body table.kp-recipe { width: max-content; min-width: min(100%, 22em); max-width: none; margin-bottom: 0.4em; }
 .kp-body .kp-recipe td:first-child { white-space: nowrap; padding-right: 2em; }  /* 왼쪽 성분 이름("파라옥시벤조산에틸 또는 파라옥시벤조산메틸")은 한 줄로 둔다 */
 .kp-body .kp-recipe br.kp-or { display: none; }  /* "A 또는 B" 이름의 줄바꿈: 넓은 화면에서는 한 줄 */

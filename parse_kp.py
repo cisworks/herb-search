@@ -303,8 +303,15 @@ class _Ctx:
                     self._text(ch, cp, cur)
                 elif tag == "tbl":
                     flush()
+                    self._hoist_lab = None
                     thtml, tplain = self.table(ch)
                     if thtml:
+                        if self._hoist_lab:  # 표 맨 왼쪽 칸에 들어 있던 항목명("제법")은 표 앞의 항목명 줄이 된다(다른 항목의 제법과 같게 접고 펴는 구간으로)
+                            lab_blk = self._p_block(p, "", self._hoist_lab, self._hoist_lab)
+                            lab_blk["lead"] = 0
+                            lab_blk["hoist"] = True  # 글이 없는 항목명 줄: 구간 머리 이름으로만 쓰고 빈 문단은 그리지 않는다
+                            blocks.append(lab_blk)
+                            self._hoist_lab = None
                         blocks.append({"k": "tbl", "html": thtml, "plain": tplain})
                 elif tag == "pic":
                     self._pic(ch, cur)
@@ -662,6 +669,20 @@ class _Ctx:
             rows.append(cells)
         if not rows:
             return "", ""
+        # 의약품각조 "제법" 표(에페드린염산염 10 배산 등): "제 법" 항목명이 표 맨 왼쪽 칸(모든 줄에 걸친 칸)에 들어 있다. 그 칸은 빼고 항목명으로 따로 돌려준다.
+        tot_before = sum(widths.values())
+        hoisted = None
+        c0 = rows[0][0]
+        if (
+            self.drug and c0[0] == 0 and c0[8].strip() == "제법" and c0[2] == len(rows) and not re.sub(r"<[^>]+>|&nbsp;|\s", "", c0[3])
+            and all(all(c[0] != 0 for c in r_) for r_ in rows[1:])
+        ):
+            hoisted = c0[8].strip()
+            self._hoist_lab = hoisted
+            widths.pop(0, None)
+            widths = {k - 1: v for k, v in widths.items()}
+            rows = [[(c[0] - 1,) + c[1:] for c in r_] for r_ in [rows[0][1:]] + rows[1:]]
+            plain_parts.remove(hoisted)
         # 머리 행: 원문에서 머리 칸(header)으로 지정한 행. 지정이 없으면, 테두리가 있는 2열 이상 표의 첫 행(칸마다 글이 있을 때)을 머리 행으로 본다.
         hdr_rows = {i for i, cs_ in enumerate(rows) if any(c[7] for c in cs_)}
         if not hdr_rows and len(rows) >= 2 and len(rows[0]) >= 2:
@@ -698,14 +719,18 @@ class _Ctx:
                 if len(texts) >= 3 and sum(1 for t_ in texts if re.fullmatch(r"[①-⑳㉑-㉟]", t_)) >= len(texts) - 1:
                     extra.add(last_h + 1)
             hdr_rows |= extra
+        if hoisted:
+            hdr_rows = set()  # 제법 표는 머리 행(회색 칸)이 없다
         total = sum(widths.values())
         tw = 0
         szt = tbl.find(HP + "sz")
         if szt is not None and szt.get("width"):
             tw = int(szt.get("width"))
         pct = min(100.0, tw * 100.0 / self.col_w) if tw and self.col_w else 100.0
+        if hoisted and tot_before:
+            pct *= total / tot_before  # 뺀 왼쪽 칸만큼 표 폭도 줄인다
         nowrap_cols = _NOWRAP_COLS.get("/".join(c[8].strip() for c in rows[0]) + "//" + (rows[1][0][8].strip() if len(rows) > 1 and rows[1] else ""), ())
-        out = [f'<div class="kp-tblwrap"><table class="kp-tbl" style="width:{pct:.1f}%">']
+        out = [f'<div class="kp-tblwrap"><table class="kp-tbl{" kp-hoisted" if hoisted else ""}" style="width:{pct:.1f}%">']
         if widths and total:
             out.append("<colgroup>" + "".join(f'<col style="width:{widths.get(c, 0) * 100.0 / total:.1f}%">' for c in range(max(widths) + 1)) + "</colgroup>")
         for ri, cells in enumerate(rows):
@@ -1430,6 +1455,7 @@ def _sections_html(blocks):
             ]
         out.append('<div class="definition kp-definition">' + "".join(block_html(b) for b in head) + "</div>")
     for lab, bs in secs:
+        bs = [b for b in bs if not b.get("hoist")]
         body = _join_blocks_html(_space_formula_lines(_apply_hierarchy(_merge_formula_lines(_center_figures_captions(bs)))))
         out.append(
             f'<div class="section"><div class="section-header"><div class="label">{html.escape(lab)}</div>'

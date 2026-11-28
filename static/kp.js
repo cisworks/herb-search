@@ -10,7 +10,6 @@ const refDropdown = document.getElementById('refDropdown');
 const refResultsBox = document.getElementById('refResults');
 const textInput = document.getElementById('textInput');
 const textResultsBox = document.getElementById('textResults');
-const quickBox = document.getElementById('quickBox');
 const detailBox = document.getElementById('detail');
 const detailPlaceholder = document.getElementById('detailPlaceholder');
 const leftPanelEl = document.querySelector('.left-panel');
@@ -688,7 +687,6 @@ function activateTab(tabId) {
   tabButtons.forEach(b => b.classList.toggle('active', b.dataset.tab === tabId));
   document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === tabId));
   closeAllDropdowns();
-  refreshQuickBox();
   fitRefResultsHeight();
   fitDrugResultsHeight();
 }
@@ -774,7 +772,7 @@ function clearResults(tab) {
 
 let shownKey = '';
 function applyShownHighlight() {
-  [drugResultsBox, refResultsBox, textResultsBox, quickBox].forEach(box => {
+  [drugResultsBox, refResultsBox, textResultsBox].forEach(box => {
     box.querySelectorAll('.result-item').forEach(el => {
       el.classList.toggle('selected', !!shownKey && `id:${el.dataset.id}` === shownKey);
     });
@@ -918,13 +916,11 @@ function setupSearchInput(tab) {
       if (tab === 'text') textSuggest.close();
       clearResults(tab);
       setQuery(tab, '');
-      refreshQuickBox();
       return;
     }
     if (tab === 'text' && q.replace(/\s+/g, '').length < 2) { textSuggest.close(); clearResults(tab); return; }
     if (tab === 'text') suggestText(q);  // 본문 검색칸 추천 문구(검색 결과와 별개로 더 빨리 뜬다)
     timers[tab] = setTimeout(() => (tab === 'text' ? runTextSearch(q) : runNameSearch(tab, q)), tab === 'text' ? 400 : 200);
-    refreshQuickBox();
   });
   input.addEventListener('keydown', async (ev) => {
     if (ev.key !== 'Enter') return;
@@ -1108,71 +1104,6 @@ function suggestText(q) {
   }, 150);
 }
 
-// ---- 최근 본 항목 --------------------------------------------------------------------------------
-const RECENT_KEY = 'kpRecent', RECENT_MAX = 15;
-let recentMem = [];
-function loadRecent() {
-  try {
-    const v = JSON.parse(localStorage.getItem(RECENT_KEY) || '[]');
-    return Array.isArray(v) ? v : [];
-  } catch (e) { return recentMem; }
-}
-function saveRecent(list) {
-  recentMem = list;
-  try { localStorage.setItem(RECENT_KEY, JSON.stringify(list)); } catch (e) { /* 저장소를 못 쓰면 이 페이지가 열려 있는 동안만 기억 */ }
-}
-function recordRecent(it) {
-  const snap = { id: it.id, ko: it.ko, en: it.en || '', no: it.no || '', kind: it.kind, part: it.part || '', cat: it.cat || '', doc: it.doc || 0, group: it.group || '' };
-  saveRecent([snap, ...loadRecent().filter(x => x.id !== it.id)].slice(0, RECENT_MAX));
-  refreshQuickBox();
-}
-function refreshQuickBox() {
-  const list = loadRecent();
-  const hasQuery = drugResultsBox.style.display !== 'none' && drugResultsBox.innerHTML;
-  const onDrugTab = document.getElementById('drugTab').classList.contains('active');
-  if (!list.length || !onDrugTab || hasQuery) {
-    quickBox.hidden = true;
-    quickBox.innerHTML = '';
-    return;
-  }
-  quickBox.hidden = false;
-  quickBox.innerHTML = `<div class="result-group"><div class="group-label"><span>최근 본 항목</span><button type="button" class="quick-clear">모두 지우기</button></div>${list.map(it => `
-    <div class="result-item" data-id="${it.id}"><span class="rname">${it.no && it.kind === 'ref' ? `<span class="rno">${escapeHtml(it.no)}.</span>` : ''}${escapeHtml(it.ko)}${sourceBadge(it)}${groupLineHtml(it)}</span><button type="button" class="quick-del" title="목록에서 지우기" aria-label="목록에서 지우기"><svg viewBox="0 0 10 10" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M1.5 1.5 8.5 8.5M8.5 1.5 1.5 8.5"/></svg></button></div>`).join('')}</div>`;
-  applyShownHighlight();
-}
-quickBox.addEventListener('click', (ev) => {
-  if (ev.target.closest('.quick-clear')) {
-    saveRecent([]);
-    refreshQuickBox();
-    return;
-  }
-  const row = ev.target.closest('.result-item');
-  if (!row) return;
-  if (ev.target.closest('.quick-del')) {
-    saveRecent(loadRecent().filter(x => String(x.id) !== row.dataset.id));
-    refreshQuickBox();
-    return;
-  }
-  openRecent(row.dataset.id);
-});
-// 최근 본 항목은 번호(id)와 이름을 같이 저장해 둔다. 데이터 파일이나 파서가 바뀌어 번호가 달라졌으면 이름(과 문서)으로 다시 찾아서 연다.
-async function openRecent(id) {
-  const saved = loadRecent();
-  const rec = saved.find(x => String(x.id) === String(id));
-  if (!rec) return;
-  const list = await getList(rec.kind === 'drug' ? 'drug' : 'ref');
-  let it = list.find(x => x.id === rec.id && x.ko === rec.ko && (x.cat || '') === (rec.cat || ''));
-  if (!it) it = list.find(x => x.ko === rec.ko && (x.cat || '') === (rec.cat || '') && (x.no || '') === (rec.no || ''));
-  if (!it) {  // 더 이상 없는 항목은 목록에서 뺀다
-    saveRecent(saved.filter(x => x !== rec));
-    refreshQuickBox();
-    return;
-  }
-  if (it.id !== rec.id) saveRecent(saved.map(x => (x === rec ? { ...x, id: it.id } : x)));
-  showEntry(it.id);
-}
-new MutationObserver(refreshQuickBox).observe(drugResultsBox, { attributes: true, attributeFilter: ['style'] });
-
 // ---- 설명창 ------------------------------------------------------------------------------------
 const DETAIL_ZOOM_STEPS = [0.8, 0.9, 1, 1.1, 1.2, 1.35, 1.5];
 let detailZoomIdx = DETAIL_ZOOM_STEPS.indexOf(1);
@@ -1318,7 +1249,7 @@ async function showEntry(id, opts = {}) {
       <div class="detail-title-row">
         <div class="detail-name-line">
           ${backHtml}
-          <h2>${escapeHtml(title)}${detailPartHtml(it)}<span class="detail-zoom" role="group" aria-label="글자 크기"><button type="button" class="detail-zoom-btn" data-dir="-1" aria-label="글자 작게">가−</button><span class="detail-zoom-pct" aria-live="polite">100%</span><button type="button" class="detail-zoom-btn" data-dir="1" aria-label="글자 크게">가+</button></span></h2>
+          <h2>${escapeHtml(title)}${detailPartHtml(it)}${it.orig ? `<a class="detail-orig-btn" href="${KP}/api/orig/${it.id}?v=${it.orig}#page=1" target="_blank" rel="noopener" title="약전 원문 PDF에서 이 항목 부분만 보기">원문</a>` : ''}<span class="detail-zoom" role="group" aria-label="글자 크기"><button type="button" class="detail-zoom-btn" data-dir="-1" aria-label="글자 작게">가−</button><span class="detail-zoom-pct" aria-live="polite">100%</span><button type="button" class="detail-zoom-btn" data-dir="1" aria-label="글자 크게">가+</button></span></h2>
         </div>
       </div>
       ${it.en ? `<p class="en">${escapeHtml(it.en)}</p>` : ''}
@@ -1335,11 +1266,11 @@ async function showEntry(id, opts = {}) {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
   if (target) setTimeout(() => target.scrollIntoView({ behavior: 'smooth', block: 'center' }), 60);
-  recordRecent(it);
 }
 
 window.addEventListener('load', () => { fitAll(); focusTabInput('drugTab'); });
-refreshQuickBox();
-// 처음 크기(왼쪽 칸 너비, 배경 그림 칸 높이, 최근 본 항목 카드)가 모두 정해졌으니 숨겨 둔 본문을 보인다(templates 의 head 스크립트 참조)
+// 없어진 최근 본 항목 기능이 이 브라우저에 남겨 둔 기록을 지운다.
+try { localStorage.removeItem('kpRecent'); } catch (e) { /* 저장소를 못 쓰면 지울 것도 없다 */ }
+// 처음 크기(왼쪽 칸 너비, 배경 그림 칸 높이)가 모두 정해졌으니 숨겨 둔 본문을 보인다(templates 의 head 스크립트 참조)
 fitAll();
 document.documentElement.classList.remove('ui-pending');

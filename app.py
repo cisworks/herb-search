@@ -27,12 +27,15 @@ from flask import Flask, Response, abort, jsonify, render_template, request, url
 
 import sensory_photos
 from parse_hwpx import finalize_method_section, parse_hwpx, parse_method_hwpx
+from orig_pdf import ORIG_VER as ORIG_PDF_VER, cut_pdf as cut_orig_pdf
 from parse_sensory_pdf import build_sensory_entries
 from parse_case_pdf import parse_case_pdf
 from parse_hwpx import fix_private_use_chars
 from parse_test_methods import parse_test_methods, read_test_method_image
 
 BASE_DIR = Path(__file__).resolve().parent
+# 생약 검색에 쓰는 원본 파일(hwpx 7개, 같은 이름의 PDF 7개, 관능검사해설서·사례집·유전자기원감별정보집 PDF)은 이 폴더에 둔다. (약전 검색 파일은 kp_site.py 의 KP_DIR)
+HERB_DIR = BASE_DIR / "생약검색"
 
 # 일반시험법 "35. 생약시험법"(3. 생약시험법.hwpx). 생약 상세 화면의 이물/중금속/잔류농약/
 # 이산화황/곰팡이독소/건조감량/회분/산불용성회분 항목이 이 문서의 해당 항목을 보여 준다.
@@ -249,7 +252,7 @@ def load_entries():
     # "[별표 N] ... (제2026-44호).hwpx" 는 대한민국약전 전체(통칙·각조·시험법) 문서로 약전 검색(/kp)에서만 쓰므로 제외한다.
     hwpx_files = sorted(
         p
-        for p in BASE_DIR.glob("*.hwpx")
+        for p in HERB_DIR.glob("*.hwpx")
         if p.name not in (TEST_METHOD_FILE, METHOD_FILE_NAME) and p.name not in PREP_FILE_NAMES and not p.name.startswith("[별표")
     )
     entries = []
@@ -291,7 +294,12 @@ def load_sensory_entries(start_id):
     찾아 파싱한다("관능검사사례집.pdf"는 형식이 전혀 달라 load_case_entries
     가 따로 처리한다). id는 공정서 항목 다음부터 이어서 매겨, 두 목록을
     하나의 id 공간으로 조회할 수 있게 한다."""
-    pdf_files = sorted(p for p in BASE_DIR.glob("*.pdf") if "사례집" not in p.name)
+    # "[별표 N] ... (제2026-44호).pdf"(약전 검색의 '원문' 버튼용)와, 같은 이름의 hwpx 가 있는 PDF("1. 약전(각조 제2부).pdf" 등, 생약 검색의 '원문' 버튼용)는
+    # 공정서 원문 PDF 라 관능검사해설서가 아니다
+    pdf_files = sorted(
+        p for p in HERB_DIR.glob("*.pdf")
+        if "사례집" not in p.name and not p.name.startswith("[별표") and not p.with_suffix(".hwpx").exists()
+    )
     entries = []
     if not pdf_files:
         _warn_missing("관능검사해설서", "*.pdf (예: 관능검사해설서(2022).pdf)")
@@ -492,7 +500,7 @@ def load_prep_entries(start_id):
     로 읽는다. 본문의 그림(크로마토그램)은 /api/prep_image 로 보여 준다."""
     entries, files = [], []
     for fi, name in enumerate(PREP_FILE_NAMES):
-        f = BASE_DIR / name
+        f = HERB_DIR / name
         if not f.is_file():
             _warn_missing("생약제제", name)
             continue
@@ -534,7 +542,7 @@ def load_prep_entries(start_id):
 def load_prep_methods(start_id):
     """"7. 생규집(확인, 함량).hwpx" 를 읽어 (목록용 항목들, 생약 상세에 붙일 섹션 표)를 돌려준다.
     항목은 생약제제 품목처럼 /api/item 으로 열리고(kind="prep"), 섹션 표는 {종류: {(이름, 한자): [섹션,...]}} 이다."""
-    path = BASE_DIR / METHOD_FILE_NAME
+    path = HERB_DIR / METHOD_FILE_NAME
     entries = []
     by_herb = {"confirm": {}, "quant": {}}
     if not path.is_file():
@@ -603,7 +611,7 @@ def load_case_entries():
     공정서/관능검사해설서와 달리 검색 결과에서 생약 하나당 여러 건(카테고리별)
     으로 나올 수 있어 ENTRY_BY_ID에는 넣지 않고, /api/search에서 herb_name으로
     직접 매칭한다."""
-    case_files = sorted(BASE_DIR.glob("*사례집*.pdf"))
+    case_files = sorted(HERB_DIR.glob("*사례집*.pdf"))
     entries = []
     if not case_files:
         _warn_missing("관능검사 사례집", "*사례집*.pdf (예: 관능검사사례집.pdf)")
@@ -620,7 +628,7 @@ def load_case_entries():
 
 
 def load_test_methods():
-    path = BASE_DIR / TEST_METHOD_FILE
+    path = HERB_DIR / TEST_METHOD_FILE
     if not path.is_file():
         _warn_missing("생약시험법", TEST_METHOD_FILE)
         return {}
@@ -883,12 +891,119 @@ def exam_case_links(name_only, hanja=""):
     return [{"origin": "", "url": NIFDS_EXAM_CASE_URL.format(no=no)}]
 
 
+# ---- 원문(PDF) -----------------------------------------------------------------------------
+# "1. 약전(각조 제2부).pdf" 처럼 hwpx 와 같은 이름의 PDF(한글에서 1단 쓰기로 바꾼 것, 이 폴더에 둔다)에서 한 생약·생약제제 부분만 보이는 PDF 를 만들어 준다.
+# 제목이 놓인 자리(쪽, 세로 위치)는 build_herb_orig.py 가 herb_orig_pos.json 에 적어 둔다. 한 항목은 자기 제목 자리부터 같은 파일의 다음 항목 자리 앞까지다.
+# PDF 자르기는 약전 검색과 같은 orig_pdf.py 를 쓴다.
+HERB_ORIG_POS_FILE = BASE_DIR / "herb_orig_pos.json"
+HERB_ORIG_CACHE_DIR = PARSE_CACHE_DIR / "herb_orig"
+
+
+def herb_entry_keys(ents):
+    """항목마다 (이름, 같은 이름이 또 나오면 #번호) 키. build_herb_orig.py 가 위치표를 만들 때와 같은 방식이다."""
+    seen = {}
+    keys = []
+    for e in ents:
+        k = e["korean_name"]
+        seen[k] = seen.get(k, 0) + 1
+        keys.append(k if seen[k] == 1 else f"{k}#{seen[k]}")
+    return keys
+
+
+_herb_orig_lock = threading.Lock()
+_herb_orig = None
+
+
+def _herb_orig_index():
+    """{hwpx 파일 이름: {pdf: 경로, top: 쪽 맨 위 높이, start: {항목 id: 위치}, order: [위치(정렬)]}}. 위치표나 PDF 가 없는 파일은 빠진다."""
+    global _herb_orig
+    if _herb_orig is not None:
+        return _herb_orig
+    with _herb_orig_lock:
+        if _herb_orig is not None:
+            return _herb_orig
+        idx = {}
+        try:
+            data = json.loads(HERB_ORIG_POS_FILE.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            data = {"files": {}}
+        for fname, info in data.get("files", {}).items():
+            pdf = HERB_DIR / info["pdf"]
+            if not pdf.is_file():
+                continue
+            try:
+                import pymupdf as fitz
+
+                with fitz.open(str(pdf)) as doc:
+                    if len(doc) != info["pages"]:  # PDF 를 다시 만들어 쪽 수가 달라졌으면(위치표가 낡았다) 쓰지 않는다
+                        print(f"[알림] {pdf.name} 쪽 수가 위치표와 다릅니다. build_herb_orig.py 를 다시 실행하세요.")
+                        continue
+            except Exception as exc:  # noqa: BLE001
+                print(f"[알림] {pdf.name} 를 열지 못했습니다: {exc}")
+                continue
+            ents = [e for e in ENTRIES + PREP_ENTRIES if e.get("source_file") == fname]
+            by_key = dict(zip(herb_entry_keys(ents), (e["id"] for e in ents)))
+            start = {by_key[key]: (page, y) for key, page, y in info["entries"] if key in by_key}
+            idx[fname] = {"pdf": pdf, "top": info.get("top", 95), "start": start, "order": sorted(set(start.values()))}
+        _herb_orig = idx
+        return idx
+
+
+def herb_orig_range(e):
+    """항목 e 의 원문 범위 (시작 위치, 끝 위치 또는 None, 파일 정보). 원문을 보여 줄 수 없으면 None."""
+    info = _herb_orig_index().get(e.get("source_file"))
+    if info is None or e["id"] not in info["start"]:
+        return None
+    s = info["start"][e["id"]]
+    return s, next((p for p in info["order"] if p > s), None), info
+
+
+def herb_orig_ver(e):
+    """'원문' 버튼을 보일지: 0 이면 없음(PDF·위치표가 없는 항목), 아니면 자르는 방식 번호(주소 끝에 붙여, 방식이 바뀌면 브라우저가 옛 PDF 를 다시 쓰지 않게 한다)."""
+    return ORIG_PDF_VER if herb_orig_range(e) is not None else 0
+
+
+@app.route("/api/herb_orig/<int:item_id>")
+def api_herb_orig(item_id):
+    """'원문' 버튼: 그 생약(생약제제) 부분만 보이는 공정서 원문 PDF."""
+    e = ENTRY_BY_ID.get(item_id)
+    rng = herb_orig_range(e) if e is not None else None
+    if rng is None:
+        abort(404)
+    start, end, info = rng
+    st = info["pdf"].stat()
+    key = hashlib.sha1(f"{ORIG_PDF_VER}|{info['pdf'].name}|{st.st_size}|{st.st_mtime_ns}|{start}|{end}|{info['top']}".encode()).hexdigest()[:24]
+    # 브라우저는 저장해 두되 열 때마다 서버에 "안 바뀜(304)"만 확인한다(PDF 나 자르는 방식이 바뀌면 바로 새것이 보인다)
+    headers = {"Cache-Control": "no-cache", "Content-Disposition": "inline"}
+
+    def respond(data):
+        resp = Response(data, mimetype="application/pdf", headers=headers)
+        resp.set_etag(key)
+        return resp.make_conditional(request)
+
+    cache_file = HERB_ORIG_CACHE_DIR / f"{key}.pdf"
+    if cache_file.is_file():
+        try:
+            return respond(cache_file.read_bytes())
+        except OSError:
+            pass
+    data = cut_orig_pdf(info["pdf"], start, end, f"{e['korean_name']} (공정서 원문)", None, info["top"])
+    try:  # 저장 실패(읽기 전용 폴더 등)는 캐시 없이 계속한다
+        HERB_ORIG_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        tmp = HERB_ORIG_CACHE_DIR / f"{key}.{os.getpid()}.{threading.get_ident()}.tmp"
+        tmp.write_bytes(data)
+        os.replace(tmp, cache_file)
+    except OSError as exc:
+        print(f"[알림] 원문 pdf 를 저장하지 못했습니다: {exc}")
+    return respond(data)
+
+
 def gene_case(name_only, hanja=""):
     """유전자 기원 감별 자료집에서 해당 생약의 사례 구간(없으면 None)."""
     if _homonym(name_only, hanja) is not None:
         return None  # 동음 생약은 자료집의 어느 쪽인지 구분할 수 없어 연결하지 않는다
     pages = GENE_CASE_PAGES.get(_lookup_key(GENE_CASE_PAGES, name_only))
-    if pages is None or not (BASE_DIR / GENE_CASE_FILE).is_file():
+    if pages is None or not (HERB_DIR / GENE_CASE_FILE).is_file():
         return None
     return {"source_file": GENE_CASE_FILE, "page_start": pages[0], "page_end": pages[1]}
 
@@ -1039,7 +1154,7 @@ def _prep_image_png(file_idx, name):
 
     if not 0 <= file_idx < len(PREP_FILE_NAMES):
         return None
-    path = BASE_DIR / PREP_FILE_NAMES[file_idx]
+    path = HERB_DIR / PREP_FILE_NAMES[file_idx]
     if not path.is_file():
         return None
     with zipfile.ZipFile(path) as zf:
@@ -1252,6 +1367,7 @@ def api_item(item_id):
                 "sections": e["sections"],
                 "source_tag": e.get("source_tag", ""),
                 "part": e.get("part", ""),
+                "orig": herb_orig_ver(e),
                 "test_methods": [],
             }
         )
@@ -1292,6 +1408,7 @@ def api_item(item_id):
             "hplc_links": hplc_links(e["name_only"], e["hanja"]),
             "ingredient_links": ingredient_links(e["name_only"], e["hanja"]),
             "exam_case_links": exam_case_links(e["name_only"], e["hanja"]),
+            "orig": herb_orig_ver(e),
             "crshm_links": crshm_links(e["name_only"], e["hanja"]),
             "dscrm_links": dscrm_links(e["name_only"], e["hanja"]),
             "specimen_links": specimen_links(e["name_only"], e["hanja"]),
@@ -1315,7 +1432,7 @@ def api_test_method_image(name):
     """3. 생약시험법.hwpx 안의 그림(이산화황 장치 그림 등)."""
     if not re.fullmatch(r"\w+", name):
         abort(404)
-    path = BASE_DIR / TEST_METHOD_FILE
+    path = HERB_DIR / TEST_METHOD_FILE
     found = read_test_method_image(path, name) if path.is_file() else None
     if found is None:
         abort(404)
@@ -1388,7 +1505,7 @@ _PHOTO_TABLE_FILE = None
 
 
 def _photo_table_file():
-    pdf = BASE_DIR / SENSORY_PHOTO_FILE
+    pdf = HERB_DIR / SENSORY_PHOTO_FILE
     try:
         st = pdf.stat()
         h = hashlib.sha1()
@@ -1441,7 +1558,7 @@ def build_photo_regions_table(progress=None):
     todo = [e for e in SENSORY_ENTRIES if e.get("source_file") == SENSORY_PHOTO_FILE]
     pending = [e for e in todo if (int(e["page_start"]), int(e["page_end"])) not in table]
     if pending:
-        doc = fitz.open(str(BASE_DIR / SENSORY_PHOTO_FILE))
+        doc = fitz.open(str(HERB_DIR / SENSORY_PHOTO_FILE))
         try:
             for n, e in enumerate(pending, 1):
                 ps, pe = int(e["page_start"]), int(e["page_end"])
@@ -1466,7 +1583,7 @@ def _sensory_photo_regions(entry_id):
         return table[(ps, pe)]
     import pymupdf as fitz
 
-    doc = fitz.open(str(BASE_DIR / SENSORY_PHOTO_FILE))
+    doc = fitz.open(str(HERB_DIR / SENSORY_PHOTO_FILE))
     try:
         regions = tuple(sensory_photos.entry_regions(doc, ps, pe))
     finally:
@@ -1485,7 +1602,7 @@ def _sensory_native_dpis(entry_id):
     if missing:
         import pymupdf as fitz
 
-        doc = fitz.open(str(BASE_DIR / SENSORY_PHOTO_FILE))
+        doc = fitz.open(str(HERB_DIR / SENSORY_PHOTO_FILE))
         try:
             for p, i in missing:
                 table[("dpi", p, i)] = sensory_photos.native_dpi(doc, p, i)
@@ -1497,7 +1614,7 @@ def _sensory_native_dpis(entry_id):
 
 def _sensory_photo_entry_id(name_only, hanja):
     """사진이 있는 관능검사해설서 품목의 id (없으면 None)."""
-    if not (BASE_DIR / SENSORY_PHOTO_FILE).is_file():
+    if not (HERB_DIR / SENSORY_PHOTO_FILE).is_file():
         return None
     e = _sensory_entry_for(name_only, hanja)
     return e["id"] if e is not None and _sensory_photo_regions(e["id"]) else None
@@ -1644,7 +1761,7 @@ def _photo_image_sig():
     if _PHOTO_IMAGE_SIG is None:
         h = hashlib.sha1()
         try:
-            st = (BASE_DIR / SENSORY_PHOTO_FILE).stat()
+            st = (HERB_DIR / SENSORY_PHOTO_FILE).stat()
             h.update(f"{st.st_size}|{st.st_mtime_ns}|v{SENSORY_PHOTO_VER}|py{sys.version_info[:2]}".encode())
             h.update((BASE_DIR / "sensory_photos.py").read_bytes())
         except OSError:
@@ -1743,7 +1860,7 @@ def build_photo_images(progress=None, limit=None):
             if doc is None or n % 150 == 1:
                 if doc is not None:
                     doc.close()
-                doc = fitz.open(str(BASE_DIR / SENSORY_PHOTO_FILE))
+                doc = fitz.open(str(HERB_DIR / SENSORY_PHOTO_FILE))
             if ("dpi", p, i) not in table:
                 table[("dpi", p, i)] = sensory_photos.native_dpi(doc, p, i)
             if not _photo_image_cache_file(p, i).is_file():
@@ -1786,7 +1903,7 @@ def sensory_photo_image(entry_id, page_no, index):
         cached = _photo_image_cache_read(page_no, index)
         if cached is not None:
             return Response(cached, mimetype="image/png", headers=headers)
-    doc = fitz.open(str(BASE_DIR / SENSORY_PHOTO_FILE))
+    doc = fitz.open(str(HERB_DIR / SENSORY_PHOTO_FILE))
     try:
         if raw == "native":
             # PDF 안의 원본 JPEG 픽셀을 다시 그리지 않고 그대로 붙인다(렌더링보다 선명).
@@ -1828,8 +1945,8 @@ def api_sensory_pdf():
     end = request.args.get("end", type=int)
     if start is None or end is None or not filename:
         abort(400)
-    pdf_path = (BASE_DIR / filename).resolve()
-    if pdf_path.parent != BASE_DIR.resolve() or not pdf_path.is_file():
+    pdf_path = (HERB_DIR / filename).resolve()
+    if pdf_path.parent != HERB_DIR.resolve() or not pdf_path.is_file():
         abort(404)
 
     # 빠르게 열기 (1) 브라우저 캐시: 같은 구간을 다시 열 때 받지 않는다(원본 pdf 의 크기·수정 시각이 키에 들어 있어, 원본이 바뀌면 주소 그대로여도 새로 받는다).

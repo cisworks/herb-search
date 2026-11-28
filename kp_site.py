@@ -24,6 +24,7 @@ from flask import Blueprint, Response, abort, jsonify, render_template, request
 import parse_kp
 
 BASE_DIR = Path(__file__).resolve().parent
+KP_DIR = BASE_DIR / "약전검색"  # 약전 검색에 쓰는 원본 파일([별표 1] ~ [별표 6] 의 hwpx 와 같은 이름의 PDF 12개)을 두는 폴더
 CACHE_DIR = BASE_DIR / ".parse_cache"
 IMG_CACHE_DIR = CACHE_DIR / "kp_img"
 IMG_PIPE_VER = 3  # 그림 변환 방식을 바꾸면 올린다(저장된 변환 그림이 새로 만들어진다)
@@ -68,7 +69,7 @@ def _drug_sort_key(e):
 
 def hwpx_path(docno):
     head = parse_kp.DOCS[docno][0]
-    for p in sorted(BASE_DIR.glob("*.hwpx")):
+    for p in sorted(KP_DIR.glob("*.hwpx")):
         if p.name.startswith(head):
             return p
     return None
@@ -462,6 +463,8 @@ def api_entry(entry_id):
             body = _link_words(body, words)
     out = summary(e)
     out["html"] = body
+    # '원문' 버튼을 보일지(원문 PDF 와 위치표가 있는 항목만): 0 이면 없음, 아니면 자르는 방식 번호(주소 끝에 붙여, 방식이 바뀌면 브라우저가 옛 PDF 를 다시 쓰지 않게 한다)
+    out["orig"] = ORIG_VER if orig_range(d, e) is not None else 0
     resp = jsonify(out)
     # 데이터 파일이나 파서가 바뀌면 바로 새 내용이 보이도록, 매번 서버에 "안 바뀜(304)"만 확인한다(ETag)
     resp.headers["Cache-Control"] = "private, no-cache"
@@ -538,6 +541,143 @@ def image_bytes(doc, name, crop_str=""):
     except OSError:
         pass
     return out, mime
+
+
+# ---- 원문(PDF) ----------------------------------------------------------------------------
+# "[별표 N] ... (제2026-44호).pdf"(hwpx 를 한글에서 PDF 로 바꾼 것, 이 폴더에 둔다)에서 한 항목의 부분만 보이게 한 PDF 를 만들어 준다.
+# 항목 제목이 놓인 자리(쪽, 세로 위치)는 build_kp_orig.py 가 kp_orig_pos.json 에 적어 둔다(PDF 는 1단 쓰기). 한 항목은 자기 제목 자리부터
+# 다음 항목(또는 분류 제목) 자리 앞까지이고, 그 범위 밖의 글은 지운다(흰색으로 덮고 글자 제거).
+ORIG_POS_FILE = BASE_DIR / "kp_orig_pos.json"
+ORIG_CACHE_DIR = CACHE_DIR / "kp_orig"
+from orig_pdf import ORIG_TOP, ORIG_VER, cut_pdf as _cut_orig_pdf, svg_clip_to_viewbox as _svg_clip_to_viewbox  # PDF 자르기는 orig_pdf.py (생약 검색과 함께 쓴다)
+
+
+def entry_keys(ents):
+    """항목마다 ('번호|이름', 같은 키가 또 나오면 #번호) 키. build_kp_orig.py 가 위치표를 만들 때와 같은 방식이다."""
+    seen = {}
+    keys = []
+    for e in ents:
+        k = f"{e.get('no') or ''}|{e['ko']}"
+        seen[k] = seen.get(k, 0) + 1
+        keys.append(k if seen[k] == 1 else f"{k}#{seen[k]}")
+    return keys
+
+
+_orig_lock = threading.Lock()
+_orig = None
+
+
+def _orig_index(d):
+    """{문서번호: {pdf: 경로, start: {항목 id: 위치}, order: [모든 위치(정렬)]}}. 위치표나 PDF 가 없는 문서는 빠진다."""
+    global _orig
+    if _orig is not None:
+        return _orig
+    with _orig_lock:
+        if _orig is not None:
+            return _orig
+        idx = {}
+        try:
+            import json
+
+            data = json.loads(ORIG_POS_FILE.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            data = {"docs": {}}
+        for docno_s, info in data.get("docs", {}).items():
+            docno = int(docno_s)
+            pdf = KP_DIR / info["pdf"]
+            if not pdf.is_file():
+                continue
+            try:
+                import pymupdf
+
+                with pymupdf.open(str(pdf)) as doc:
+                    if len(doc) != info["pages"]:  # PDF 를 다시 만들어 쪽 수가 달라졌으면(위치표가 낡았다) 쓰지 않는다
+                        print(f"[알림] 별표 {docno} PDF 쪽 수가 위치표와 다릅니다. build_kp_orig.py 를 다시 실행하세요.")
+                        continue
+            except Exception as exc:  # noqa: BLE001
+                print(f"[알림] 별표 {docno} PDF 를 열지 못했습니다: {exc}")
+                continue
+            ents = [e for e in d.entries if e["doc"] == docno]
+            by_key = {k: (e["id"]) for k, e in zip(entry_keys(ents), ents)}
+            start = {}
+            for key, page, y in info["entries"]:
+                if key in by_key:
+                    start[by_key[key]] = (page, y)
+            order = sorted(set(start.values()) | {tuple(m) for m in info.get("marks", [])})
+            idx[docno] = {"pdf": pdf, "start": start, "order": order, "pages": info["pages"]}
+        _orig = idx
+        return idx
+
+
+def orig_range(d, e):
+    """항목 e 의 원문 범위 (시작 위치, 끝 위치 또는 None, 문서 정보). 원문을 보여 줄 수 없으면 None."""
+    info = _orig_index(d).get(e["doc"])
+    if info is None or e["id"] not in info["start"]:
+        return None
+    s = info["start"][e["id"]]
+    end = next((p for p in info["order"] if p > s), None)
+    return s, end, info
+
+
+def _orig_image_fixes(e):
+    """항목 본문의 그림(<img>)을 차례로 훑어, WMF/EMF 그림은 웹 화면에서 쓰는 SVG 바이트를, 그 밖의 그림은 None 을 담은 목록.
+    한글이 WMF/EMF 그림을 PDF 로 바꿀 때 그림이 잘려서 들어가는 경우가 있어(예: 슈도에페드린염산염의 화학식), 원문 PDF 의 그 자리에 SVG 를 다시 그린다."""
+    import html as _html
+
+    body = zlib.decompress(e["html_z"]).decode("utf-8")
+    fixes = []
+    for m in re.finditer(r"<img\b[^>]*>", body):
+        tag = m.group(0)
+        ext = re.search(r'data-ext="(\w+)"', tag)
+        src = re.search(r'src="/kp/img/(\d+)/([A-Za-z0-9_\-]+)(?:\?c=([^"]*))?"', tag)
+        fix = None
+        if ext and ext.group(1) in ("wmf", "emf") and src:
+            res = image_bytes(int(src.group(1)), src.group(2), _html.unescape(src.group(3) or ""))
+            if res and res[1] == "image/svg+xml":
+                fix = res[0]
+        fixes.append(fix)
+    return fixes if any(fixes) else None
+
+
+@kp.route("/api/orig/<int:entry_id>")
+def api_orig(entry_id):
+    """'원문' 버튼: 그 항목 부분만 보이는 약전 원문 PDF."""
+    d = get_data()
+    if not (0 <= entry_id < len(d.entries)):
+        abort(404)
+    e = d.entries[entry_id]
+    rng = orig_range(d, e)
+    if rng is None or e.get("nolink"):
+        abort(404)
+    start, end, info = rng
+    st = info["pdf"].stat()
+    fixes = _orig_image_fixes(e)
+    fix_sig = hashlib.sha1(b"|".join(f or b"-" for f in fixes)).hexdigest()[:8] if fixes else ""
+    key = hashlib.sha1(f"{ORIG_VER}|{info['pdf'].name}|{st.st_size}|{st.st_mtime_ns}|{start}|{end}|{fix_sig}".encode()).hexdigest()[:24]
+    # 브라우저는 저장해 두되 열 때마다 서버에 "안 바뀜(304)"만 확인한다(PDF 나 자르는 방식이 바뀌면 바로 새것이 보인다)
+    headers = {"Cache-Control": "no-cache", "Content-Disposition": "inline"}
+
+    def respond(data):
+        resp = Response(data, mimetype="application/pdf", headers=headers)
+        resp.set_etag(key)
+        return resp.make_conditional(request)
+
+    cache_file = ORIG_CACHE_DIR / f"{key}.pdf"
+    if cache_file.is_file():
+        try:
+            return respond(cache_file.read_bytes())
+        except OSError:
+            pass
+    title = f"{(e['no'] + '. ') if e.get('no') and e['kind'] == 'ref' else ''}{e['ko']} (대한민국약전 원문)"
+    data = _cut_orig_pdf(info["pdf"], start, end, title, fixes)
+    try:  # 저장 실패(읽기 전용 폴더 등)는 캐시 없이 계속한다
+        ORIG_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        tmp = ORIG_CACHE_DIR / f"{key}.{os.getpid()}.{threading.get_ident()}.tmp"
+        tmp.write_bytes(data)
+        os.replace(tmp, cache_file)
+    except OSError as exc:
+        print(f"[알림] 원문 pdf 를 저장하지 못했습니다: {exc}")
+    return respond(data)
 
 
 @kp.route("/img/<int:doc>/<name>")

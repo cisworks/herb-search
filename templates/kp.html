@@ -50,8 +50,6 @@ setTimeout(function () { document.documentElement.classList.remove('ui-pending')
         <div class="combo-dropdown" id="drugDropdown" style="display:none;"></div>
       </div>
       <div class="results" id="drugResults" style="display:none;"></div>
-      <!-- 검색어가 없을 때 보여 주는 최근 본 항목 -->
-      <div class="results quick-box" id="quickBox" hidden></div>
     </div>
 
     <div class="tab-panel" id="refTab">
@@ -81,6 +79,7 @@ setTimeout(function () { document.documentElement.classList.remove('ui-pending')
   </div>
 </div>
 
+<script src="{{ asset('panel-scroll.js') }}"></script>
 <script src="{{ asset('kp.js') }}"></script>
 </body>
 </html>

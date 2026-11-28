@@ -1083,13 +1083,6 @@ setupDropdownKeys(testItemDropdown, testItemInput, openTestItemDropdown, closeTe
 setupDropdownKeys(prepDropdown, prepInput, openPrepDropdown, closePrepDropdown);
 
 detailBox.addEventListener('click', (ev) => {
-  // ☆/★: 이 생약을 즐겨찾기에 넣거나 뺀다
-  const favBtn = ev.target.closest('.detail-fav-btn');
-  if (favBtn && detailBox._favSnap) {
-    setFavorite(detailBox._favSnap, !isFavorite(detailBox._favSnap.id));
-    syncFavButton();
-    return;
-  }
   // '← 돌아가기': 생약제제 제법 표의 생약명 링크로 열린 생약 화면에서, 링크를 누르기 전 화면(그 생약제제)으로 돌아간다.
   // 링크를 누를 때 history 에 쌓였으므로 브라우저 뒤로 가기와 같다(그래서 앞으로 가기도 된다).
   if (ev.target.closest('.detail-back-btn')) {
@@ -1248,7 +1241,7 @@ function addOriginGroup(origin, q) {
 let shownKey = '';
 let prevShownKey = '';  // 바로 앞에 보이던 항목(터치 기기에서 PDF 로 넘어갈 때 화면을 그대로 두려고 되돌리는 데 쓴다)
 function applyShownHighlight() {
-  [resultsBox, testResultsBox, prepResultsBox, quickBox].forEach(box => {
+  [resultsBox, testResultsBox, prepResultsBox].forEach(box => {
     box.querySelectorAll('.result-item').forEach(el => {
       const key = el.classList.contains('case-item')
         ? `case:${el.dataset.file}:${el.dataset.start}`
@@ -1274,119 +1267,8 @@ async function doSearch(q) {
   return data;
 }
 
-// ---- 즐겨찾기 / 최근 본 생약 ----
-// 설명창 생약명 옆의 별(☆/★)로 즐겨찾기에 넣고 뺀다. 공정서 생약을 열어 볼 때마다 "최근 본 생약"에 쌓인다(최대 15개, 같은 생약은
-// 맨 앞으로). 둘 다 이 브라우저(localStorage)에만 저장되고, 검색칸이 비어 있을 때 생약 검색 탭에 카드로 보인다.
-// 저장소를 못 쓰는 환경(비공개 창 등)에서는 이 페이지가 열려 있는 동안만 기억한다.
-const FAV_KEY = 'herbFavorites', RECENT_KEY = 'herbRecent', RECENT_MAX = 15;
-const quickMem = {};
-function loadQuick(key) {
-  let raw = null;
-  try { raw = localStorage.getItem(key); } catch (e) { raw = quickMem[key] || null; }
-  try {
-    const v = JSON.parse(raw || '[]');
-    return Array.isArray(v) ? v.filter(x => x && x.id != null) : [];
-  } catch (e) { return []; }
-}
-function saveQuick(key, list) {
-  const s = JSON.stringify(list);
-  quickMem[key] = s;
-  try { localStorage.setItem(key, s); } catch (e) { /* 저장 실패는 메모리에만 */ }
-}
-function herbSnap(item) {
-  return {
-    id: item.id, korean_name: item.korean_name || '', name_primary: item.name_primary || '',
-    source_tag: item.source_tag || '', part: item.part || '', flag: item.flag || '',
-  };
-}
-function isFavorite(id) { return loadQuick(FAV_KEY).some(x => x.id === id); }
-function setFavorite(snap, on) {
-  let list = loadQuick(FAV_KEY).filter(x => x.id !== snap.id);
-  if (on) list.unshift(snap);  // 새로 넣은 것이 맨 위
-  saveQuick(FAV_KEY, list);
-  refreshQuickBox();
-}
-function recordRecent(item) {
-  const list = loadQuick(RECENT_KEY).filter(x => x.id !== item.id);
-  list.unshift(herbSnap(item));
-  saveQuick(RECENT_KEY, list.slice(0, RECENT_MAX));
-  refreshQuickBox();
-}
-// 별 그림: 글자(★/☆)는 글꼴마다 상자 안에서 위치가 달라서, 상자 정가운데에 오도록 그림(SVG)으로 그린다.
-// 별 꼭짓점을 계산한 뒤 그림 전체(가로·세로 최대 범위)의 가운데가 viewBox(24 x 24)의 가운데(12, 12)에 오게 옮겨 둔 값이다.
-// 즐겨찾기가 아니면 윤곽선만, 즐겨찾기이면 속을 채운다(CSS .detail-fav-btn.on).
-const FAV_STAR_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12.00 2.95 L14.53 9.48 L21.51 9.86 L16.09 14.28 L17.88 21.05 L12.00 17.25 L6.12 21.05 L7.91 14.28 L2.49 9.86 L9.47 9.48 Z"/></svg>';
-function favButtonHtml(id, where) {
-  const on = isFavorite(id);
-  return `<button type="button" class="detail-fav-btn ${where}${on ? ' on' : ''}" aria-pressed="${on}" aria-label="${on ? '즐겨찾기에서 빼기' : '즐겨찾기에 넣기'}" title="${on ? '즐겨찾기에서 빼기' : '즐겨찾기에 넣기'}">${FAV_STAR_SVG}</button>`;
-}
-const quickBox = document.getElementById('quickBox');
-function quickCardHtml(label, rows, extra = '') {
-  return `<div class="result-group"><div class="group-label"><span>${label}</span>${extra}</div>${rows}</div>`;
-}
-function refreshQuickBox() {
-  // 검색 결과가 보이는 동안에는 숨긴다(검색어가 없을 때만 보인다)
-  const searching = resultsBox.style.display !== 'none';
-  const favs = loadQuick(FAV_KEY), recents = loadQuick(RECENT_KEY);
-  if (searching || (!favs.length && !recents.length)) {
-    quickBox.hidden = true;
-    quickBox.innerHTML = '';
-    return;
-  }
-  // 줄 오른쪽 끝 버튼: 즐겨찾기 줄은 ★(누르면 즐겨찾기에서 뺌), 최근 본 생약 줄은 ×(누르면 그 줄만 기록에서 지움)
-  const row = (it, kind) => `
-    <div class="result-item" data-id="${it.id}">
-      <span class="rname">${escapeHtml(it.name_primary || it.korean_name)}${sourceBadge(it.source_tag, it.part)}${flagBadge(it.flag)}</span>
-      ${kind === 'fav' ? '<button type="button" class="quick-fav-off" title="즐겨찾기에서 빼기" aria-label="즐겨찾기에서 빼기">★</button>' : ''}
-      ${kind === 'recent' ? '<button type="button" class="quick-del" title="최근 본 생약에서 지우기" aria-label="최근 본 생약에서 지우기"><svg viewBox="0 0 10 10" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M1.5 1.5 8.5 8.5M8.5 1.5 1.5 8.5"/></svg></button>' : ''}
-    </div>`;
-  quickBox.innerHTML =
-    (favs.length ? quickCardHtml('즐겨찾기', favs.map(f => row(f, 'fav')).join('')) : '') +
-    (recents.length ? quickCardHtml('최근 본 생약', recents.map(r => row(r, 'recent')).join(''),
-      '<button type="button" class="quick-clear" title="최근 본 생약 기록 지우기">모두 지우기</button>') : '');
-  quickBox.hidden = false;
-  applyShownHighlight();
-}
-quickBox.addEventListener('click', (ev) => {
-  if (ev.target.closest('.quick-clear')) {
-    saveQuick(RECENT_KEY, []);
-    refreshQuickBox();
-    return;
-  }
-  const del = ev.target.closest('.quick-del');
-  if (del) {
-    ev.stopPropagation();  // 줄을 눌러 설명창을 여는 동작으로 번지지 않게
-    const id = Number(del.closest('.result-item').dataset.id);
-    saveQuick(RECENT_KEY, loadQuick(RECENT_KEY).filter(x => x.id !== id));
-    refreshQuickBox();
-    return;
-  }
-  const off = ev.target.closest('.quick-fav-off');
-  if (off) {
-    ev.stopPropagation();
-    const id = Number(off.closest('.result-item').dataset.id);
-    setFavorite({ id }, false);
-    // 지금 설명창에 열려 있는 생약이면 설명창의 별도 같이 끈다
-    syncFavButton();
-    return;
-  }
-  const item = ev.target.closest('.result-item');
-  if (item) showDetail(item.dataset.id);
-});
-// 검색칸을 지우면(결과 카드가 숨겨지면) 다시 보이고, 검색 결과가 나오면 숨긴다
-new MutationObserver(refreshQuickBox).observe(resultsBox, { attributes: true, attributeFilter: ['style'] });
-refreshQuickBox();
-// 설명창의 별 버튼 모양을 지금 열린 생약의 즐겨찾기 상태에 맞춘다
-function syncFavButton() {
-  const on = isFavorite(Number(detailBox.dataset.itemId));
-  const t = on ? '즐겨찾기에서 빼기' : '즐겨찾기에 넣기';
-  detailBox.querySelectorAll('.detail-fav-btn').forEach(btn => {  // 이름 옆 별과 모바일용 별 둘 다
-    btn.classList.toggle('on', on);
-    btn.setAttribute('aria-pressed', String(on));
-    btn.title = t;
-    btn.setAttribute('aria-label', t);
-  });
-}
+// 없어진 즐겨찾기/최근 본 생약 기능이 이 브라우저에 남겨 둔 기록을 지운다.
+try { localStorage.removeItem('herbFavorites'); localStorage.removeItem('herbRecent'); } catch (e) { /* 저장소를 못 쓰면 지울 것도 없다 */ }
 
 // 검색 결과 카드에는 이명, 영문명, 라틴 학명은 빼고 국문명만 보여준다.
 function resultRowHtml(it) {
@@ -1718,7 +1600,7 @@ async function showDetail(id, filterItem, opts = {}) {
         <div class="detail-name-line">
           ${backHtml}
           <h2>${renderName(item)}${sourceBadge(item.source_tag, item.part)}${flagBadge(item.flag)}</h2>
-          ${favButtonHtml(item.id, 'fav-in-name')}
+          ${item.orig ? `<a class="detail-orig-btn" href="/api/herb_orig/${item.id}?v=${item.orig}#page=1" target="_blank" rel="noopener" title="공정서 원문 PDF에서 이 부분만 보기">원문</a>` : ''}
           <span class="detail-name-gap" aria-hidden="true"></span>
           <div class="detail-zoom" role="group" aria-label="글자 크기">
             <button type="button" class="detail-zoom-btn" data-dir="-1" aria-label="글자 작게">가−</button>
@@ -1741,7 +1623,6 @@ async function showDetail(id, filterItem, opts = {}) {
       </div>
       <p class="en">${escapeHtml(item.english_name || '')}</p>
       <p class="latin">${escapeHtml(item.latin_name || '')}</p>
-      ${favButtonHtml(item.id, 'fav-in-row')}
     </div>
     ${definitionHtml ? `<div class="definition">${definitionHtml}</div>` : ''}
     ${sectionsHtml}
@@ -1769,8 +1650,6 @@ async function showDetail(id, filterItem, opts = {}) {
     }));
   }
   _showDetailBox();
-  detailBox._favSnap = herbSnap(item);  // 별 버튼이 누를 때 쓰는 이 생약의 정보
-  recordRecent(item);                   // 최근 본 생약에 쌓는다
   if (typeof famRefreshCurrent === 'function') famRefreshCurrent();
 }
 
@@ -2312,7 +2191,7 @@ document.addEventListener('keydown', (ev) => {
   }
 });
 
-// 처음 크기(왼쪽 칸 너비, 배경 그림 칸 높이, 최근 본 항목 카드)가 모두 정해졌으니 숨겨 둔 본문을 보인다(templates 의 head 스크립트 참조)
+// 처음 크기(왼쪽 칸 너비, 배경 그림 칸 높이)가 모두 정해졌으니 숨겨 둔 본문을 보인다(templates 의 head 스크립트 참조)
 fitLeftPanelHeight();
 fitDetailPlaceholderHeight();
 document.documentElement.classList.remove('ui-pending');
